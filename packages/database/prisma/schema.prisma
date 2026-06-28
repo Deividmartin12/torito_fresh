@@ -1,0 +1,281 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RoleName {
+  ADMIN
+  SELLER
+  DELIVERY
+  WAREHOUSE
+}
+
+enum ClientType {
+  HOME
+  COMPANY
+  STORE
+  RESTAURANT
+}
+
+enum ProductCategory {
+  WATER
+  DISPENSER
+  ACCESSORY
+  OTHER
+}
+
+enum OrderStatus {
+  PENDING
+  PREPARING
+  ON_ROUTE
+  DELIVERED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  YAPE
+  PLIN
+  TRANSFER
+  CREDIT
+}
+
+enum PaymentStatus {
+  PAID
+  PENDING
+  PARTIAL
+}
+
+enum ContainerMovementType {
+  OUT_FULL
+  IN_EMPTY
+  ADJUSTMENT
+}
+
+enum InventoryMovementType {
+  PRODUCTION_IN
+  PURCHASE_IN
+  SALE_OUT
+  ADJUSTMENT_IN
+  ADJUSTMENT_OUT
+  RETURN_IN
+}
+
+model Role {
+  id        String   @id @default(cuid())
+  name      RoleName @unique
+  users     User[]
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("roles")
+}
+
+model User {
+  id             String              @id @default(cuid())
+  name           String
+  email          String              @unique
+  passwordHash   String              @map("password_hash")
+  active         Boolean             @default(true)
+  roleId         String              @map("role_id")
+  role           Role                @relation(fields: [roleId], references: [id])
+  assignedOrders Order[]             @relation("AssignedDelivery")
+  createdOrders  Order[]             @relation("CreatedOrders")
+  sales          Sale[]
+  payments       Payment[]
+  deliveries     Delivery[]
+  containerMoves ContainerMovement[]
+  inventoryMoves InventoryMovement[]
+  createdAt      DateTime            @default(now()) @map("created_at")
+  updatedAt      DateTime            @updatedAt @map("updated_at")
+
+  @@map("users")
+}
+
+model Client {
+  id               String              @id @default(cuid())
+  name             String
+  document         String?
+  phone            String
+  address          String
+  reference        String?
+  type             ClientType
+  active           Boolean             @default(true)
+  containerBalance Int                 @default(0) @map("container_balance")
+  debtBalance      Decimal             @default(0) @map("debt_balance") @db.Decimal(10, 2)
+  orders           Order[]
+  sales            Sale[]
+  payments         Payment[]
+  containerMoves   ContainerMovement[]
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
+
+  @@index([name])
+  @@map("clients")
+}
+
+model Product {
+  id             String              @id @default(cuid())
+  name           String
+  sku            String?             @unique
+  description    String?
+  category       ProductCategory
+  price          Decimal             @db.Decimal(10, 2)
+  stock          Int                 @default(0)
+  active         Boolean             @default(true)
+  returnable     Boolean             @default(false)
+  orderItems     OrderItem[]
+  inventoryMoves InventoryMovement[]
+  createdAt      DateTime            @default(now()) @map("created_at")
+  updatedAt      DateTime            @updatedAt @map("updated_at")
+
+  @@index([name])
+  @@map("products")
+}
+
+model Order {
+  id             String              @id @default(cuid())
+  clientId       String              @map("client_id")
+  createdById    String?             @map("created_by_id")
+  deliveryUserId String?             @map("delivery_user_id")
+  status         OrderStatus         @default(PENDING)
+  observations   String?
+  orderedAt      DateTime            @default(now()) @map("ordered_at")
+  total          Decimal             @default(0) @db.Decimal(10, 2)
+  client         Client              @relation(fields: [clientId], references: [id])
+  createdBy      User?               @relation("CreatedOrders", fields: [createdById], references: [id])
+  deliveryUser   User?               @relation("AssignedDelivery", fields: [deliveryUserId], references: [id])
+  items          OrderItem[]
+  sale           Sale?
+  delivery       Delivery?
+  containerMoves ContainerMovement[]
+  inventoryMoves InventoryMovement[]
+  createdAt      DateTime            @default(now()) @map("created_at")
+  updatedAt      DateTime            @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@index([orderedAt])
+  @@map("orders")
+}
+
+model OrderItem {
+  id        String   @id @default(cuid())
+  orderId   String   @map("order_id")
+  productId String   @map("product_id")
+  quantity  Int
+  unitPrice Decimal  @map("unit_price") @db.Decimal(10, 2)
+  total     Decimal  @db.Decimal(10, 2)
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product   Product  @relation(fields: [productId], references: [id])
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("order_items")
+}
+
+model Sale {
+  id            String        @id @default(cuid())
+  orderId       String        @unique @map("order_id")
+  clientId      String        @map("client_id")
+  userId        String?       @map("user_id")
+  totalAmount   Decimal       @map("total_amount") @db.Decimal(10, 2)
+  paidAmount    Decimal       @default(0) @map("paid_amount") @db.Decimal(10, 2)
+  debtAmount    Decimal       @default(0) @map("debt_amount") @db.Decimal(10, 2)
+  paymentStatus PaymentStatus @default(PENDING) @map("payment_status")
+  issuedAt      DateTime      @default(now()) @map("issued_at")
+  ticketNumber  String        @unique @map("ticket_number")
+  order         Order         @relation(fields: [orderId], references: [id])
+  client        Client        @relation(fields: [clientId], references: [id])
+  user          User?         @relation(fields: [userId], references: [id])
+  payments      Payment[]
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  @@index([issuedAt])
+  @@map("sales")
+}
+
+model Payment {
+  id        String        @id @default(cuid())
+  clientId  String        @map("client_id")
+  saleId    String?       @map("sale_id")
+  userId    String?       @map("user_id")
+  amount    Decimal       @db.Decimal(10, 2)
+  method    PaymentMethod
+  notes     String?
+  paidAt    DateTime      @default(now()) @map("paid_at")
+  client    Client        @relation(fields: [clientId], references: [id])
+  sale      Sale?         @relation(fields: [saleId], references: [id])
+  user      User?         @relation(fields: [userId], references: [id])
+  createdAt DateTime      @default(now()) @map("created_at")
+
+  @@index([paidAt])
+  @@map("payments")
+}
+
+model Delivery {
+  id                  String   @id @default(cuid())
+  orderId             String   @unique @map("order_id")
+  deliveryUserId      String?  @map("delivery_user_id")
+  containersDelivered Int      @default(0) @map("containers_delivered")
+  containersReturned  Int      @default(0) @map("containers_returned")
+  paymentReceived     Decimal  @default(0) @map("payment_received") @db.Decimal(10, 2)
+  observations         String?
+  deliveredAt          DateTime @default(now()) @map("delivered_at")
+  order                Order    @relation(fields: [orderId], references: [id])
+  deliveryUser         User?    @relation(fields: [deliveryUserId], references: [id])
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@index([deliveredAt])
+  @@map("deliveries")
+}
+
+model ContainerMovement {
+  id           String                @id @default(cuid())
+  clientId     String                @map("client_id")
+  orderId      String?               @map("order_id")
+  userId       String?               @map("user_id")
+  type         ContainerMovementType
+  quantity     Int
+  balanceAfter Int                   @map("balance_after")
+  notes        String?
+  movedAt      DateTime              @default(now()) @map("moved_at")
+  client       Client                @relation(fields: [clientId], references: [id])
+  order        Order?                @relation(fields: [orderId], references: [id])
+  user         User?                 @relation(fields: [userId], references: [id])
+
+  @@index([movedAt])
+  @@map("container_movements")
+}
+
+model InventoryMovement {
+  id                    String                @id @default(cuid())
+  productId             String?               @map("product_id")
+  orderId               String?               @map("order_id")
+  userId                String?               @map("user_id")
+  type                  InventoryMovementType
+  quantity              Int
+  stockAfter            Int?                  @map("stock_after")
+  emptyContainersDelta  Int                   @default(0) @map("empty_containers_delta")
+  emptyContainersAfter  Int?                  @map("empty_containers_after")
+  notes                 String?
+  movedAt               DateTime              @default(now()) @map("moved_at")
+  product               Product?              @relation(fields: [productId], references: [id])
+  order                 Order?                @relation(fields: [orderId], references: [id])
+  user                  User?                 @relation(fields: [userId], references: [id])
+
+  @@index([movedAt])
+  @@map("inventory_movements")
+}
+
+model WarehouseState {
+  id              String   @id @default("main")
+  emptyContainers Int      @default(0) @map("empty_containers")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@map("warehouse_state")
+}
