@@ -28,7 +28,7 @@ export default function OrdersPage() {
   async function load() {
     const [clientData, productData, userData, orderData] = await Promise.all([
       api<any[]>("/clients?active=true"),
-      api<any[]>("/products?active=true"),
+      api<any[]>("/productos?active=true"),
       api<any[]>("/users?role=DELIVERY"),
       api<any[]>("/orders"),
     ]);

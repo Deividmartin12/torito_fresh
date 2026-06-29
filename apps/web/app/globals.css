@@ -8,19 +8,18 @@
 
 body {
   margin: 0;
-  background: #f4f7fb;
+  background: #ffffff;
   color: #18212f;
 }
 
-button,
-input,
-select,
-textarea {
-  font: inherit;
-}
 
 .control {
-  @apply h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100;
+  @apply
+  h-10
+  w-full
+  px-3
+  text-sm
+  outline-none
 }
 
 .label {
@@ -28,7 +27,7 @@ textarea {
 }
 
 .panel {
-  @apply rounded-md border border-slate-200 bg-white shadow-soft;
+  @apply rounded-md border border-slate-200 bg-white;
 }
 
 .btn {
@@ -36,11 +35,11 @@ textarea {
 }
 
 .btn-primary {
-  @apply btn bg-brand-600 text-white hover:bg-brand-700;
+  @apply btn bg-blue-600 text-white hover:bg-blue-700;
 }
 
 .btn-secondary {
-  @apply btn border border-slate-200 bg-white text-slate-700 hover:bg-slate-50;
+  @apply btn bg-white text-slate-700 hover:bg-slate-50;
 }
 
 .btn-danger {
@@ -48,17 +47,41 @@ textarea {
 }
 
 .table-wrap {
-  @apply overflow-x-auto rounded-md border border-slate-200 bg-white;
+  @apply overflow-x-auto rounded-xl border border-slate-200 bg-white;
 }
 
 .table {
-  @apply min-w-full divide-y divide-slate-200 text-sm;
+  @apply
+  min-w-full
+  divide-y
+  divide-slate-200
+  text-sm;
 }
 
 .table th {
-  @apply bg-slate-50 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500;
+  @apply
+  bg-slate-50
+  px-3
+  py-4
+  text-left
+  text-xs
+  font-semibold
+  uppercase
+  tracking-wide
+  text-slate-500;
 }
 
 .table td {
-  @apply px-3 py-2 align-top text-slate-700;
+  @apply
+  px-3
+  py-2
+  align-middle
+  text-slate-700
+  
+  ;
+}
+
+
+.btn-circular {
+  @apply rounded-full p-4 bg-blue-600 text-white items-center hover:bg-blue-700 hover:scale-125 transition-all duration-200;
 }

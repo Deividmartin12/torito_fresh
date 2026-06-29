@@ -2,7 +2,7 @@ import { ProductCategory } from "@prisma/client";
 import { Type } from "class-transformer";
 import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, Min } from "class-validator";
 
-export class CreateProductDto {
+export class CreateProductoDto {
   @IsString()
   name: string;
 
@@ -32,7 +32,7 @@ export class CreateProductDto {
   returnable?: boolean;
 }
 
-export class UpdateProductDto {
+export class UpdateProductoDto {
   @IsOptional()
   @IsString()
   name?: string;

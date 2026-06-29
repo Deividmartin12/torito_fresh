@@ -11,7 +11,7 @@ import { InventoryModule } from "./inventory/inventory.module";
 import { OrdersModule } from "./orders/orders.module";
 import { PaymentsModule } from "./payments/payments.module";
 import { PrismaModule } from "./prisma/prisma.module";
-import { ProductsModule } from "./products/products.module";
+import { ProductosModule } from "./productos/productos.module";
 import { ReportsModule } from "./reports/reports.module";
 import { SalesModule } from "./sales/sales.module";
 import { UsersModule } from "./users/users.module";
@@ -23,7 +23,7 @@ import { UsersModule } from "./users/users.module";
     AuthModule,
     UsersModule,
     ClientsModule,
-    ProductsModule,
+    ProductosModule,
     OrdersModule,
     DeliveriesModule,
     SalesModule,

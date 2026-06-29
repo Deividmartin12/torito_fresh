@@ -50,18 +50,18 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100">
-      <aside className="fixed inset-y-0 left-0 hidden w-64 border-r border-slate-200 bg-white lg:block">
-        <div className="flex h-16 items-center gap-3 border-b border-slate-200 px-5">
+    <div className="min-h-screen">
+      <aside className="fixed inset-y-0 left-0 hidden w-64 lg:block space-y-4 pt-1">
+        <div className="flex h-16 items-center gap-3 border rounded-full ml-3 mr-2 my-1">
           <div className="grid h-10 w-10 place-items-center rounded-md bg-brand-600 text-white">
             <Droplets size={22} />
           </div>
           <div>
-            <p className="text-sm font-black uppercase tracking-wide text-ink">tORITO FRESH</p>
-            <p className="text-xs text-slate-500">Gestion administrativa</p>
+            <p className="text-sm font-black uppercase tracking-wide text-ink">TORITO FRESH</p>
+            <p className="text-xs text-blue-500">Gestion administrativa</p>
           </div>
         </div>
-        <nav className="space-y-1 px-3 py-4">
+        <nav className="space-y-2 ml-3 mr-2 my-1">
           {nav.map((item) => {
             const Icon = item.icon;
             const active = pathname === item.href;
@@ -69,8 +69,10 @@ export function AppShell({ children }: { children: ReactNode }) {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex h-10 items-center gap-3 rounded-md px-3 text-sm font-semibold transition ${
-                  active ? "bg-brand-50 text-brand-700" : "text-slate-600 hover:bg-slate-50 hover:text-ink"
+                className={`flex h-10 items-center gap-3 rounded-full pl-4 text-sm font-semibold transition-all duration-200 ${
+                  active
+                    ? "bg-blue-600 text-white hover:bg-blue-700 hover:text-white hover:scale-105"
+                    : "bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-700 hover:scale-105"
                 }`}
               >
                 <Icon size={18} />
@@ -81,12 +83,12 @@ export function AppShell({ children }: { children: ReactNode }) {
         </nav>
       </aside>
 
-      <div className="lg:pl-64">
-        <header className="sticky top-0 z-10 border-b border-slate-200 bg-white">
-          <div className="flex min-h-16 items-center justify-between gap-3 px-4 lg:px-6">
+      <div className="lg:pl-64 pt-1">
+        <header className="border rounded-full ml-3 mr-2 my-1">
+          <div className="flex h-16 items-center justify-between gap-3 px-4 lg:px-6">
             <div className="min-w-0">
-              <p className="text-sm font-bold text-ink">{user?.name ?? "tORITO FRESH"}</p>
-              <p className="text-xs text-slate-500">{user?.role ?? "Sistema administrativo"}</p>
+              <p className="text-sm font-bold text-ink">{user?.name ?? "TORITO FRESH"}</p>
+              <p className="text-xs text-blue-500">{user?.role ?? "Sistema administrativo"}</p>
             </div>
             <button className="btn-secondary" onClick={logout} title="Cerrar sesion">
               <LogOut size={16} />
@@ -102,7 +104,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   key={item.href}
                   href={item.href}
                   className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-md px-3 text-xs font-semibold ${
-                    active ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-700"
+                    active ? "bg-blue-600 text-white" : "bg-blue-100 text-blue-700"
                   }`}
                 >
                   <Icon size={15} />
@@ -112,7 +114,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             })}
           </nav>
         </header>
-        <main className="mx-auto max-w-7xl px-4 py-5 lg:px-6">{children}</main>
+        <main className="px-2 py-2 lg:px-4">{children}</main>
       </div>
     </div>
   );

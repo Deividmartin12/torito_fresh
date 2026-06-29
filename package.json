@@ -23,5 +23,8 @@
   },
   "prisma": {
     "seed": "tsx packages/database/prisma/seed.ts"
+  },
+  "dependencies": {
+    "geist": "^1.7.2"
   }
 }

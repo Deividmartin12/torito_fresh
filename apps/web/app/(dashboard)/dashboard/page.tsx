@@ -32,10 +32,10 @@ export default function DashboardPage() {
   if (error) return <p className="rounded-md bg-rose-50 p-3 text-sm font-semibold text-rose-700">{error}</p>;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-8">
       <div>
         <h1 className="text-2xl font-black text-ink">Dashboard</h1>
-        <p className="text-sm text-slate-500">Resumen operativo de ventas, pedidos, deuda, envases y stock.</p>
+        <p className="text-sm text-blue-500">Resumen operativo de ventas, pedidos, deuda, envases y stock.</p>
       </div>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -52,7 +52,7 @@ export default function DashboardPage() {
       <section className="panel p-4">
         <div className="mb-3 flex items-center justify-between gap-3">
           <h2 className="text-lg font-bold text-ink">Pedidos por atender</h2>
-          <span className="text-xs font-semibold text-slate-500">{orders.length} visibles</span>
+          <span className="text-xs font-semibold text-blue-500">{orders.length} visibles</span>
         </div>
         <div className="table-wrap">
           <table className="table">
@@ -77,7 +77,7 @@ export default function DashboardPage() {
               ))}
               {!orders.length ? (
                 <tr>
-                  <td colSpan={5} className="text-center text-slate-500">No hay pedidos pendientes.</td>
+                  <td colSpan={5} className="text-center text-blue-500">No hay pedidos pendientes.</td>
                 </tr>
               ) : null}
             </tbody>
