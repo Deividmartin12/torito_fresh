@@ -1,89 +1,20 @@
-"use client";
-
-import { AlertTriangle, Boxes, Droplets, HandCoins, PackageCheck, Route, ShoppingCart, Users } from "lucide-react";
-import { useEffect, useState } from "react";
-import { MetricCard } from "../../../components/MetricCard";
-import { StatusBadge } from "../../../components/StatusBadge";
-import { api } from "../../../lib/api";
-import { dateTime, money } from "../../../lib/format";
+import { Boxes, ShoppingCart, Truck, Users } from "lucide-react";
+import Link from "next/link";
 
 export default function DashboardPage() {
-  const [data, setData] = useState<any>(null);
-  const [orders, setOrders] = useState<any[]>([]);
-  const [error, setError] = useState("");
-
-  async function load() {
-    try {
-      const [dashboard, pending] = await Promise.all([
-        api<any>("/reports/dashboard"),
-        api<any[]>("/reports/pending-orders"),
-      ]);
-      setData(dashboard);
-      setOrders(pending.slice(0, 8));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo cargar dashboard");
-    }
-  }
-
-  useEffect(() => {
-    load();
-  }, []);
-
-  if (error) return <p className="rounded-md bg-rose-50 p-3 text-sm font-semibold text-rose-700">{error}</p>;
-
-  return (
-    <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-black text-ink">Dashboard</h1>
-        <p className="text-sm text-blue-500">Resumen operativo de ventas, pedidos, deuda, envases y stock.</p>
-      </div>
-
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard title="Ventas del dia" value={money(data?.salesToday)} icon={<ShoppingCart size={20} />} />
-        <MetricCard title="Pedidos pendientes" value={data?.pendingOrders ?? 0} icon={<AlertTriangle size={20} />} />
-        <MetricCard title="Pedidos en ruta" value={data?.onRouteOrders ?? 0} icon={<Route size={20} />} />
-        <MetricCard title="Total de deudas" value={money(data?.totalDebt)} icon={<HandCoins size={20} />} />
-        <MetricCard title="Envases pendientes" value={data?.pendingContainers ?? 0} icon={<Droplets size={20} />} />
-        <MetricCard title="Vidones llenos" value={data?.fullJugStock ?? 0} icon={<PackageCheck size={20} />} />
-        <MetricCard title="Envases vacios" value={data?.emptyContainerStock ?? 0} icon={<Boxes size={20} />} />
-        <MetricCard title="Clientes activos" value={data?.activeClients ?? 0} icon={<Users size={20} />} />
-      </section>
-
-      <section className="panel p-4">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <h2 className="text-lg font-bold text-ink">Pedidos por atender</h2>
-          <span className="text-xs font-semibold text-blue-500">{orders.length} visibles</span>
-        </div>
-        <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Cliente</th>
-                <th>Fecha</th>
-                <th>Estado</th>
-                <th>Total</th>
-                <th>Repartidor</th>
-              </tr>
-            </thead>
-            <tbody>
-              {orders.map((order) => (
-                <tr key={order.id}>
-                  <td className="font-semibold">{order.client?.name}</td>
-                  <td>{dateTime(order.orderedAt)}</td>
-                  <td><StatusBadge value={order.status} /></td>
-                  <td>{money(order.total)}</td>
-                  <td>{order.deliveryUser?.name ?? "-"}</td>
-                </tr>
-              ))}
-              {!orders.length ? (
-                <tr>
-                  <td colSpan={5} className="text-center text-blue-500">No hay pedidos pendientes.</td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-      </section>
+  return <div className="module-page">
+    <div className="module-head"><div className="module-title"><h1>Resumen</h1><span>Hoy, 12 de julio</span></div></div>
+    <div className="summary-row">
+      <div className="summary-glass"><span>Ventas de hoy</span><strong>S/ 1,248</strong></div>
+      <div className="summary-glass"><span>Stock disponible</span><strong>328</strong></div>
+      <div className="summary-glass"><span>Por cobrar</span><strong>S/ 540</strong></div>
+      <div className="summary-glass"><span>Stock bajo</span><strong>4</strong></div>
     </div>
-  );
+    <div className="module-tools"><Link href="/ventas" className="btn-primary"><ShoppingCart size={16} /> Nueva venta</Link><Link href="/compras" className="btn-secondary"><Truck size={16} /> Nueva compra</Link><Link href="/clientes" className="btn-secondary"><Users size={16} /> Clientes</Link><Link href="/inventario" className="btn-secondary"><Boxes size={16} /> Stock</Link></div>
+    <div className="glass-table"><table><thead><tr><th>Hora</th><th>Operacion</th><th>Referencia</th><th>Descripcion</th><th>Responsable</th><th>Estado</th></tr></thead><tbody>
+      <tr><td>10:45</td><td><span className="status status-blue">VENTA</span></td><td><strong>B001-000350</strong></td><td>Venta a Juan Perez</td><td>Rosa Salazar</td><td><span className="status status-green">Confirmada</span></td></tr>
+      <tr><td>09:20</td><td><span className="status status-blue">TRANSFERENCIA</span></td><td><strong>MOV-00501</strong></td><td>Almacen principal a Vehiculo 01</td><td>Carlos Medina</td><td><span className="status status-green">Confirmado</span></td></tr>
+      <tr><td>08:35</td><td><span className="status status-blue">COMPRA</span></td><td><strong>F001-00120</strong></td><td>Compra a Aguas del Norte</td><td>Rosa Salazar</td><td><span className="status status-amber">Pendiente</span></td></tr>
+    </tbody></table></div>
+  </div>;
 }

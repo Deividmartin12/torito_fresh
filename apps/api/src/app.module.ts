@@ -9,6 +9,7 @@ import { ContainersModule } from "./containers/containers.module";
 import { DeliveriesModule } from "./deliveries/deliveries.module";
 import { InventoryModule } from "./inventory/inventory.module";
 import { OrdersModule } from "./orders/orders.module";
+import { OperationsModule } from "./operations/operations.module";
 import { PaymentsModule } from "./payments/payments.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { ProductosModule } from "./productos/productos.module";
@@ -25,6 +26,7 @@ import { UsersModule } from "./users/users.module";
     ClientsModule,
     ProductosModule,
     OrdersModule,
+    OperationsModule,
     DeliveriesModule,
     SalesModule,
     PaymentsModule,

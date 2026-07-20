@@ -223,12 +223,12 @@ model Delivery {
   containersDelivered Int      @default(0) @map("containers_delivered")
   containersReturned  Int      @default(0) @map("containers_returned")
   paymentReceived     Decimal  @default(0) @map("payment_received") @db.Decimal(10, 2)
-  observations         String?
-  deliveredAt          DateTime @default(now()) @map("delivered_at")
-  order                Order    @relation(fields: [orderId], references: [id])
-  deliveryUser         User?    @relation(fields: [deliveryUserId], references: [id])
-  createdAt            DateTime @default(now()) @map("created_at")
-  updatedAt            DateTime @updatedAt @map("updated_at")
+  observations        String?
+  deliveredAt         DateTime @default(now()) @map("delivered_at")
+  order               Order    @relation(fields: [orderId], references: [id])
+  deliveryUser        User?    @relation(fields: [deliveryUserId], references: [id])
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
 
   @@index([deliveredAt])
   @@map("deliveries")
@@ -253,20 +253,20 @@ model ContainerMovement {
 }
 
 model InventoryMovement {
-  id                    String                @id @default(cuid())
-  productId             String?               @map("product_id")
-  orderId               String?               @map("order_id")
-  userId                String?               @map("user_id")
-  type                  InventoryMovementType
-  quantity              Int
-  stockAfter            Int?                  @map("stock_after")
-  emptyContainersDelta  Int                   @default(0) @map("empty_containers_delta")
-  emptyContainersAfter  Int?                  @map("empty_containers_after")
-  notes                 String?
-  movedAt               DateTime              @default(now()) @map("moved_at")
-  product               Product?              @relation(fields: [productId], references: [id])
-  order                 Order?                @relation(fields: [orderId], references: [id])
-  user                  User?                 @relation(fields: [userId], references: [id])
+  id                   String                @id @default(cuid())
+  productId            String?               @map("product_id")
+  orderId              String?               @map("order_id")
+  userId               String?               @map("user_id")
+  type                 InventoryMovementType
+  quantity             Int
+  stockAfter           Int?                  @map("stock_after")
+  emptyContainersDelta Int                   @default(0) @map("empty_containers_delta")
+  emptyContainersAfter Int?                  @map("empty_containers_after")
+  notes                String?
+  movedAt              DateTime              @default(now()) @map("moved_at")
+  product              Product?              @relation(fields: [productId], references: [id])
+  order                Order?                @relation(fields: [orderId], references: [id])
+  user                 User?                 @relation(fields: [userId], references: [id])
 
   @@index([movedAt])
   @@map("inventory_movements")
@@ -278,4 +278,503 @@ model WarehouseState {
   updatedAt       DateTime @updatedAt @map("updated_at")
 
   @@map("warehouse_state")
+}
+
+// Nuevo modelo operativo. Las tablas heredadas de arriba se mantienen de forma
+// temporal para que el API actual siga funcionando durante la migracion.
+
+model Trabajador {
+  id              BigInt   @id @default(autoincrement())
+  tipoDocumento   String   @map("tipo_documento") @db.VarChar(20)
+  numeroDocumento String   @unique @map("numero_documento") @db.VarChar(20)
+  nombres         String   @db.VarChar(100)
+  apellidos       String   @db.VarChar(100)
+  telefono        String?  @db.VarChar(20)
+  correo          String?  @db.VarChar(150)
+  cargo           String   @db.VarChar(100)
+  estado          Boolean  @default(true)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  compras               Compra[]
+  pagosProveedor        PagoProveedor[]
+  devolucionesCompra    DevolucionCompra[]
+  ventas                Venta[]
+  pagosCliente          PagoCliente[]
+  devolucionesVenta     DevolucionVenta[]
+  almacenesResponsables Almacen[]
+  movimientosInventario MovimientoInventario[]
+
+  @@map("trabajador")
+}
+
+model Proveedor {
+  id              BigInt   @id @default(autoincrement())
+  ruc             String   @unique @db.VarChar(11)
+  razonSocial     String   @map("razon_social") @db.VarChar(150)
+  nombreComercial String?  @map("nombre_comercial") @db.VarChar(150)
+  telefono        String?  @db.VarChar(20)
+  correo          String?  @db.VarChar(150)
+  direccion       String?  @db.VarChar(250)
+  estado          Boolean  @default(true)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  compras         Compra[]
+
+  @@index([razonSocial])
+  @@map("proveedor")
+}
+
+model TipoProducto {
+  id          BigInt     @id @default(autoincrement())
+  nombre      String     @unique @db.VarChar(100)
+  descripcion String?
+  estado      Boolean    @default(true)
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+  productos   Producto[]
+
+  @@map("tipo_producto")
+}
+
+model Producto {
+  id                       BigInt                        @id @default(autoincrement())
+  tipoProductoId           BigInt                        @map("tipo_producto_id")
+  codigo                   String                        @unique @db.VarChar(50)
+  nombre                   String                        @db.VarChar(150)
+  descripcion              String?
+  unidadMedida             String                        @map("unidad_medida") @db.VarChar(30)
+  capacidadLitros          Decimal?                      @map("capacidad_litros") @db.Decimal(8, 2)
+  precioVenta              Decimal                       @map("precio_venta") @db.Decimal(12, 2)
+  costoReferencia          Decimal                       @map("costo_referencia") @db.Decimal(12, 2)
+  controlaLote             Boolean                       @default(false) @map("controla_lote")
+  esRetornable             Boolean                       @default(false) @map("es_retornable")
+  stockMinimoGlobal        Decimal                       @default(0) @map("stock_minimo_global") @db.Decimal(12, 3)
+  estado                   Boolean                       @default(true)
+  createdAt                DateTime                      @default(now()) @map("created_at")
+  updatedAt                DateTime                      @updatedAt @map("updated_at")
+  tipoProducto             TipoProducto                  @relation(fields: [tipoProductoId], references: [id])
+  lotes                    Lote[]
+  detallesCompra           DetalleCompra[]
+  detallesDevolucionCompra DetalleDevolucionCompra[]
+  detallesVenta            DetalleVenta[]
+  detallesDevolucionVenta  DetalleDevolucionVenta[]
+  stocks                   StockAlmacen[]
+  detallesMovimiento       DetalleMovimientoInventario[]
+
+  @@index([nombre])
+  @@map("producto")
+}
+
+model Lote {
+  id                       BigInt                        @id @default(autoincrement())
+  productoId               BigInt                        @map("producto_id")
+  codigoLote               String                        @map("codigo_lote") @db.VarChar(50)
+  fechaProduccion          DateTime?                     @map("fecha_produccion") @db.Date
+  fechaVencimiento         DateTime?                     @map("fecha_vencimiento") @db.Date
+  costoUnitario            Decimal                       @map("costo_unitario") @db.Decimal(12, 4)
+  estado                   String                        @db.VarChar(20)
+  createdAt                DateTime                      @default(now()) @map("created_at")
+  producto                 Producto                      @relation(fields: [productoId], references: [id])
+  detallesCompra           DetalleCompra[]
+  detallesDevolucionCompra DetalleDevolucionCompra[]
+  detallesVenta            DetalleVenta[]
+  detallesDevolucionVenta  DetalleDevolucionVenta[]
+  stocks                   StockAlmacen[]
+  detallesMovimiento       DetalleMovimientoInventario[]
+
+  @@unique([productoId, codigoLote])
+  @@index([fechaVencimiento])
+  @@map("lote")
+}
+
+model MetodoPago {
+  id                BigInt          @id @default(autoincrement())
+  nombre            String          @unique @db.VarChar(50)
+  requiereOperacion Boolean         @default(false) @map("requiere_operacion")
+  estado            Boolean         @default(true)
+  createdAt         DateTime        @default(now()) @map("created_at")
+  pagosProveedor    PagoProveedor[]
+  pagosCliente      PagoCliente[]
+
+  @@map("metodo_pago")
+}
+
+model Almacen {
+  id                 BigInt                        @id @default(autoincrement())
+  codigo             String                        @unique @db.VarChar(30)
+  nombre             String                        @db.VarChar(100)
+  tipo               String                        @db.VarChar(20)
+  direccion          String?                       @db.VarChar(250)
+  responsableId      BigInt?                       @map("responsable_id")
+  estado             Boolean                       @default(true)
+  createdAt          DateTime                      @default(now()) @map("created_at")
+  updatedAt          DateTime                      @updatedAt @map("updated_at")
+  responsable        Trabajador?                   @relation(fields: [responsableId], references: [id])
+  comprasDestino     Compra[]                      @relation("ComprasDestino")
+  ventasOrigen       Venta[]                       @relation("VentasOrigen")
+  stocks             StockAlmacen[]
+  movimientosOrigen  MovimientoInventario[]        @relation("MovimientosOrigen")
+  movimientosDestino MovimientoInventario[]        @relation("MovimientosDestino")
+  detallesMovimiento DetalleMovimientoInventario[]
+
+  @@map("almacen")
+}
+
+model EstadoInventario {
+  id                      BigInt                        @id @default(autoincrement())
+  codigo                  String                        @unique @db.VarChar(30)
+  nombre                  String                        @db.VarChar(100)
+  permiteVenta            Boolean                       @default(true) @map("permite_venta")
+  descripcion             String?
+  estado                  Boolean                       @default(true)
+  stocks                  StockAlmacen[]
+  detallesMovimiento      DetalleMovimientoInventario[]
+  detallesDevolucionVenta DetalleDevolucionVenta[]
+
+  @@map("estado_inventario")
+}
+
+model Compra {
+  id                    BigInt                 @id @default(autoincrement())
+  proveedorId           BigInt                 @map("proveedor_id")
+  almacenDestinoId      BigInt                 @map("almacen_destino_id")
+  trabajadorId          BigInt                 @map("trabajador_id")
+  fecha                 DateTime               @default(now())
+  tipoComprobante       String                 @map("tipo_comprobante") @db.VarChar(30)
+  serie                 String                 @db.VarChar(10)
+  numero                String                 @db.VarChar(20)
+  subtotal              Decimal                @db.Decimal(12, 2)
+  igv                   Decimal                @db.Decimal(12, 2)
+  descuento             Decimal                @default(0) @db.Decimal(12, 2)
+  total                 Decimal                @db.Decimal(12, 2)
+  tipoPago              String                 @map("tipo_pago") @db.VarChar(20)
+  estado                String                 @db.VarChar(20)
+  observaciones         String?
+  createdAt             DateTime               @default(now()) @map("created_at")
+  updatedAt             DateTime               @updatedAt @map("updated_at")
+  proveedor             Proveedor              @relation(fields: [proveedorId], references: [id])
+  almacenDestino        Almacen                @relation("ComprasDestino", fields: [almacenDestinoId], references: [id])
+  trabajador            Trabajador             @relation(fields: [trabajadorId], references: [id])
+  detalles              DetalleCompra[]
+  cuentaPagar           CuentaPagar?
+  devoluciones          DevolucionCompra[]
+  movimientosInventario MovimientoInventario[]
+
+  @@unique([tipoComprobante, serie, numero])
+  @@index([fecha])
+  @@map("compra")
+}
+
+model DetalleCompra {
+  id                 BigInt                    @id @default(autoincrement())
+  compraId           BigInt                    @map("compra_id")
+  productoId         BigInt                    @map("producto_id")
+  loteId             BigInt?                   @map("lote_id")
+  cantidad           Decimal                   @db.Decimal(12, 3)
+  costoUnitario      Decimal                   @map("costo_unitario") @db.Decimal(12, 4)
+  descuento          Decimal                   @default(0) @db.Decimal(12, 2)
+  subtotal           Decimal                   @db.Decimal(12, 2)
+  createdAt          DateTime                  @default(now()) @map("created_at")
+  compra             Compra                    @relation(fields: [compraId], references: [id], onDelete: Cascade)
+  producto           Producto                  @relation(fields: [productoId], references: [id])
+  lote               Lote?                     @relation(fields: [loteId], references: [id])
+  detallesDevolucion DetalleDevolucionCompra[]
+
+  @@map("detalle_compra")
+}
+
+model CuentaPagar {
+  id               BigInt          @id @default(autoincrement())
+  compraId         BigInt          @unique @map("compra_id")
+  montoOriginal    Decimal         @map("monto_original") @db.Decimal(12, 2)
+  montoPagado      Decimal         @default(0) @map("monto_pagado") @db.Decimal(12, 2)
+  saldoPendiente   Decimal         @map("saldo_pendiente") @db.Decimal(12, 2)
+  fechaEmision     DateTime        @map("fecha_emision") @db.Date
+  fechaVencimiento DateTime?       @map("fecha_vencimiento") @db.Date
+  estado           String          @db.VarChar(20)
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+  compra           Compra          @relation(fields: [compraId], references: [id])
+  pagos            PagoProveedor[]
+
+  @@index([estado, fechaVencimiento])
+  @@map("cuenta_pagar")
+}
+
+model PagoProveedor {
+  id              BigInt      @id @default(autoincrement())
+  cuentaPagarId   BigInt      @map("cuenta_pagar_id")
+  metodoPagoId    BigInt      @map("metodo_pago_id")
+  trabajadorId    BigInt      @map("trabajador_id")
+  fechaPago       DateTime    @default(now()) @map("fecha_pago")
+  monto           Decimal     @db.Decimal(12, 2)
+  numeroOperacion String?     @map("numero_operacion") @db.VarChar(100)
+  observaciones   String?
+  estado          String      @default("CONFIRMADO") @db.VarChar(20)
+  createdAt       DateTime    @default(now()) @map("created_at")
+  cuentaPagar     CuentaPagar @relation(fields: [cuentaPagarId], references: [id])
+  metodoPago      MetodoPago  @relation(fields: [metodoPagoId], references: [id])
+  trabajador      Trabajador  @relation(fields: [trabajadorId], references: [id])
+
+  @@index([fechaPago])
+  @@map("pago_proveedor")
+}
+
+model DevolucionCompra {
+  id                    BigInt                    @id @default(autoincrement())
+  compraId              BigInt                    @map("compra_id")
+  trabajadorId          BigInt                    @map("trabajador_id")
+  fecha                 DateTime                  @default(now())
+  motivo                String
+  total                 Decimal                   @db.Decimal(12, 2)
+  estado                String                    @db.VarChar(20)
+  observaciones         String?
+  createdAt             DateTime                  @default(now()) @map("created_at")
+  compra                Compra                    @relation(fields: [compraId], references: [id])
+  trabajador            Trabajador                @relation(fields: [trabajadorId], references: [id])
+  detalles              DetalleDevolucionCompra[]
+  movimientosInventario MovimientoInventario[]
+
+  @@index([fecha])
+  @@map("devolucion_compra")
+}
+
+model DetalleDevolucionCompra {
+  id                 BigInt           @id @default(autoincrement())
+  devolucionCompraId BigInt           @map("devolucion_compra_id")
+  detalleCompraId    BigInt           @map("detalle_compra_id")
+  productoId         BigInt           @map("producto_id")
+  loteId             BigInt?          @map("lote_id")
+  cantidad           Decimal          @db.Decimal(12, 3)
+  costoUnitario      Decimal          @map("costo_unitario") @db.Decimal(12, 4)
+  subtotal           Decimal          @db.Decimal(12, 2)
+  devolucionCompra   DevolucionCompra @relation(fields: [devolucionCompraId], references: [id], onDelete: Cascade)
+  detalleCompra      DetalleCompra    @relation(fields: [detalleCompraId], references: [id])
+  producto           Producto         @relation(fields: [productoId], references: [id])
+  lote               Lote?            @relation(fields: [loteId], references: [id])
+
+  @@map("detalle_devolucion_compra")
+}
+
+model Cliente {
+  id              BigInt         @id @default(autoincrement())
+  tipoDocumento   String         @map("tipo_documento") @db.VarChar(20)
+  numeroDocumento String         @unique @map("numero_documento") @db.VarChar(20)
+  nombreLegal     String         @map("nombre_legal") @db.VarChar(150)
+  nombreComercial String?        @map("nombre_comercial") @db.VarChar(150)
+  telefono        String?        @db.VarChar(20)
+  correo          String?        @db.VarChar(150)
+  direccion       String?        @db.VarChar(250)
+  limiteCredito   Decimal        @default(0) @map("limite_credito") @db.Decimal(12, 2)
+  estado          Boolean        @default(true)
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+  ventas          Venta[]
+  cuentasCobrar   CuentaCobrar[]
+
+  @@index([nombreLegal])
+  @@map("cliente")
+}
+
+model Venta {
+  id                    BigInt                 @id @default(autoincrement())
+  clienteId             BigInt                 @map("cliente_id")
+  almacenOrigenId       BigInt                 @map("almacen_origen_id")
+  trabajadorId          BigInt                 @map("trabajador_id")
+  fecha                 DateTime               @default(now())
+  tipoComprobante       String                 @map("tipo_comprobante") @db.VarChar(30)
+  serie                 String                 @db.VarChar(10)
+  numero                String                 @db.VarChar(20)
+  subtotal              Decimal                @db.Decimal(12, 2)
+  igv                   Decimal                @db.Decimal(12, 2)
+  descuento             Decimal                @default(0) @db.Decimal(12, 2)
+  total                 Decimal                @db.Decimal(12, 2)
+  tipoPago              String                 @map("tipo_pago") @db.VarChar(20)
+  estado                String                 @db.VarChar(25)
+  observaciones         String?
+  createdAt             DateTime               @default(now()) @map("created_at")
+  updatedAt             DateTime               @updatedAt @map("updated_at")
+  cliente               Cliente                @relation(fields: [clienteId], references: [id])
+  almacenOrigen         Almacen                @relation("VentasOrigen", fields: [almacenOrigenId], references: [id])
+  trabajador            Trabajador             @relation(fields: [trabajadorId], references: [id])
+  detalles              DetalleVenta[]
+  cuentaCobrar          CuentaCobrar?
+  devoluciones          DevolucionVenta[]
+  movimientosInventario MovimientoInventario[]
+
+  @@unique([tipoComprobante, serie, numero])
+  @@index([fecha])
+  @@map("venta")
+}
+
+model DetalleVenta {
+  id                 BigInt                   @id @default(autoincrement())
+  ventaId            BigInt                   @map("venta_id")
+  productoId         BigInt                   @map("producto_id")
+  loteId             BigInt?                  @map("lote_id")
+  cantidad           Decimal                  @db.Decimal(12, 3)
+  precioUnitario     Decimal                  @map("precio_unitario") @db.Decimal(12, 2)
+  descuento          Decimal                  @default(0) @db.Decimal(12, 2)
+  subtotal           Decimal                  @db.Decimal(12, 2)
+  createdAt          DateTime                 @default(now()) @map("created_at")
+  venta              Venta                    @relation(fields: [ventaId], references: [id], onDelete: Cascade)
+  producto           Producto                 @relation(fields: [productoId], references: [id])
+  lote               Lote?                    @relation(fields: [loteId], references: [id])
+  detallesDevolucion DetalleDevolucionVenta[]
+
+  @@map("detalle_venta")
+}
+
+model CuentaCobrar {
+  id               BigInt        @id @default(autoincrement())
+  ventaId          BigInt        @unique @map("venta_id")
+  clienteId        BigInt        @map("cliente_id")
+  montoOriginal    Decimal       @map("monto_original") @db.Decimal(12, 2)
+  montoPagado      Decimal       @default(0) @map("monto_pagado") @db.Decimal(12, 2)
+  saldoPendiente   Decimal       @map("saldo_pendiente") @db.Decimal(12, 2)
+  fechaEmision     DateTime      @map("fecha_emision") @db.Date
+  fechaVencimiento DateTime?     @map("fecha_vencimiento") @db.Date
+  estado           String        @db.VarChar(20)
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
+  venta            Venta         @relation(fields: [ventaId], references: [id])
+  cliente          Cliente       @relation(fields: [clienteId], references: [id])
+  pagos            PagoCliente[]
+
+  @@index([estado, fechaVencimiento])
+  @@map("cuenta_cobrar")
+}
+
+model PagoCliente {
+  id              BigInt       @id @default(autoincrement())
+  cuentaCobrarId  BigInt       @map("cuenta_cobrar_id")
+  metodoPagoId    BigInt       @map("metodo_pago_id")
+  trabajadorId    BigInt       @map("trabajador_id")
+  fechaPago       DateTime     @default(now()) @map("fecha_pago")
+  monto           Decimal      @db.Decimal(12, 2)
+  numeroOperacion String?      @map("numero_operacion") @db.VarChar(100)
+  observaciones   String?
+  estado          String       @default("CONFIRMADO") @db.VarChar(20)
+  createdAt       DateTime     @default(now()) @map("created_at")
+  cuentaCobrar    CuentaCobrar @relation(fields: [cuentaCobrarId], references: [id])
+  metodoPago      MetodoPago   @relation(fields: [metodoPagoId], references: [id])
+  trabajador      Trabajador   @relation(fields: [trabajadorId], references: [id])
+
+  @@index([fechaPago])
+  @@map("pago_cliente")
+}
+
+model DevolucionVenta {
+  id                    BigInt                   @id @default(autoincrement())
+  ventaId               BigInt                   @map("venta_id")
+  trabajadorId          BigInt                   @map("trabajador_id")
+  fecha                 DateTime                 @default(now())
+  motivo                String
+  total                 Decimal                  @db.Decimal(12, 2)
+  estado                String                   @db.VarChar(20)
+  observaciones         String?
+  createdAt             DateTime                 @default(now()) @map("created_at")
+  venta                 Venta                    @relation(fields: [ventaId], references: [id])
+  trabajador            Trabajador               @relation(fields: [trabajadorId], references: [id])
+  detalles              DetalleDevolucionVenta[]
+  movimientosInventario MovimientoInventario[]
+
+  @@index([fecha])
+  @@map("devolucion_venta")
+}
+
+model DetalleDevolucionVenta {
+  id                BigInt           @id @default(autoincrement())
+  devolucionVentaId BigInt           @map("devolucion_venta_id")
+  detalleVentaId    BigInt           @map("detalle_venta_id")
+  productoId        BigInt           @map("producto_id")
+  loteId            BigInt?          @map("lote_id")
+  cantidad          Decimal          @db.Decimal(12, 3)
+  precioUnitario    Decimal          @map("precio_unitario") @db.Decimal(12, 2)
+  subtotal          Decimal          @db.Decimal(12, 2)
+  estadoDestinoId   BigInt           @map("estado_destino_id")
+  devolucionVenta   DevolucionVenta  @relation(fields: [devolucionVentaId], references: [id], onDelete: Cascade)
+  detalleVenta      DetalleVenta     @relation(fields: [detalleVentaId], references: [id])
+  producto          Producto         @relation(fields: [productoId], references: [id])
+  lote              Lote?            @relation(fields: [loteId], references: [id])
+  estadoDestino     EstadoInventario @relation(fields: [estadoDestinoId], references: [id])
+
+  @@map("detalle_devolucion_venta")
+}
+
+model StockAlmacen {
+  id                 BigInt           @id @default(autoincrement())
+  productoId         BigInt           @map("producto_id")
+  almacenId          BigInt           @map("almacen_id")
+  loteId             BigInt?          @map("lote_id")
+  estadoInventarioId BigInt           @map("estado_inventario_id")
+  cantidad           Decimal          @default(0) @db.Decimal(12, 3)
+  cantidadReservada  Decimal          @default(0) @map("cantidad_reservada") @db.Decimal(12, 3)
+  stockMinimo        Decimal          @default(0) @map("stock_minimo") @db.Decimal(12, 3)
+  stockMaximo        Decimal?         @map("stock_maximo") @db.Decimal(12, 3)
+  costoPromedio      Decimal          @default(0) @map("costo_promedio") @db.Decimal(12, 4)
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+  producto           Producto         @relation(fields: [productoId], references: [id])
+  almacen            Almacen          @relation(fields: [almacenId], references: [id])
+  lote               Lote?            @relation(fields: [loteId], references: [id])
+  estadoInventario   EstadoInventario @relation(fields: [estadoInventarioId], references: [id])
+
+  @@unique([productoId, almacenId, loteId, estadoInventarioId])
+  @@index([almacenId, estadoInventarioId])
+  @@map("stock_almacen")
+}
+
+model MovimientoInventario {
+  id                 BigInt                        @id @default(autoincrement())
+  fecha              DateTime                      @default(now())
+  tipoMovimiento     String                        @map("tipo_movimiento") @db.VarChar(25)
+  tipoOperacion      String                        @map("tipo_operacion") @db.VarChar(30)
+  almacenOrigenId    BigInt?                       @map("almacen_origen_id")
+  almacenDestinoId   BigInt?                       @map("almacen_destino_id")
+  compraId           BigInt?                       @map("compra_id")
+  ventaId            BigInt?                       @map("venta_id")
+  devolucionCompraId BigInt?                       @map("devolucion_compra_id")
+  devolucionVentaId  BigInt?                       @map("devolucion_venta_id")
+  trabajadorId       BigInt                        @map("trabajador_id")
+  estado             String                        @db.VarChar(20)
+  numeroReferencia   String?                       @map("numero_referencia") @db.VarChar(50)
+  observaciones      String?
+  createdAt          DateTime                      @default(now()) @map("created_at")
+  almacenOrigen      Almacen?                      @relation("MovimientosOrigen", fields: [almacenOrigenId], references: [id])
+  almacenDestino     Almacen?                      @relation("MovimientosDestino", fields: [almacenDestinoId], references: [id])
+  compra             Compra?                       @relation(fields: [compraId], references: [id])
+  venta              Venta?                        @relation(fields: [ventaId], references: [id])
+  devolucionCompra   DevolucionCompra?             @relation(fields: [devolucionCompraId], references: [id])
+  devolucionVenta    DevolucionVenta?              @relation(fields: [devolucionVentaId], references: [id])
+  trabajador         Trabajador                    @relation(fields: [trabajadorId], references: [id])
+  detalles           DetalleMovimientoInventario[]
+
+  @@index([fecha])
+  @@index([tipoOperacion, estado])
+  @@map("movimiento_inventario")
+}
+
+model DetalleMovimientoInventario {
+  id                 BigInt               @id @default(autoincrement())
+  movimientoId       BigInt               @map("movimiento_id")
+  productoId         BigInt               @map("producto_id")
+  almacenId          BigInt               @map("almacen_id")
+  loteId             BigInt?              @map("lote_id")
+  estadoInventarioId BigInt               @map("estado_inventario_id")
+  direccion          String               @db.VarChar(10)
+  cantidad           Decimal              @db.Decimal(12, 3)
+  costoUnitario      Decimal              @map("costo_unitario") @db.Decimal(12, 4)
+  costoTotal         Decimal              @map("costo_total") @db.Decimal(12, 2)
+  saldoAnterior      Decimal              @map("saldo_anterior") @db.Decimal(12, 3)
+  saldoPosterior     Decimal              @map("saldo_posterior") @db.Decimal(12, 3)
+  createdAt          DateTime             @default(now()) @map("created_at")
+  movimiento         MovimientoInventario @relation(fields: [movimientoId], references: [id], onDelete: Cascade)
+  producto           Producto             @relation(fields: [productoId], references: [id])
+  almacen            Almacen              @relation(fields: [almacenId], references: [id])
+  lote               Lote?                @relation(fields: [loteId], references: [id])
+  estadoInventario   EstadoInventario     @relation(fields: [estadoInventarioId], references: [id])
+
+  @@index([productoId, almacenId, loteId])
+  @@map("detalle_movimiento_inventario")
 }

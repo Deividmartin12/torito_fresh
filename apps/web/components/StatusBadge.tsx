@@ -8,6 +8,20 @@ const styles: Record<string, string> = {
   PARTIAL: "bg-orange-50 text-orange-700 ring-orange-200",
   ACTIVE: "bg-emerald-50 text-emerald-700 ring-emerald-200",
   INACTIVE: "bg-slate-100 text-slate-600 ring-slate-200",
+  ACTIVO: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+  INACTIVO: "bg-slate-100 text-slate-600 ring-slate-200",
+  CONFIRMADA: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+  CONFIRMADO: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+  BORRADOR: "bg-slate-100 text-slate-600 ring-slate-200",
+  PENDIENTE: "bg-amber-50 text-amber-700 ring-amber-200",
+  PARCIAL: "bg-orange-50 text-orange-700 ring-orange-200",
+  PAGADA: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+  PAGADO: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+  VENCIDA: "bg-rose-50 text-rose-700 ring-rose-200",
+  ANULADA: "bg-rose-50 text-rose-700 ring-rose-200",
+  DISPONIBLE: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+  CUARENTENA: "bg-amber-50 text-amber-700 ring-amber-200",
+  DANADO: "bg-rose-50 text-rose-700 ring-rose-200",
 };
 
 const labels: Record<string, string> = {
@@ -20,6 +34,9 @@ const labels: Record<string, string> = {
   PARTIAL: "Pago parcial",
   ACTIVE: "Activo",
   INACTIVE: "Inactivo",
+  ACTIVO: "Activo",
+  INACTIVO: "Inactivo",
+  DANADO: "Dañado",
 };
 
 export function StatusBadge({ value }: { value: string }) {

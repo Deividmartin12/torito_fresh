@@ -1,40 +1,44 @@
 "use client";
 
-import {
-  BarChart3,
-  Boxes,
-  ClipboardList,
-  Droplets,
-  HandCoins,
-  LayoutDashboard,
-  LogOut,
-  Package,
-  ReceiptText,
-  Route,
-  Users,
-} from "lucide-react";
+import { Boxes, CreditCard, Droplets, LayoutDashboard, Menu, Package, ReceiptText, ShoppingCart, Store, Truck, UserRoundCog, Users, WalletCards, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ReactNode, useEffect, useState } from "react";
-import { clearSession, getStoredUser, getToken, SessionUser } from "../lib/api";
+import { getStoredUser, getToken, SessionUser } from "../lib/api";
 
-const nav = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/clientes", label: "Clientes", icon: Users },
-  { href: "/productos", label: "Productos", icon: Package },
-  { href: "/pedidos", label: "Pedidos", icon: ClipboardList },
-  { href: "/ventas", label: "Ventas", icon: ReceiptText },
-  { href: "/cobranzas", label: "Cobranzas", icon: HandCoins },
-  { href: "/envases", label: "Envases", icon: Droplets },
-  { href: "/repartos", label: "Repartos", icon: Route },
-  { href: "/inventario", label: "Inventario", icon: Boxes },
-  { href: "/reportes", label: "Reportes", icon: BarChart3 },
+const groups = [
+  { label: "Principal", links: [{ href: "/dashboard", label: "Resumen", icon: LayoutDashboard }] },
+  { label: "Compras", links: [
+    { href: "/proveedores", label: "Proveedores", icon: Truck },
+    { href: "/compras", label: "Compras", icon: ShoppingCart },
+    { href: "/cuentas-pagar", label: "Cuentas por pagar", icon: CreditCard },
+  ] },
+  { label: "Ventas", links: [
+    { href: "/clientes", label: "Clientes", icon: Users },
+    { href: "/ventas", label: "Ventas", icon: ReceiptText },
+    { href: "/cuentas-cobrar", label: "Cuentas por cobrar", icon: WalletCards },
+    { href: "/devoluciones", label: "Devoluciones", icon: ReceiptText },
+  ] },
+  { label: "Inventario", links: [
+    { href: "/productos", label: "Productos", icon: Package },
+    { href: "/lotes", label: "Lotes", icon: Boxes },
+    { href: "/almacenes", label: "Almacenes", icon: Store },
+    { href: "/inventario", label: "Stock", icon: Boxes },
+    { href: "/movimientos", label: "Movimientos", icon: ShoppingCart },
+  ] },
+  { label: "Configuracion", links: [
+    { href: "/trabajadores", label: "Trabajadores", icon: UserRoundCog },
+    { href: "/metodos-pago", label: "Metodos de pago", icon: CreditCard },
+  ] },
 ];
+
+const links = groups.flatMap((group) => group.links);
 
 export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [user, setUser] = useState<SessionUser | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     if (!getToken()) {
@@ -44,78 +48,33 @@ export function AppShell({ children }: { children: ReactNode }) {
     setUser(getStoredUser());
   }, [router]);
 
-  function logout() {
-    clearSession();
-    router.replace("/login");
-  }
-
   return (
-    <div className="min-h-screen">
-      <aside className="fixed inset-y-0 left-0 hidden w-64 lg:block space-y-4 pt-1">
-        <div className="flex h-16 items-center gap-3 border rounded-full ml-3 mr-2 my-1">
-          <div className="grid h-10 w-10 place-items-center rounded-md bg-brand-600 text-white">
-            <Droplets size={22} />
-          </div>
-          <div>
-            <p className="text-sm font-black uppercase tracking-wide text-ink">TORITO FRESH</p>
-            <p className="text-xs text-blue-500">Gestion administrativa</p>
-          </div>
-        </div>
-        <nav className="space-y-2 ml-3 mr-2 my-1">
-          {nav.map((item) => {
-            const Icon = item.icon;
-            const active = pathname === item.href;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`flex h-10 items-center gap-3 rounded-full pl-4 text-sm font-semibold transition-all duration-200 ${
-                  active
-                    ? "bg-blue-600 text-white hover:bg-blue-700 hover:text-white hover:scale-105"
-                    : "bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-700 hover:scale-105"
-                }`}
-              >
-                <Icon size={18} />
-                {item.label}
-              </Link>
-            );
-          })}
+    <div className="app-shell">
+      <aside className="desktop-sidebar">
+        <div className="sidebar-brand"><span className="sidebar-logo"><Droplets size={21} /></span><div><strong>Torito Fresh</strong><small>Gestion administrativa</small></div></div>
+        <nav className="sidebar-nav" aria-label="Navegacion lateral">
+          {groups.map((group) => <section className="sidebar-group" key={group.label}><p>{group.label}</p>{group.links.map(({ href, label, icon: Icon }) => <Link className={pathname === href ? "sidebar-link active" : "sidebar-link"} href={href} key={href}><Icon size={16} /><span>{label}</span></Link>)}</section>)}
         </nav>
       </aside>
 
-      <div className="lg:pl-64 pt-1">
-        <header className="border rounded-full ml-3 mr-2 my-1">
-          <div className="flex h-16 items-center justify-between gap-3 px-4 lg:px-6">
-            <div className="min-w-0">
-              <p className="text-sm font-bold text-ink">{user?.name ?? "TORITO FRESH"}</p>
-              <p className="text-xs text-blue-500">{user?.role ?? "Sistema administrativo"}</p>
-            </div>
-            <button className="btn-secondary" onClick={logout} title="Cerrar sesion">
-              <LogOut size={16} />
-              <span className="hidden sm:inline">Salir</span>
-            </button>
-          </div>
-          <nav className="flex gap-2 overflow-x-auto px-3 pb-3 lg:hidden">
-            {nav.map((item) => {
-              const Icon = item.icon;
-              const active = pathname === item.href;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-md px-3 text-xs font-semibold ${
-                    active ? "bg-blue-600 text-white" : "bg-blue-100 text-blue-700"
-                  }`}
-                >
-                  <Icon size={15} />
-                  {item.label}
-                </Link>
-              );
-            })}
-          </nav>
-        </header>
-        <main className="px-2 py-2 lg:px-4">{children}</main>
-      </div>
+      <header className="admin-bar">
+        <div><strong>{user?.name ?? "Administrador"}</strong><span>{user?.role ?? "ADMIN"}</span></div>
+        <button className="menu-button" onClick={() => setMenuOpen((value) => !value)} title="Abrir menu" aria-label="Abrir menu" type="button">
+          {menuOpen ? <X size={20} /> : <Menu size={20} />}
+        </button>
+      </header>
+
+      {menuOpen ? (
+        <nav className="app-menu" aria-label="Menu principal">
+          {links.map(({ href, label, icon: Icon }) => (
+            <Link className={pathname === href ? "app-menu-link active" : "app-menu-link"} href={href} key={href} onClick={() => setMenuOpen(false)}>
+              <Icon size={16} />{label}
+            </Link>
+          ))}
+        </nav>
+      ) : null}
+
+      <main className="app-main">{children}</main>
     </div>
   );
 }
