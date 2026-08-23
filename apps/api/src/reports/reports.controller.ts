@@ -13,6 +13,11 @@ export class ReportsController {
     return this.reports.dashboard();
   }
 
+  @Get("business")
+  business(@Query("from") from?: string, @Query("to") to?: string) {
+    return this.reports.business(from, to);
+  }
+
   @Get("sales")
   sales(@Query("from") from?: string, @Query("to") to?: string) {
     return this.reports.salesByPeriod(from, to);

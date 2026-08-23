@@ -178,6 +178,13 @@ async function main() {
   });
 
   await Promise.all([
+    { codigo: "ALM-MP", nombre: "Materia prima e insumos", tipo: "MATERIA_PRIMA" },
+    { codigo: "ALM-PT", nombre: "Producto terminado", tipo: "PRODUCTO_TERMINADO" },
+    { codigo: "ALM-ENV", nombre: "Envases vacios y lavado", tipo: "ENVASES" },
+    { codigo: "PLANTA-01", nombre: "Planta de produccion", tipo: "PLANTA" },
+  ].map((almacen) => prisma.almacen.upsert({ where: { codigo: almacen.codigo }, update: { ...almacen, estado: true }, create: almacen })));
+
+  await Promise.all([
     prisma.producto.upsert({
       where: { codigo: "AGUA-20L" },
       update: {},
@@ -217,6 +224,18 @@ async function main() {
         precioVenta: 18,
         costoReferencia: 10,
       },
+    }),
+    prisma.producto.upsert({
+      where: { codigo: "TAPA-20L" }, update: {}, create: { tipoProductoId: tipoProductoPorNombre.Insumo.id, codigo: "TAPA-20L", nombre: "Tapa para bidon 20 L", unidadMedida: "UNIDAD", precioVenta: 0, costoReferencia: 0.12 },
+    }),
+    prisma.producto.upsert({
+      where: { codigo: "SELLO-20L" }, update: {}, create: { tipoProductoId: tipoProductoPorNombre.Insumo.id, codigo: "SELLO-20L", nombre: "Sello de seguridad 20 L", unidadMedida: "UNIDAD", precioVenta: 0, costoReferencia: 0.08 },
+    }),
+    prisma.producto.upsert({
+      where: { codigo: "ETIQ-20L" }, update: {}, create: { tipoProductoId: tipoProductoPorNombre.Insumo.id, codigo: "ETIQ-20L", nombre: "Etiqueta agua 20 L", unidadMedida: "UNIDAD", precioVenta: 0, costoReferencia: 0.05 },
+    }),
+    prisma.producto.upsert({
+      where: { codigo: "AGUA-TRATADA" }, update: {}, create: { tipoProductoId: tipoProductoPorNombre.Insumo.id, codigo: "AGUA-TRATADA", nombre: "Agua tratada a granel", unidadMedida: "LITRO", precioVenta: 0, costoReferencia: 0.02 },
     }),
   ]);
 
@@ -276,6 +295,19 @@ async function main() {
       });
     }
   }
+
+  const [almacenMateriaPrima, vacio, insumosProduccion] = await Promise.all([
+    prisma.almacen.findUniqueOrThrow({ where: { codigo: "ALM-MP" } }),
+    prisma.estadoInventario.findUniqueOrThrow({ where: { codigo: "VACIO" } }),
+    prisma.producto.findMany({ where: { codigo: { in: ["TAPA-20L", "SELLO-20L", "ETIQ-20L", "AGUA-TRATADA"] } } }),
+  ]);
+  for (const producto of insumosProduccion) {
+    const stock = await prisma.stockAlmacen.findFirst({ where: { productoId: producto.id, almacenId: almacenMateriaPrima.id, loteId: null, estadoInventarioId: disponible.id } });
+    if (!stock) await prisma.stockAlmacen.create({ data: { productoId: producto.id, almacenId: almacenMateriaPrima.id, estadoInventarioId: disponible.id, cantidad: producto.codigo === "AGUA-TRATADA" ? 20000 : 1000, stockMinimo: 200, costoPromedio: producto.costoReferencia } });
+  }
+  const bidon = await prisma.producto.findUniqueOrThrow({ where: { codigo: "BIDON-20L" } });
+  const emptyStock = await prisma.stockAlmacen.findFirst({ where: { productoId: bidon.id, almacenId: almacenMateriaPrima.id, loteId: null, estadoInventarioId: vacio.id } });
+  if (!emptyStock) await prisma.stockAlmacen.create({ data: { productoId: bidon.id, almacenId: almacenMateriaPrima.id, estadoInventarioId: vacio.id, cantidad: 500, stockMinimo: 100, costoPromedio: bidon.costoReferencia } });
 }
 
 main()

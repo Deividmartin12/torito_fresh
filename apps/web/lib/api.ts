@@ -1,4 +1,4 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4070";
 
 export type SessionUser = {
   id: string;
@@ -10,6 +10,20 @@ export type SessionUser = {
 export function getToken() {
   if (typeof window === "undefined") return null;
   return localStorage.getItem("torito_token");
+}
+
+export function getSessionExpiresAt() {
+  const token = getToken();
+  if (!token) return null;
+  try {
+    const encodedPayload = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const payload = JSON.parse(atob(encodedPayload.padEnd(encodedPayload.length + (4 - encodedPayload.length % 4) % 4, "="))) as { iat?: number; exp?: number };
+    const issuedExpiry = payload.iat ? (payload.iat + 6 * 60 * 60) * 1000 : null;
+    const tokenExpiry = payload.exp ? payload.exp * 1000 : null;
+    return issuedExpiry && tokenExpiry ? Math.min(issuedExpiry, tokenExpiry) : issuedExpiry ?? tokenExpiry;
+  } catch {
+    return null;
+  }
 }
 
 export function getStoredUser(): SessionUser | null {
@@ -46,6 +60,10 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   });
 
   if (!response.ok) {
+    if (response.status === 401 && typeof window !== "undefined" && !path.startsWith("/auth/login")) {
+      clearSession();
+      window.location.replace("/login");
+    }
     const body = await response.json().catch(() => ({}));
     const message = Array.isArray(body.message) ? body.message.join(", ") : body.message;
     throw new Error(message || "No se pudo completar la operacion");

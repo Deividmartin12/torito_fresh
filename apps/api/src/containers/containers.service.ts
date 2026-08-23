@@ -45,7 +45,7 @@ export class ContainersService {
         data: {
           clientId: client.id,
           userId,
-          type: "ADJUSTMENT",
+          type: dto.quantity > 0 ? "OUT_FULL" : "IN_EMPTY",
           quantity: Math.abs(dto.quantity),
           balanceAfter: balance,
           notes: dto.notes ?? (dto.quantity > 0 ? "Ajuste aumenta deuda de envases" : "Ajuste reduce deuda de envases"),

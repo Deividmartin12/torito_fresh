@@ -1,9 +1,12 @@
-import { ClientType } from "@prisma/client";
-import { IsBoolean, IsEnum, IsOptional, IsString } from "class-validator";
+import { IsBoolean, IsOptional, IsString } from "class-validator";
 
 export class CreateClientDto {
   @IsString()
   name: string;
+
+  @IsOptional()
+  @IsString()
+  documentType?: string;
 
   @IsOptional()
   @IsString()
@@ -19,14 +22,16 @@ export class CreateClientDto {
   @IsString()
   reference?: string;
 
-  @IsEnum(ClientType)
-  type: ClientType;
 }
 
 export class UpdateClientDto {
   @IsOptional()
   @IsString()
   name?: string;
+
+  @IsOptional()
+  @IsString()
+  documentType?: string;
 
   @IsOptional()
   @IsString()
@@ -43,10 +48,6 @@ export class UpdateClientDto {
   @IsOptional()
   @IsString()
   reference?: string;
-
-  @IsOptional()
-  @IsEnum(ClientType)
-  type?: ClientType;
 
   @IsOptional()
   @IsBoolean()

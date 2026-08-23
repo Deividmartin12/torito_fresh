@@ -7,6 +7,7 @@ import { PrismaService } from "../prisma/prisma.service";
 interface JwtPayload {
   sub: string;
   email: string;
+  iat?: number;
 }
 
 @Injectable()
@@ -23,6 +24,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: JwtPayload) {
+    const issuedAt = payload.iat ? payload.iat * 1000 : 0;
+    if (!issuedAt || Date.now() >= issuedAt + 6 * 60 * 60 * 1000) {
+      throw new UnauthorizedException("La sesión ha vencido");
+    }
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       include: { role: true },

@@ -2,6 +2,8 @@ import { Type } from "class-transformer";
 import {
   ArrayMinSize,
   IsArray,
+  IsBoolean,
+  IsDateString,
   IsIn,
   IsInt,
   IsNumber,
@@ -24,8 +26,8 @@ class OperationItemDto {
   loteId?: number;
 
   @Type(() => Number)
-  @IsNumber()
-  @Min(0.001)
+  @IsInt()
+  @Min(1)
   cantidad: number;
 
   @Type(() => Number)
@@ -41,22 +43,30 @@ class OperationItemDto {
 }
 
 class BaseOperationDto {
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
   almacenId: number;
 
-  @IsIn(["FACTURA", "BOLETA", "NOTA"])
-  tipoComprobante: string;
-
-  @IsString()
-  serie: string;
-
-  @IsString()
-  numero: string;
-
   @IsIn(["CONTADO", "CREDITO", "MIXTO"])
   tipoPago: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  metodoPagoId?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  montoInicial?: number;
+
+  @IsOptional()
+  @IsDateString()
+  fechaVencimiento?: string;
 
   @IsOptional()
   @Type(() => Number)
@@ -76,6 +86,20 @@ class BaseOperationDto {
 }
 
 export class CreatePurchaseDto extends BaseOperationDto {
+  @IsIn(["FACTURA", "BOLETA", "TICKET", "NOTA", "OTRO"])
+  tipoComprobante: string;
+
+  @IsString()
+  serie: string;
+
+  @IsString()
+  numero: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  almacenId: number;
+
   @Type(() => Number)
   @IsInt()
   @Min(1)
@@ -87,4 +111,125 @@ export class CreateOperationalSaleDto extends BaseOperationDto {
   @IsInt()
   @Min(1)
   clienteId: number;
+}
+
+export class CreateOperationalProductDto {
+  @IsString()
+  codigo: string;
+
+  @IsString()
+  nombre: string;
+
+  @IsString()
+  tipo: string;
+
+  @IsString()
+  unidad: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  capacidadLitros?: number;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  precio: number;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  costo: number;
+
+  @IsBoolean()
+  controlaLote: boolean;
+
+  @IsBoolean()
+  esRetornable: boolean;
+}
+
+export class CreateOperationalWarehouseDto {
+  @IsString()
+  codigo: string;
+
+  @IsString()
+  nombre: string;
+
+  @IsString()
+  tipo: string;
+
+  @IsOptional()
+  @IsString()
+  direccion?: string;
+}
+
+export class RegisterOperationalPaymentDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  cuentaId: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  metodoPagoId: number;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.01)
+  monto: number;
+
+  @IsOptional()
+  @IsDateString()
+  fechaPago?: string;
+
+  @IsOptional()
+  @IsString()
+  numeroOperacion?: string;
+
+  @IsOptional()
+  @IsString()
+  observaciones?: string;
+}
+
+class ReturnItemDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  detalleId: number;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  cantidad: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  estadoDestinoId?: number;
+
+  @IsOptional()
+  reintegraInventario?: boolean;
+}
+
+export class CreateReturnDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  operacionId: number;
+
+  @IsString()
+  motivo: string;
+
+  @IsOptional()
+  @IsString()
+  observaciones?: string;
+
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => ReturnItemDto)
+  items: ReturnItemDto[];
 }

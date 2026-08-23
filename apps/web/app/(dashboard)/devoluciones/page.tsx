@@ -1,24 +1,93 @@
 "use client";
 
-import { Eye, Plus, Search, X } from "lucide-react";
-import { FormEvent, useMemo, useState } from "react";
+import { Check, Eye, Plus, RotateCcw, Search, X } from "lucide-react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  createOperationalReturn, getOperationCatalogs, getOperationalReturns, getPurchases, getSales,
+  OperationCatalogs, OperationalReturn, Purchase, ReturnsData, Sale, emptyCatalogs,
+} from "../../../lib/operations";
 
-const devoluciones = [
-  { id: 1, referencia: "DEV-V-0018", fecha: "11/07/2026", tipo: "VENTA", origen: "B001-000341", tercero: "Juan Perez", motivo: "Producto con sello danado", unidades: 1, total: 12, destino: "CUARENTENA", estado: "CONFIRMADA" },
-  { id: 2, referencia: "DEV-C-0006", fecha: "09/07/2026", tipo: "COMPRA", origen: "F004-00821", tercero: "Envases Peruanos E.I.R.L.", motivo: "Envases defectuosos", unidades: 5, total: 90, destino: "DEVOLUCION", estado: "BORRADOR" },
-];
+type ReturnKind = "VENTA" | "COMPRA";
+type Source = Sale | Purchase;
+type LineDraft = { detalleId: string; cantidad: number; estadoDestinoId: string; reintegraInventario: boolean };
+const emptyData: ReturnsData = { devoluciones: [], saldosFavor: [] };
 
 export default function DevolucionesPage() {
-  const [buscar, setBuscar] = useState(""); const [tipo, setTipo] = useState("Todas"); const [modal, setModal] = useState(false); const [seleccionada, setSeleccionada] = useState<(typeof devoluciones)[number] | null>(null);
-  const visibles = useMemo(() => devoluciones.filter((item) => (tipo === "Todas" || item.tipo === tipo) && `${item.referencia} ${item.origen} ${item.tercero}`.toLowerCase().includes(buscar.toLowerCase())), [buscar, tipo]);
-  function guardar(event: FormEvent) { event.preventDefault(); setModal(false); }
-  return <div className="module-page">
-    <div className="module-head"><div className="module-title"><h1>Devoluciones</h1><span>{devoluciones.length} devoluciones</span></div><button className="round-add" onClick={() => { setSeleccionada(null); setModal(true); }} title="Registrar devolucion" aria-label="Registrar devolucion"><Plus size={20} /></button></div>
-    <div className="module-tools"><label className="pill-search"><Search size={17} /><input value={buscar} onChange={(event) => setBuscar(event.target.value)} placeholder="Buscar referencia, comprobante o tercero" /></label><select className="filter-pill" value={tipo} onChange={(event) => setTipo(event.target.value)}><option>Todas</option><option>VENTA</option><option>COMPRA</option></select></div>
-    <div className="glass-table"><table><thead><tr><th>Devolucion</th><th>Tipo</th><th>Origen</th><th>Cliente / Proveedor</th><th>Motivo</th><th>Unidades</th><th>Destino</th><th>Total</th><th>Estado</th><th>Detalle</th></tr></thead><tbody>{visibles.map((item) => <tr key={item.id}><td><strong>{item.referencia}</strong><small>{item.fecha}</small></td><td><span className="status status-blue">{item.tipo}</span></td><td>{item.origen}</td><td>{item.tercero}</td><td>{item.motivo}</td><td>{item.unidades}</td><td>{item.destino}</td><td>S/ {item.total.toFixed(2)}</td><td><span className={item.estado === "CONFIRMADA" ? "status status-green" : "status status-amber"}>{item.estado}</span></td><td><button className="icon-soft" onClick={() => { setSeleccionada(item); setModal(true); }} title="Ver devolucion"><Eye size={16} /></button></td></tr>)}</tbody></table></div>
-    {modal ? <div className="modal-backdrop"><section className="crud-modal" role="dialog" aria-modal="true" aria-label={seleccionada ? "Detalle de devolucion" : "Registrar devolucion"}><div className="modal-top"><h2>{seleccionada ? seleccionada.referencia : "Registrar devolucion"}</h2><button className="modal-close" onClick={() => setModal(false)} aria-label="Cerrar modal"><X size={18} /></button></div><form className="modal-form" onSubmit={guardar}>
-      <label><span>Tipo</span><select defaultValue={seleccionada?.tipo}><option>VENTA</option><option>COMPRA</option></select></label><label><span>Comprobante origen</span><input defaultValue={seleccionada?.origen} required /></label><label><span>Producto</span><select><option>Agua purificada 20 L</option><option>Bidon retornable 20 L</option></select></label><label><span>Cantidad</span><input type="number" step="0.001" defaultValue={seleccionada?.unidades} required /></label><label><span>Estado destino</span><select defaultValue={seleccionada?.destino}><option>DISPONIBLE</option><option>CUARENTENA</option><option>DANADO</option><option>DEVOLUCION</option></select></label><label><span>Total</span><input type="number" step="0.01" defaultValue={seleccionada?.total} /></label><label className="field-wide"><span>Motivo</span><textarea defaultValue={seleccionada?.motivo} required /></label>
-      <div className="modal-actions"><button className="btn-secondary" type="button" onClick={() => setModal(false)}>Cerrar</button>{!seleccionada ? <button className="btn-primary">Guardar devolucion</button> : null}</div>
+  const [data, setData] = useState<ReturnsData>(emptyData);
+  const [sales, setSales] = useState<Sale[]>([]);
+  const [purchases, setPurchases] = useState<Purchase[]>([]);
+  const [catalogs, setCatalogs] = useState<OperationCatalogs>(emptyCatalogs);
+  const [search, setSearch] = useState("");
+  const [filterKind, setFilterKind] = useState("TODAS");
+  const [tab, setTab] = useState<"devoluciones" | "saldos">("devoluciones");
+  const [modal, setModal] = useState(false);
+  const [detail, setDetail] = useState<OperationalReturn | null>(null);
+  const [kind, setKind] = useState<ReturnKind>("VENTA");
+  const [operationId, setOperationId] = useState("");
+  const [reason, setReason] = useState("");
+  const [notes, setNotes] = useState("");
+  const [lines, setLines] = useState<LineDraft[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
+  const load = useCallback(async () => {
+    setError("");
+    try {
+      const [returnsData, saleData, purchaseData, catalogData] = await Promise.all([getOperationalReturns(), getSales(), getPurchases(), getOperationCatalogs()]);
+      setData(returnsData); setSales(saleData); setPurchases(purchaseData); setCatalogs(catalogData);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudieron cargar las devoluciones"); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  const sources = useMemo<Source[]>(() => (kind === "VENTA" ? sales : purchases).filter((item) => item.estado === "CONFIRMADA" && item.items.some((line) => line.cantidadDevuelta < line.cantidad)), [kind, purchases, sales]);
+  const source = sources.find((item) => item.id === operationId);
+  const visible = data.devoluciones.filter((item) => (filterKind === "TODAS" || item.tipo === filterKind) && `${item.codigo} ${item.comprobante} ${item.tercero} ${item.motivo}`.toLowerCase().includes(search.toLowerCase()));
+  const availableState = catalogs.estadosInventario.find((item) => item.codigo === "DISPONIBLE") ?? catalogs.estadosInventario[0];
+
+  function selectOperation(id: string, nextKind = kind) {
+    setOperationId(id);
+    const selected = (nextKind === "VENTA" ? sales : purchases).find((item) => item.id === id);
+    setLines(selected?.items.map((item) => ({ detalleId: item.id, cantidad: 0, estadoDestinoId: availableState?.id ?? "", reintegraInventario: true })) ?? []);
+  }
+  function openCreate() {
+    const initialKind: ReturnKind = sales.some((item) => item.estado === "CONFIRMADA") ? "VENTA" : "COMPRA";
+    setKind(initialKind); setReason(""); setNotes(""); setError(""); setDetail(null); setModal(true);
+    const first = (initialKind === "VENTA" ? sales : purchases).find((item) => item.estado === "CONFIRMADA" && item.items.some((line) => line.cantidadDevuelta < line.cantidad));
+    selectOperation(first?.id ?? "", initialKind);
+  }
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const selected = lines.filter((line) => line.cantidad > 0);
+    if (!operationId || !reason.trim() || !selected.length) { setError("Selecciona la operación, indica el motivo y agrega al menos una cantidad."); return; }
+    setSaving(true); setError("");
+    try {
+      await createOperationalReturn(kind.toLowerCase() as "venta" | "compra", { operacionId: Number(operationId), motivo: reason, observaciones: notes, items: selected.map((line) => ({ detalleId: Number(line.detalleId), cantidad: line.cantidad, estadoDestinoId: line.estadoDestinoId ? Number(line.estadoDestinoId) : undefined, reintegraInventario: kind === "VENTA" ? line.reintegraInventario : true })) });
+      setModal(false); setMessage("Devolución confirmada. Se actualizaron el saldo y el inventario correspondiente."); await load();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo registrar la devolución"); }
+    finally { setSaving(false); }
+  }
+
+  return <div className="module-page operations-list-page">
+    <div className="operation-list-head"><div><span className="operation-eyebrow">Operaciones relacionadas</span><h1>Devoluciones y saldos a favor</h1><p>Cada devolución conserva la compra o venta original y registra sus efectos financieros y físicos.</p></div><button className="btn-primary operation-primary-action" onClick={openCreate}><Plus size={18} /> Nueva devolución</button></div>
+    <div className="summary-row"><div className="summary-glass"><span>Devoluciones</span><strong>{data.devoluciones.length}</strong></div><div className="summary-glass"><span>Importe devuelto</span><strong>S/ {data.devoluciones.reduce((sum, item) => sum + item.total, 0).toFixed(2)}</strong></div><div className="summary-glass"><span>Saldos de clientes</span><strong>S/ {data.saldosFavor.filter((item) => item.tipo === "CLIENTE").reduce((sum, item) => sum + item.disponible, 0).toFixed(2)}</strong></div><div className="summary-glass"><span>Saldos con proveedores</span><strong>S/ {data.saldosFavor.filter((item) => item.tipo === "PROVEEDOR").reduce((sum, item) => sum + item.disponible, 0).toFixed(2)}</strong></div></div>
+    {message ? <div className="notice-success"><Check size={17} /> {message}<button onClick={() => setMessage("")} aria-label="Cerrar">×</button></div> : null}
+    {error && !modal ? <div className="notice-error">{error}<button onClick={() => void load()}>Reintentar</button></div> : null}
+    <div className="return-tabs"><button className={tab === "devoluciones" ? "active" : ""} onClick={() => setTab("devoluciones")}>Devoluciones</button><button className={tab === "saldos" ? "active" : ""} onClick={() => setTab("saldos")}>Saldos a favor</button></div>
+    {tab === "devoluciones" ? <>
+      <div className="module-tools operations-filters"><label className="pill-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar devolución, comprobante o tercero" /></label><select className="filter-pill" value={filterKind} onChange={(event) => setFilterKind(event.target.value)}><option>TODAS</option><option>VENTA</option><option>COMPRA</option></select></div>
+      {loading ? <div className="table-loading"><span className="loading-spinner" /> Cargando devoluciones...</div> : <div className="glass-table"><table><thead><tr><th>Devolución</th><th>Origen 1:1</th><th>Cliente / proveedor</th><th>Motivo</th><th>Total</th><th>Efecto</th><th>Estado</th><th>Detalle</th></tr></thead><tbody>{visible.length ? visible.map((item) => <tr key={`${item.tipo}-${item.id}`}><td><strong>{item.codigo}</strong><small>{new Date(item.fecha).toLocaleString("es-PE")}</small></td><td><span className="status status-blue">{item.tipo}</span><small>{item.comprobante}</small></td><td>{item.tercero}</td><td>{item.motivo}</td><td><strong>S/ {item.total.toFixed(2)}</strong></td><td>{item.saldoFavor > 0 ? <span className="status status-amber">Saldo S/ {item.saldoFavor.toFixed(2)}</span> : item.kardexId ? <span className="status status-green">Kardex #{item.kardexId}</span> : "Solo financiero"}</td><td><span className="status status-green">{item.estado}</span></td><td><button className="icon-soft" onClick={() => setDetail(item)} aria-label={`Ver ${item.codigo}`}><Eye size={16} /></button></td></tr>) : <tr><td colSpan={8}><div className="table-empty">No hay devoluciones para estos filtros.</div></td></tr>}</tbody></table></div>}
+    </> : <div className="glass-table"><table><thead><tr><th>Tipo</th><th>Cliente / proveedor</th><th>Generado</th><th>Original</th><th>Disponible</th><th>Estado</th></tr></thead><tbody>{data.saldosFavor.length ? data.saldosFavor.map((item) => <tr key={item.id}><td><span className="status status-blue">{item.tipo}</span></td><td><strong>{item.tercero}</strong></td><td>{new Date(item.fecha).toLocaleDateString("es-PE")}</td><td>S/ {item.original.toFixed(2)}</td><td><strong>S/ {item.disponible.toFixed(2)}</strong></td><td><span className="status status-green">{item.estado}</span></td></tr>) : <tr><td colSpan={6}><div className="table-empty">No existen saldos a favor pendientes.</div></td></tr>}</tbody></table></div>}
+
+    {modal ? <div className="modal-backdrop"><section className="crud-modal return-modal" role="dialog" aria-modal="true" aria-labelledby="return-title"><div className="modal-top"><div><h2 id="return-title">Registrar devolución</h2><small>Solo puedes devolver productos y cantidades de la operación seleccionada.</small></div><button className="modal-close" onClick={() => setModal(false)}><X size={18} /></button></div><form className="modal-form" onSubmit={submit}>
+      <div className="operation-field-pair"><label><span>Origen</span><select value={kind} onChange={(event) => { const next = event.target.value as ReturnKind; setKind(next); const first = (next === "VENTA" ? sales : purchases).find((item) => item.estado === "CONFIRMADA" && item.items.some((line) => line.cantidadDevuelta < line.cantidad)); selectOperation(first?.id ?? "", next); }}><option>VENTA</option><option>COMPRA</option></select></label><label><span>{kind === "VENTA" ? "Venta" : "Compra"} original</span><select value={operationId} onChange={(event) => selectOperation(event.target.value)} required><option value="">Seleccionar operación</option>{sources.map((item) => <option key={item.id} value={item.id}>{item.codigo} · {item.comprobante} · {"cliente" in item ? item.cliente : item.proveedor}</option>)}</select></label></div>
+      {source ? <div className="return-source-summary"><span>Total original<strong>S/ {source.total.toFixed(2)}</strong></span><span>Total neto actual<strong>S/ {source.totalNeto.toFixed(2)}</strong></span><span>Pagado<strong>S/ {source.pagado.toFixed(2)}</strong></span><span>Saldo<strong>S/ {source.saldo.toFixed(2)}</strong></span></div> : null}
+      <div className="return-lines"><div className="return-line-head"><span>Producto</span><span>Disponible para devolver</span><span>Cantidad</span>{kind === "VENTA" ? <span>Destino físico</span> : null}</div>{source?.items.map((item, index) => { const draft = lines[index]; const remaining = item.cantidad - item.cantidadDevuelta; return <div className="return-line" key={item.id}><div><strong>{item.producto}</strong><small>{item.cantidad} vendidos/comprados · {item.cantidadDevuelta} ya devueltos</small></div><span>{remaining}</span><input type="number" min="0" max={remaining} step="1" value={draft?.cantidad ?? 0} onChange={(event) => setLines((current) => current.map((line, position) => position === index ? { ...line, cantidad: Number(event.target.value) } : line))} />{kind === "VENTA" && draft ? <div className="return-destination"><label className="check-field"><input type="checkbox" checked={draft.reintegraInventario} onChange={(event) => setLines((current) => current.map((line, position) => position === index ? { ...line, reintegraInventario: event.target.checked } : line))} /><span>Regresa al stock</span></label>{draft.reintegraInventario ? <select value={draft.estadoDestinoId} onChange={(event) => setLines((current) => current.map((line, position) => position === index ? { ...line, estadoDestinoId: event.target.value } : line))}>{catalogs.estadosInventario.map((state) => <option key={state.id} value={state.id}>{state.nombre}</option>)}</select> : <small>Dañado, desechado o no recibido</small>}</div> : null}</div>; })}</div>
+      <label className="field-wide"><span>Motivo</span><textarea value={reason} onChange={(event) => setReason(event.target.value)} required placeholder="Explica por qué se realiza la devolución" /></label><label className="field-wide"><span>Observaciones</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Información adicional opcional" /></label>
+      {error ? <div className="notice-error field-wide">{error}</div> : null}<div className="modal-actions field-wide"><button className="btn-secondary" type="button" onClick={() => setModal(false)}>Cancelar</button><button className="btn-primary" disabled={saving}>{saving ? "Procesando..." : "Confirmar devolución"}</button></div>
     </form></section></div> : null}
+    {detail ? <div className="modal-backdrop"><section className="crud-modal"><div className="modal-top"><div><h2>{detail.codigo}</h2><small>{detail.comprobante} · {detail.tercero}</small></div><button className="modal-close" onClick={() => setDetail(null)}><X size={18} /></button></div><div className="operation-detail-items">{detail.items.map((item, index) => <div className="detail-line" key={index}><span>{item.producto}<small>{item.cantidad} · {item.destino}</small></span><strong>S/ {item.importe.toFixed(2)}</strong></div>)}</div><div className="review-total"><span>Total devuelto</span><strong>S/ {detail.total.toFixed(2)}</strong></div><div className="modal-actions"><button className="btn-secondary" onClick={() => setDetail(null)}>Cerrar</button></div></section></div> : null}
   </div>;
 }
