@@ -1,8 +1,8 @@
-import { IsBoolean, IsOptional, IsString, Matches, MaxLength } from "class-validator";
+import { IsBoolean, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 
 export class CreatePaymentMethodDto {
   @IsString()
-  @Matches(/\S/, { message: "El nombre es obligatorio" })
+  @Matches(/\S/, { message: 'El nombre es obligatorio' })
   @MaxLength(50)
   nombre: string;
 
@@ -18,7 +18,7 @@ export class CreatePaymentMethodDto {
 export class UpdatePaymentMethodDto {
   @IsOptional()
   @IsString()
-  @Matches(/\S/, { message: "El nombre es obligatorio" })
+  @Matches(/\S/, { message: 'El nombre es obligatorio' })
   @MaxLength(50)
   nombre?: string;
 

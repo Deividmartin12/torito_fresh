@@ -1,8 +1,8 @@
-import { Injectable, UnauthorizedException } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
-import { PassportStrategy } from "@nestjs/passport";
-import { ExtractJwt, Strategy } from "passport-jwt";
-import { PrismaService } from "../prisma/prisma.service";
+import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { PassportStrategy } from '@nestjs/passport';
+import { ExtractJwt, Strategy } from 'passport-jwt';
+import { PrismaService } from '../prisma/prisma.service';
 
 interface JwtPayload {
   sub: string;
@@ -19,14 +19,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: config.get<string>("JWT_SECRET") ?? "dev-secret",
+      secretOrKey: config.get<string>('JWT_SECRET') ?? 'dev-secret',
     });
   }
 
   async validate(payload: JwtPayload) {
     const issuedAt = payload.iat ? payload.iat * 1000 : 0;
     if (!issuedAt || Date.now() >= issuedAt + 6 * 60 * 60 * 1000) {
-      throw new UnauthorizedException("La sesión ha vencido");
+      throw new UnauthorizedException('La sesión ha vencido');
     }
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
@@ -34,7 +34,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
 
     if (!user || !user.active) {
-      throw new UnauthorizedException("Usuario inactivo o inexistente");
+      throw new UnauthorizedException('Usuario inactivo o inexistente');
     }
 
     return {

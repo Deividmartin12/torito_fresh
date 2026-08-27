@@ -1,5 +1,5 @@
-import { Type } from "class-transformer";
-import { IsDateString, IsNumber, IsOptional, IsString, MaxLength, Min } from "class-validator";
+import { Type } from 'class-transformer';
+import { IsDateString, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
 export class CreateExpenseDto {
   @IsDateString()
@@ -26,4 +26,16 @@ export class CreateExpenseDto {
   @IsOptional()
   @IsString()
   observaciones?: string;
+}
+
+export class CreateExpenseCategoryDto {
+  @IsString()
+  @MaxLength(100)
+  categoria: string;
+}
+
+export class UpdateExpenseCategoryDto {
+  @IsString()
+  @MaxLength(100)
+  categoria: string;
 }

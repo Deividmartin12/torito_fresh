@@ -15,9 +15,12 @@
     "db:push": "prisma db push --schema packages/database/prisma/schema.prisma && npm run db:constraints",
     "db:constraints": "prisma db execute --schema packages/database/prisma/schema.prisma --file packages/database/prisma/constraints.sql",
     "db:seed": "prisma db seed --schema packages/database/prisma/schema.prisma",
-    "db:studio": "prisma studio --schema packages/database/prisma/schema.prisma"
+    "db:studio": "prisma studio --schema packages/database/prisma/schema.prisma",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "devDependencies": {
+    "prettier": "^3.9.6",
     "prisma": "^5.22.0",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3"

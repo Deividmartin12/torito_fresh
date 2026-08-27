@@ -1,4 +1,4 @@
-import { Type } from "class-transformer";
+import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
@@ -11,7 +11,7 @@ import {
   IsString,
   Min,
   ValidateNested,
-} from "class-validator";
+} from 'class-validator';
 
 class OperationItemDto {
   @Type(() => Number)
@@ -49,7 +49,7 @@ class BaseOperationDto {
   @Min(1)
   almacenId: number;
 
-  @IsIn(["CONTADO", "CREDITO", "MIXTO"])
+  @IsIn(['CONTADO', 'CREDITO', 'MIXTO'])
   tipoPago: string;
 
   @IsOptional()
@@ -86,7 +86,7 @@ class BaseOperationDto {
 }
 
 export class CreatePurchaseDto extends BaseOperationDto {
-  @IsIn(["FACTURA", "BOLETA", "TICKET", "NOTA", "OTRO"])
+  @IsIn(['FACTURA', 'BOLETA', 'TICKET', 'NOTA', 'OTRO'])
   tipoComprobante: string;
 
   @IsString()

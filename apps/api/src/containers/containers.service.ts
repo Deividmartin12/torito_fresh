@@ -1,6 +1,6 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { PrismaService } from "../prisma/prisma.service";
-import { AdjustContainerDto } from "./containers.dto";
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import { AdjustContainerDto } from './containers.dto';
 
 @Injectable()
 export class ContainersService {
@@ -9,15 +9,15 @@ export class ContainersService {
   pendingClients() {
     return this.prisma.client.findMany({
       where: { containerBalance: { gt: 0 }, active: true },
-      orderBy: { containerBalance: "desc" },
-      include: { containerMoves: { orderBy: { movedAt: "desc" }, take: 5 } },
+      orderBy: { containerBalance: 'desc' },
+      include: { containerMoves: { orderBy: { movedAt: 'desc' }, take: 5 } },
     });
   }
 
   movements(clientId?: string) {
     return this.prisma.containerMovement.findMany({
       where: clientId ? { clientId } : undefined,
-      orderBy: { movedAt: "desc" },
+      orderBy: { movedAt: 'desc' },
       include: { client: true, order: true, user: { select: { id: true, name: true } } },
       take: 200,
     });
@@ -25,18 +25,18 @@ export class ContainersService {
 
   async adjust(dto: AdjustContainerDto, userId?: string) {
     if (dto.quantity === 0) {
-      throw new BadRequestException("El ajuste no puede ser cero");
+      throw new BadRequestException('El ajuste no puede ser cero');
     }
 
     return this.prisma.$transaction(async (tx) => {
       const client = await tx.client.findUnique({ where: { id: dto.clientId } });
       if (!client) {
-        throw new NotFoundException("Cliente no encontrado");
+        throw new NotFoundException('Cliente no encontrado');
       }
 
       const balance = client.containerBalance + dto.quantity;
       if (balance < 0) {
-        throw new BadRequestException("El ajuste deja saldo negativo");
+        throw new BadRequestException('El ajuste deja saldo negativo');
       }
 
       await tx.client.update({ where: { id: client.id }, data: { containerBalance: balance } });
@@ -45,10 +45,14 @@ export class ContainersService {
         data: {
           clientId: client.id,
           userId,
-          type: dto.quantity > 0 ? "OUT_FULL" : "IN_EMPTY",
+          type: dto.quantity > 0 ? 'OUT_FULL' : 'IN_EMPTY',
           quantity: Math.abs(dto.quantity),
           balanceAfter: balance,
-          notes: dto.notes ?? (dto.quantity > 0 ? "Ajuste aumenta deuda de envases" : "Ajuste reduce deuda de envases"),
+          notes:
+            dto.notes ??
+            (dto.quantity > 0
+              ? 'Ajuste aumenta deuda de envases'
+              : 'Ajuste reduce deuda de envases'),
         },
         include: { client: true },
       });

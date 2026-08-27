@@ -1,12 +1,20 @@
-import { IsBoolean, IsEmail, IsOptional, IsString, Matches, MaxLength, ValidateIf } from "class-validator";
+import {
+  IsBoolean,
+  IsEmail,
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+  ValidateIf,
+} from 'class-validator';
 
 export class CreateProveedorDto {
   @IsString()
-  @Matches(/^\d{11}$/, { message: "El RUC debe contener exactamente 11 digitos" })
+  @Matches(/^\d{11}$/, { message: 'El RUC debe contener exactamente 11 digitos' })
   ruc: string;
 
   @IsString()
-  @Matches(/\S/, { message: "La razon social es obligatoria" })
+  @Matches(/\S/, { message: 'La razon social es obligatoria' })
   @MaxLength(150)
   razonSocial: string;
 
@@ -21,8 +29,8 @@ export class CreateProveedorDto {
   telefono?: string;
 
   @IsOptional()
-  @ValidateIf((_object, value) => value !== "")
-  @IsEmail({}, { message: "El correo no tiene un formato valido" })
+  @ValidateIf((_object, value) => value !== '')
+  @IsEmail({}, { message: 'El correo no tiene un formato valido' })
   @MaxLength(150)
   correo?: string;
 
@@ -35,12 +43,12 @@ export class CreateProveedorDto {
 export class UpdateProveedorDto {
   @IsOptional()
   @IsString()
-  @Matches(/^\d{11}$/, { message: "El RUC debe contener exactamente 11 digitos" })
+  @Matches(/^\d{11}$/, { message: 'El RUC debe contener exactamente 11 digitos' })
   ruc?: string;
 
   @IsOptional()
   @IsString()
-  @Matches(/\S/, { message: "La razon social es obligatoria" })
+  @Matches(/\S/, { message: 'La razon social es obligatoria' })
   @MaxLength(150)
   razonSocial?: string;
 
@@ -55,8 +63,8 @@ export class UpdateProveedorDto {
   telefono?: string;
 
   @IsOptional()
-  @ValidateIf((_object, value) => value !== "")
-  @IsEmail({}, { message: "El correo no tiene un formato valido" })
+  @ValidateIf((_object, value) => value !== '')
+  @IsEmail({}, { message: 'El correo no tiene un formato valido' })
   @MaxLength(150)
   correo?: string;
 

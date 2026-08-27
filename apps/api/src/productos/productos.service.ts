@@ -1,7 +1,7 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
-import { PrismaService } from "../prisma/prisma.service";
-import { CreateProductoDto, UpdateProductoDto } from "./productos.dto";
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
+import { CreateProductoDto, UpdateProductoDto } from './productos.dto';
 
 @Injectable()
 export class ProductosService {
@@ -12,24 +12,24 @@ export class ProductosService {
       ...(search
         ? {
             OR: [
-              { name: { contains: search, mode: "insensitive" } },
-              { sku: { contains: search, mode: "insensitive" } },
+              { name: { contains: search, mode: 'insensitive' } },
+              { sku: { contains: search, mode: 'insensitive' } },
             ],
           }
         : {}),
-      ...(active === "true" ? { active: true } : active === "false" ? { active: false } : {}),
+      ...(active === 'true' ? { active: true } : active === 'false' ? { active: false } : {}),
     };
 
-    return this.prisma.product.findMany({ where, orderBy: { createdAt: "desc" } });
+    return this.prisma.product.findMany({ where, orderBy: { createdAt: 'desc' } });
   }
 
   async get(id: string) {
     const product = await this.prisma.product.findUnique({
       where: { id },
-      include: { inventoryMoves: { orderBy: { movedAt: "desc" }, take: 20 } },
+      include: { inventoryMoves: { orderBy: { movedAt: 'desc' }, take: 20 } },
     });
     if (!product) {
-      throw new NotFoundException("Producto no encontrado");
+      throw new NotFoundException('Producto no encontrado');
     }
     return product;
   }

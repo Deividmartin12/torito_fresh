@@ -1,3 +1,5 @@
-import { redirect } from "next/navigation";
+import { redirect } from 'next/navigation';
 
-export default function NuevaCompraPage() { redirect("/gastos"); }
+export default function NuevaCompraPage() {
+  redirect('/gastos');
+}

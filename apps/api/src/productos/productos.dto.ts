@@ -1,6 +1,6 @@
-import { ProductCategory } from "@prisma/client";
-import { Type } from "class-transformer";
-import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, Min } from "class-validator";
+import { ProductCategory } from '@prisma/client';
+import { Type } from 'class-transformer';
+import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 export class CreateProductoDto {
   @IsString()

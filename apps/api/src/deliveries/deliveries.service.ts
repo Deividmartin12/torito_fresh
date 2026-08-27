@@ -1,9 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { OrderStatus, RoleName } from "@prisma/client";
-import { AuthUser } from "../common/auth-user";
-import { PrismaService } from "../prisma/prisma.service";
-import { SalesService } from "../sales/sales.service";
-import { CompleteDeliveryDto } from "./deliveries.dto";
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { OrderStatus, RoleName } from '@prisma/client';
+import { AuthUser } from '../common/auth-user';
+import { PrismaService } from '../prisma/prisma.service';
+import { SalesService } from '../sales/sales.service';
+import { CompleteDeliveryDto } from './deliveries.dto';
 
 @Injectable()
 export class DeliveriesService {
@@ -25,7 +25,7 @@ export class DeliveriesService {
             }
           : {}),
       },
-      orderBy: { deliveredAt: "desc" },
+      orderBy: { deliveredAt: 'desc' },
       include: {
         deliveryUser: { select: { id: true, name: true, email: true } },
         order: { include: { client: true, items: { include: { product: true } }, sale: true } },
@@ -45,25 +45,30 @@ export class DeliveriesService {
       });
 
       if (!order) {
-        throw new NotFoundException("Pedido no encontrado");
+        throw new NotFoundException('Pedido no encontrado');
       }
       if (order.status === OrderStatus.CANCELLED) {
-        throw new BadRequestException("No se puede entregar un pedido cancelado");
+        throw new BadRequestException('No se puede entregar un pedido cancelado');
       }
       if (order.sale) {
-        throw new BadRequestException("El pedido ya fue convertido en venta");
+        throw new BadRequestException('El pedido ya fue convertido en venta');
       }
       if (dto.paymentReceived > Number(order.total)) {
-        throw new BadRequestException("El pago recibido no puede superar el total");
+        throw new BadRequestException('El pago recibido no puede superar el total');
       }
 
       const deliveryUserId =
-        dto.deliveryUserId ?? order.deliveryUserId ?? (user.role === RoleName.DELIVERY ? user.userId : undefined);
+        dto.deliveryUserId ??
+        order.deliveryUserId ??
+        (user.role === RoleName.DELIVERY ? user.userId : undefined);
 
       if (deliveryUserId) {
-        const deliveryUser = await tx.user.findUnique({ where: { id: deliveryUserId }, include: { role: true } });
+        const deliveryUser = await tx.user.findUnique({
+          where: { id: deliveryUserId },
+          include: { role: true },
+        });
         if (!deliveryUser || !deliveryUser.active || deliveryUser.role.name !== RoleName.DELIVERY) {
-          throw new BadRequestException("Repartidor invalido o inactivo");
+          throw new BadRequestException('Repartidor invalido o inactivo');
         }
       }
 
@@ -76,16 +81,16 @@ export class DeliveriesService {
             clientId: order.clientId,
             orderId: order.id,
             userId: user.userId,
-            type: "OUT_FULL",
+            type: 'OUT_FULL',
             quantity: dto.containersDelivered,
             balanceAfter: balance,
-            notes: "Envases llenos entregados",
+            notes: 'Envases llenos entregados',
           },
         });
       }
 
       if (dto.containersReturned > balance) {
-        throw new BadRequestException("La devolucion supera el saldo de envases del cliente");
+        throw new BadRequestException('La devolucion supera el saldo de envases del cliente');
       }
 
       if (dto.containersReturned > 0) {
@@ -95,28 +100,28 @@ export class DeliveriesService {
             clientId: order.clientId,
             orderId: order.id,
             userId: user.userId,
-            type: "IN_EMPTY",
+            type: 'IN_EMPTY',
             quantity: dto.containersReturned,
             balanceAfter: balance,
-            notes: "Envases vacios devueltos",
+            notes: 'Envases vacios devueltos',
           },
         });
 
         const warehouse = await tx.warehouseState.upsert({
-          where: { id: "main" },
+          where: { id: 'main' },
           update: { emptyContainers: { increment: dto.containersReturned } },
-          create: { id: "main", emptyContainers: dto.containersReturned },
+          create: { id: 'main', emptyContainers: dto.containersReturned },
         });
 
         await tx.inventoryMovement.create({
           data: {
-            type: "RETURN_IN",
+            type: 'RETURN_IN',
             quantity: dto.containersReturned,
             emptyContainersDelta: dto.containersReturned,
             emptyContainersAfter: warehouse.emptyContainers,
             orderId: order.id,
             userId: user.userId,
-            notes: "Ingreso de envases vacios por reparto",
+            notes: 'Ingreso de envases vacios por reparto',
           },
         });
       }
@@ -146,7 +151,13 @@ export class DeliveriesService {
         },
       });
 
-      await this.sales.createSaleForOrder(tx, order, dto.paymentReceived, dto.paymentMethod, user.userId);
+      await this.sales.createSaleForOrder(
+        tx,
+        order,
+        dto.paymentReceived,
+        dto.paymentMethod,
+        user.userId,
+      );
 
       return tx.order.findUnique({
         where: { id: order.id },

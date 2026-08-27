@@ -1,0 +1,10 @@
+node_modules
+dist
+build
+.next
+coverage
+*.tsbuildinfo
+package-lock.json
+apps/api/dist
+apps/web/.next
+apps/web/next-env.d.ts

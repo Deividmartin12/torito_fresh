@@ -1,4 +1,4 @@
-import { IsBoolean, IsOptional, IsString } from "class-validator";
+import { IsBoolean, IsOptional, IsString } from 'class-validator';
 
 export class CreateClientDto {
   @IsString()
@@ -21,7 +21,6 @@ export class CreateClientDto {
   @IsOptional()
   @IsString()
   reference?: string;
-
 }
 
 export class UpdateClientDto {

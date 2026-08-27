@@ -1,6 +1,6 @@
-import { InventoryMovementType } from "@prisma/client";
-import { Type } from "class-transformer";
-import { IsEnum, IsNumber, IsOptional, IsString, Min } from "class-validator";
+import { InventoryMovementType } from '@prisma/client';
+import { Type } from 'class-transformer';
+import { IsEnum, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 export class CreateInventoryMovementDto {
   @IsOptional()

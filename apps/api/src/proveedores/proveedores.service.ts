@@ -1,7 +1,7 @@
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
-import { PrismaService } from "../prisma/prisma.service";
-import { CreateProveedorDto, UpdateProveedorDto } from "./proveedores.dto";
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
+import { CreateProveedorDto, UpdateProveedorDto } from './proveedores.dto';
 
 const proveedorRelations = {
   compras: { select: { cuentaPagar: { select: { saldoPendiente: true } } } },
@@ -17,14 +17,18 @@ export class ProveedoresService {
     const term = search?.trim();
     const rows = await this.prisma.proveedor.findMany({
       where: {
-        ...(term ? { OR: [
-          { razonSocial: { contains: term, mode: "insensitive" } },
-          { nombreComercial: { contains: term, mode: "insensitive" } },
-          { ruc: { contains: term } },
-        ] } : {}),
-        ...(active === "true" ? { estado: true } : active === "false" ? { estado: false } : {}),
+        ...(term
+          ? {
+              OR: [
+                { razonSocial: { contains: term, mode: 'insensitive' } },
+                { nombreComercial: { contains: term, mode: 'insensitive' } },
+                { ruc: { contains: term } },
+              ],
+            }
+          : {}),
+        ...(active === 'true' ? { estado: true } : active === 'false' ? { estado: false } : {}),
       },
-      orderBy: { razonSocial: "asc" },
+      orderBy: { razonSocial: 'asc' },
       include: proveedorRelations,
     });
 
@@ -67,10 +71,13 @@ export class ProveedoresService {
     try {
       proveedorId = BigInt(id);
     } catch {
-      throw new NotFoundException("Proveedor no encontrado");
+      throw new NotFoundException('Proveedor no encontrado');
     }
-    const row = await this.prisma.proveedor.findUnique({ where: { id: proveedorId }, include: proveedorRelations });
-    if (!row) throw new NotFoundException("Proveedor no encontrado");
+    const row = await this.prisma.proveedor.findUnique({
+      where: { id: proveedorId },
+      include: proveedorRelations,
+    });
+    if (!row) throw new NotFoundException('Proveedor no encontrado');
     return row;
   }
 
@@ -89,9 +96,13 @@ export class ProveedoresService {
     return {
       ...(dto.ruc !== undefined ? { ruc: dto.ruc.trim() } : {}),
       ...(dto.razonSocial !== undefined ? { razonSocial: dto.razonSocial.trim() } : {}),
-      ...(dto.nombreComercial !== undefined ? { nombreComercial: this.optional(dto.nombreComercial) } : {}),
+      ...(dto.nombreComercial !== undefined
+        ? { nombreComercial: this.optional(dto.nombreComercial) }
+        : {}),
       ...(dto.telefono !== undefined ? { telefono: this.optional(dto.telefono) } : {}),
-      ...(dto.correo !== undefined ? { correo: this.optional(dto.correo)?.toLowerCase() ?? null } : {}),
+      ...(dto.correo !== undefined
+        ? { correo: this.optional(dto.correo)?.toLowerCase() ?? null }
+        : {}),
       ...(dto.direccion !== undefined ? { direccion: this.optional(dto.direccion) } : {}),
       ...(dto.estado !== undefined ? { estado: dto.estado } : {}),
     };
@@ -106,19 +117,22 @@ export class ProveedoresService {
       id: row.id.toString(),
       ruc: row.ruc,
       razonSocial: row.razonSocial,
-      nombreComercial: row.nombreComercial ?? "",
-      telefono: row.telefono ?? "",
-      correo: row.correo ?? "",
-      direccion: row.direccion ?? "",
+      nombreComercial: row.nombreComercial ?? '',
+      telefono: row.telefono ?? '',
+      correo: row.correo ?? '',
+      direccion: row.direccion ?? '',
       estado: row.estado,
       compras: row.compras.length,
-      saldoPendiente: row.compras.reduce((sum, compra) => sum + Number(compra.cuentaPagar?.saldoPendiente ?? 0), 0),
+      saldoPendiente: row.compras.reduce(
+        (sum, compra) => sum + Number(compra.cuentaPagar?.saldoPendiente ?? 0),
+        0,
+      ),
     };
   }
 
   private handlePrismaError(error: unknown): never {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      throw new ConflictException("Ya existe un proveedor con ese RUC");
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      throw new ConflictException('Ya existe un proveedor con ese RUC');
     }
     throw error;
   }

@@ -1,8 +1,8 @@
-import { Injectable, UnauthorizedException } from "@nestjs/common";
-import { JwtService } from "@nestjs/jwt";
-import * as bcrypt from "bcryptjs";
-import { PrismaService } from "../prisma/prisma.service";
-import { ChangePasswordDto, LoginDto } from "./auth.dto";
+import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+import * as bcrypt from 'bcryptjs';
+import { PrismaService } from '../prisma/prisma.service';
+import { ChangePasswordDto, LoginDto } from './auth.dto';
 
 @Injectable()
 export class AuthService {
@@ -18,12 +18,12 @@ export class AuthService {
     });
 
     if (!user || !user.active) {
-      throw new UnauthorizedException("Credenciales invalidas");
+      throw new UnauthorizedException('Credenciales invalidas');
     }
 
     const validPassword = await bcrypt.compare(dto.password, user.passwordHash);
     if (!validPassword) {
-      throw new UnauthorizedException("Credenciales invalidas");
+      throw new UnauthorizedException('Credenciales invalidas');
     }
 
     const accessToken = await this.jwt.signAsync({
@@ -59,12 +59,12 @@ export class AuthService {
   async changePassword(userId: string, dto: ChangePasswordDto) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) {
-      throw new UnauthorizedException("Usuario no encontrado");
+      throw new UnauthorizedException('Usuario no encontrado');
     }
 
     const validPassword = await bcrypt.compare(dto.currentPassword, user.passwordHash);
     if (!validPassword) {
-      throw new UnauthorizedException("Contrasena actual incorrecta");
+      throw new UnauthorizedException('Contrasena actual incorrecta');
     }
 
     const passwordHash = await bcrypt.hash(dto.newPassword, 10);
@@ -73,6 +73,6 @@ export class AuthService {
       data: { passwordHash },
     });
 
-    return { message: "Contrasena actualizada" };
+    return { message: 'Contrasena actualizada' };
   }
 }

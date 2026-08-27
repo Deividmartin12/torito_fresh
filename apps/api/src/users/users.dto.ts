@@ -1,5 +1,5 @@
-import { RoleName } from "@prisma/client";
-import { IsBoolean, IsEmail, IsEnum, IsOptional, IsString, MinLength } from "class-validator";
+import { RoleName } from '@prisma/client';
+import { IsBoolean, IsEmail, IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
 
 export class CreateUserDto {
   @IsString()

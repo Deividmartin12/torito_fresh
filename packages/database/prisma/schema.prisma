@@ -349,6 +349,15 @@ model Gasto {
   @@map("gasto")
 }
 
+model CategoriaGasto {
+  id        BigInt   @id @default(autoincrement())
+  nombre    String   @unique @db.VarChar(100)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("categoria_gasto")
+}
+
 model TipoProducto {
   id          BigInt     @id @default(autoincrement())
   nombre      String     @unique @db.VarChar(100)

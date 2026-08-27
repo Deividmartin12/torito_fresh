@@ -1,7 +1,7 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { OrderStatus, PaymentStatus, Prisma } from "@prisma/client";
-import { PrismaService } from "../prisma/prisma.service";
-import { CreateSaleFromOrderDto } from "./sales.dto";
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { OrderStatus, PaymentStatus, Prisma } from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
+import { CreateSaleFromOrderDto } from './sales.dto';
 
 @Injectable()
 export class SalesService {
@@ -20,7 +20,7 @@ export class SalesService {
             }
           : {}),
       },
-      orderBy: { issuedAt: "desc" },
+      orderBy: { issuedAt: 'desc' },
       include: {
         client: true,
         order: { include: { items: { include: { product: true } }, deliveryUser: true } },
@@ -40,7 +40,7 @@ export class SalesService {
     });
 
     if (!sale) {
-      throw new NotFoundException("Venta no encontrada");
+      throw new NotFoundException('Venta no encontrada');
     }
 
     return sale;
@@ -58,13 +58,13 @@ export class SalesService {
       });
 
       if (!order) {
-        throw new NotFoundException("Pedido no encontrado");
+        throw new NotFoundException('Pedido no encontrado');
       }
       if (order.sale) {
-        throw new BadRequestException("El pedido ya tiene venta");
+        throw new BadRequestException('El pedido ya tiene venta');
       }
       if (order.status !== OrderStatus.DELIVERED) {
-        throw new BadRequestException("Solo se puede vender un pedido entregado");
+        throw new BadRequestException('Solo se puede vender un pedido entregado');
       }
 
       return this.createSaleForOrder(tx, order, dto.amountPaid ?? 0, dto.paymentMethod, userId);
@@ -73,15 +73,18 @@ export class SalesService {
 
   async createSaleForOrder(
     tx: Prisma.TransactionClient,
-    order: Prisma.OrderGetPayload<{ include: { client: true; items: { include: { product: true } }; sale: true } }>,
+    order: Prisma.OrderGetPayload<{
+      include: { client: true; items: { include: { product: true } }; sale: true };
+    }>,
     amountPaid: number,
-    method: CreateSaleFromOrderDto["paymentMethod"],
+    method: CreateSaleFromOrderDto['paymentMethod'],
     userId?: string,
   ) {
     const total = Number(order.total);
     const paid = Math.min(amountPaid, total);
     const debt = Math.max(total - paid, 0);
-    const paymentStatus = debt <= 0 ? PaymentStatus.PAID : paid > 0 ? PaymentStatus.PARTIAL : PaymentStatus.PENDING;
+    const paymentStatus =
+      debt <= 0 ? PaymentStatus.PAID : paid > 0 ? PaymentStatus.PARTIAL : PaymentStatus.PENDING;
 
     for (const item of order.items) {
       if (item.product.stock < item.quantity) {
@@ -110,7 +113,7 @@ export class SalesService {
           userId,
           amount: paid,
           method,
-          notes: "Pago recibido al generar venta",
+          notes: 'Pago recibido al generar venta',
         },
       });
     }
@@ -133,7 +136,7 @@ export class SalesService {
           productId: item.productId,
           orderId: order.id,
           userId,
-          type: "SALE_OUT",
+          type: 'SALE_OUT',
           quantity: item.quantity,
           stockAfter: updatedProduct.stock,
           notes: `Venta ${sale.ticketNumber}`,
@@ -152,7 +155,7 @@ export class SalesService {
   }
 
   private makeTicketNumber() {
-    const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const suffix = `${Date.now()}`.slice(-7);
     return `TF-${date}-${suffix}`;
   }
