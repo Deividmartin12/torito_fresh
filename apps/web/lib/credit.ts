@@ -17,26 +17,10 @@ export const formaPagoLabel: Record<string, string> = {
  * Opciones para el selector de forma de pago. El texto sirve tanto para ventas
  * (cobrar al cliente) como para compras (pagar al proveedor).
  */
-export const formaPagoOpciones: {
-  value: FormaPago;
-  titulo: string;
-  detalle: string;
-}[] = [
-  {
-    value: 'CONTADO',
-    titulo: 'Pago completo ahora',
-    detalle: 'Se paga el total en este momento.',
-  },
-  {
-    value: 'CREDITO',
-    titulo: 'A crédito',
-    detalle: 'El total queda pendiente hasta la fecha acordada.',
-  },
-  {
-    value: 'MIXTO',
-    titulo: 'Pago parcial + saldo a crédito',
-    detalle: 'Se abona una parte ahora y el resto queda a crédito.',
-  },
+export const formaPagoOpciones: { value: FormaPago; label: string }[] = [
+  { value: 'CONTADO', label: 'Completo' },
+  { value: 'CREDITO', label: 'Crédito' },
+  { value: 'MIXTO', label: 'Mixto' },
 ];
 
 /** Estado de una cuenta por cobrar / pagar. */

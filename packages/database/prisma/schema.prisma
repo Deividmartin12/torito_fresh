@@ -49,6 +49,7 @@ model User {
   id             String              @id @default(cuid())
   name           String
   email          String              @unique
+  username       String?             @unique
   passwordHash   String              @map("password_hash")
   active         Boolean             @default(true)
   roleId         String              @map("role_id")
@@ -448,8 +449,8 @@ model DetalleDevolucionCompra {
 
 model Cliente {
   id              BigInt              @id @default(autoincrement())
-  tipoDocumento   String              @map("tipo_documento") @db.VarChar(20)
-  numeroDocumento String              @unique @map("numero_documento") @db.VarChar(20)
+  tipoDocumento   String?             @map("tipo_documento") @db.VarChar(20)
+  numeroDocumento String?             @unique @map("numero_documento") @db.VarChar(20)
   nombreLegal     String              @map("nombre_legal") @db.VarChar(150)
   nombreComercial String?             @map("nombre_comercial") @db.VarChar(150)
   telefono        String?             @db.VarChar(20)

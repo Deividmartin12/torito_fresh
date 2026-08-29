@@ -5,6 +5,8 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Pagination } from '../../../components/Pagination';
 import { api } from '../../../lib/api';
+import { puedeEditar } from '../../../lib/permissions';
+import { useRole } from '../../../lib/useCurrentUser';
 
 type Producto = {
   id: string;
@@ -31,6 +33,7 @@ export default function ProductosPage() {
   const [modal, setModal] = useState(false);
   const [editando, setEditando] = useState<Producto | null>(null);
   const [guardando, setGuardando] = useState(false);
+  const editable = puedeEditar(useRole());
   useEffect(() => {
     api<Producto[]>('/operations/products')
       .then(setDatos)
@@ -107,14 +110,16 @@ export default function ProductosPage() {
           <h1>Productos</h1>
           <span>{datos.length} productos</span>
         </div>
-        <button
-          className="round-add"
-          onClick={() => abrir()}
-          title="Agregar producto"
-          aria-label="Agregar producto"
-        >
-          <Plus size={20} />
-        </button>
+        {editable ? (
+          <button
+            className="round-add"
+            onClick={() => abrir()}
+            title="Agregar producto"
+            aria-label="Agregar producto"
+          >
+            <Plus size={20} />
+          </button>
+        ) : null}
       </div>
       <div className="module-tools">
         <label className="pill-search">
@@ -154,7 +159,7 @@ export default function ProductosPage() {
               <th>Stock global</th>
               <th>Control</th>
               <th>Estado</th>
-              <th>Acciones</th>
+              {editable ? <th>Acciones</th> : null}
             </tr>
           </thead>
           <tbody>
@@ -177,33 +182,35 @@ export default function ProductosPage() {
                     {item.activo ? 'Activo' : 'Inactivo'}
                   </span>
                 </td>
-                <td>
-                  <div className="row-actions">
-                    <button
-                      className="icon-soft"
-                      onClick={() => abrir(item)}
-                      title="Editar producto"
-                    >
-                      <Pencil size={16} />
-                    </button>
-                    <button className="icon-soft" title="Ver stock">
-                      <Boxes size={16} />
-                    </button>
-                    <button
-                      className="icon-soft"
-                      onClick={() => void eliminar(item)}
-                      title={
-                        item.tieneVentas
-                          ? 'No se puede eliminar: está ligado a una venta'
-                          : 'Eliminar producto'
-                      }
-                      aria-label={`Eliminar ${item.nombre}`}
-                      disabled={item.tieneVentas}
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                </td>
+                {editable ? (
+                  <td>
+                    <div className="row-actions">
+                      <button
+                        className="icon-soft"
+                        onClick={() => abrir(item)}
+                        title="Editar producto"
+                      >
+                        <Pencil size={16} />
+                      </button>
+                      <button className="icon-soft" title="Ver stock">
+                        <Boxes size={16} />
+                      </button>
+                      <button
+                        className="icon-soft"
+                        onClick={() => void eliminar(item)}
+                        title={
+                          item.tieneVentas
+                            ? 'No se puede eliminar: está ligado a una venta'
+                            : 'Eliminar producto'
+                        }
+                        aria-label={`Eliminar ${item.nombre}`}
+                        disabled={item.tieneVentas}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </td>
+                ) : null}
               </tr>
             ))}
           </tbody>

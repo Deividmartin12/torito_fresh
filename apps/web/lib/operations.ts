@@ -61,8 +61,8 @@ export type Sale = {
   codigo: string;
   fecha: string;
   cliente: string;
-  clienteDocumento: string;
-  clienteTipoDocumento: string;
+  clienteDocumento: string | null;
+  clienteTipoDocumento: string | null;
   almacen: string;
   pago: string;
   subtotal: number;

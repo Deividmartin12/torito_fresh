@@ -279,6 +279,50 @@ export class ReportsService {
     };
   }
 
+  /**
+   * Panel del repartidor: las ventas que registró hoy (America/Lima) más los totales
+   * del día. `cobrado` es lo que se pagó en el momento de la venta (`montoInicial`).
+   */
+  async deliverySummary(userId: string) {
+    const { gte, lt } = this.todayRange();
+    const fecha = gte.toISOString().slice(0, 10);
+    const trabajador = await this.prisma.trabajador.findFirst({ where: { userId } });
+    if (!trabajador) {
+      return { fecha, totales: { ventas: 0, monto: 0, cobrado: 0 }, items: [] };
+    }
+
+    const ventas = await this.prisma.venta.findMany({
+      where: { trabajadorId: trabajador.id, fecha: { gte, lt } },
+      orderBy: { fecha: 'desc' },
+      include: { cliente: true },
+    });
+
+    return {
+      fecha,
+      totales: {
+        ventas: ventas.length,
+        monto: ventas.reduce((sum, venta) => sum + Number(venta.total), 0),
+        cobrado: ventas.reduce((sum, venta) => sum + Number(venta.montoInicial), 0),
+      },
+      items: ventas.map((venta) => ({
+        codigo: `V-${venta.id.toString().padStart(6, '0')}`,
+        cliente: venta.cliente.nombreLegal,
+        total: Number(venta.total),
+        estadoPago: venta.estadoPago,
+        estado: venta.estado,
+      })),
+    };
+  }
+
+  /** Rango [hoy 00:00, mañana 00:00) en America/Lima. */
+  private todayRange() {
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Lima' }).format(new Date());
+    const gte = new Date(`${today}T00:00:00-05:00`);
+    const lt = new Date(gte);
+    lt.setDate(lt.getDate() + 1);
+    return { gte, lt };
+  }
+
   /** First day of the month `monthsBack` months before "today" in America/Lima. */
   private defaultRangeStart(monthsBack: number) {
     const parts = new Intl.DateTimeFormat('en-CA', {

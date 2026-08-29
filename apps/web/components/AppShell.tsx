@@ -7,6 +7,7 @@ import {
   CreditCard,
   Factory,
   LayoutDashboard,
+  LogOut,
   Menu,
   Package,
   PanelLeftClose,
@@ -24,7 +25,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { ReactNode, useEffect, useState } from 'react';
+import { ReactNode, useEffect, useMemo, useState } from 'react';
 import {
   clearSession,
   getSessionExpiresAt,
@@ -32,6 +33,7 @@ import {
   getToken,
   SessionUser,
 } from '../lib/api';
+import { aliasRuta, puedeVer } from '../lib/permissions';
 import { ThemeToggle } from './ThemeToggle';
 
 const groups = [
@@ -105,14 +107,16 @@ const groups = [
   },
 ];
 
-const links = groups.flatMap((group) => group.links);
-
 export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [user, setUser] = useState<SessionUser | null>(null);
+  const [ready, setReady] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  // Con el sidebar compactado el submenú se abre al pasar el cursor. Al hacer clic en una
+  // opción lo ocultamos hasta que el cursor salga del sidebar y vuelva a entrar.
+  const [flyoutSuppressed, setFlyoutSuppressed] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<string[]>(() => {
     const activeGroup = groups.find((group) =>
       group.links.some(({ href }) => pathname === href || pathname.startsWith(`${href}/`)),
@@ -126,8 +130,32 @@ export function AppShell({ children }: { children: ReactNode }) {
       return;
     }
     setUser(getStoredUser());
+    setReady(true);
     setSidebarCollapsed(window.localStorage.getItem('torito-sidebar-collapsed') === 'true');
   }, [router]);
+
+  // Menú visible según el rol. `visibleGroups` descarta links no permitidos y grupos
+  // que quedan vacíos; `aliasRuta` renombra ítems por rol (p. ej. "Productos disponibles").
+  const visibleGroups = useMemo(() => {
+    const role = user?.role;
+    return groups
+      .map((group) => ({
+        ...group,
+        links: group.links
+          .filter((link) => puedeVer(role, link.href))
+          .map((link) => ({ ...link, label: aliasRuta(role, link.href) ?? link.label })),
+      }))
+      .filter((group) => group.links.length > 0);
+  }, [user]);
+  const visibleLinks = useMemo(
+    () => visibleGroups.flatMap((group) => group.links),
+    [visibleGroups],
+  );
+
+  // Guarda de ruta: si el rol no puede ver la ruta actual, lo mandamos al inicio.
+  useEffect(() => {
+    if (user && !puedeVer(user.role, pathname)) router.replace('/dashboard');
+  }, [user, pathname, router]);
 
   useEffect(() => {
     const expiresAt = getSessionExpiresAt();
@@ -187,14 +215,19 @@ export function AppShell({ children }: { children: ReactNode }) {
       <a className="skip-link" href="#main-content">
         Saltar al contenido
       </a>
-      <aside className={sidebarCollapsed ? 'desktop-sidebar collapsed' : 'desktop-sidebar'}>
+      <aside
+        className={`desktop-sidebar${sidebarCollapsed ? ' collapsed' : ''}${
+          flyoutSuppressed ? ' flyout-suppressed' : ''
+        }`}
+        onMouseLeave={() => setFlyoutSuppressed(false)}
+      >
         <div className="sidebar-brand">
           <span className="sidebar-logo">
             <img src="/torito-logo.jpg" alt="Torito Fresh" />
           </span>
         </div>
         <nav className="sidebar-nav" aria-label="Navegacion lateral">
-          {groups.map((group) => {
+          {(ready ? visibleGroups : []).map((group) => {
             const groupActive = group.links.some(
               ({ href }) => pathname === href || pathname.startsWith(`${href}/`),
             );
@@ -234,6 +267,10 @@ export function AppShell({ children }: { children: ReactNode }) {
                           className={active ? 'sidebar-link active' : 'sidebar-link'}
                           href={href}
                           key={href}
+                          onClick={(event) => {
+                            setFlyoutSuppressed(true);
+                            event.currentTarget.blur();
+                          }}
                         >
                           <Icon size={16} />
                           <span>{label}</span>
@@ -267,6 +304,19 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="admin-actions">
           <ThemeToggle />
           <button
+            type="button"
+            className="admin-logout"
+            onClick={() => {
+              clearSession();
+              router.replace('/login');
+            }}
+            title="Cerrar sesión"
+            aria-label="Cerrar sesión"
+          >
+            <LogOut size={16} />
+            <span>Salir</span>
+          </button>
+          <button
             className="menu-button"
             onClick={() => setMenuOpen((value) => !value)}
             title={menuOpen ? 'Cerrar menú' : 'Abrir menú'}
@@ -293,7 +343,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <span>Navegación</span>
               <small>Selecciona una sección</small>
             </div>
-            {links.map(({ href, label, icon: Icon }) => (
+            {visibleLinks.map(({ href, label, icon: Icon }) => (
               <Link
                 aria-current={
                   pathname === href || pathname.startsWith(`${href}/`) ? 'page' : undefined

@@ -9,8 +9,8 @@ import { ThemeToggle } from '../../../components/ThemeToggle';
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState('torito');
-  const [password, setPassword] = useState('torito');
+  const [identificador, setIdentificador] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
   async function submit(event: FormEvent) {
@@ -19,7 +19,7 @@ export default function LoginPage() {
     try {
       const result = await api<{ accessToken: string; user: any }>('/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: identificador, password }),
       });
       saveSession(result.accessToken, result.user);
       router.replace('/dashboard');
@@ -47,13 +47,13 @@ export default function LoginPage() {
 
         <div className="space-y-4">
           <label className="block">
-            <span className="label">Usuario</span>
+            <span className="label">Usuario o correo</span>
             <input
               className="control mt-1"
               type="text"
               autoComplete="username"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
+              value={identificador}
+              onChange={(event) => setIdentificador(event.target.value)}
               required
             />
           </label>

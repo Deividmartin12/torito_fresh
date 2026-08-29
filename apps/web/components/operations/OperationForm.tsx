@@ -2,18 +2,22 @@
 
 import {
   AlertCircle,
+  CalendarClock,
   Check,
   PackageCheck,
   PackagePlus,
+  PiggyBank,
   Plus,
   ReceiptText,
   Trash2,
+  Wallet,
   X,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import { Cliente } from '../../lib/clients';
 import { formaPagoLabel, formaPagoOpciones, resumenVencimiento } from '../../lib/credit';
 import { money } from '../../lib/format';
 import {
@@ -31,11 +35,14 @@ import {
   ReceiptType,
   StockRow,
 } from '../../lib/operations';
+import { ClienteFormModal } from '../ClienteFormModal';
 import { SearchableSelect } from '../SearchableSelect';
 
 type FieldErrors = Partial<
   Record<'entity' | 'warehouse' | 'series' | 'number' | 'items' | 'payment' | 'dueDate', string>
 >;
+
+const iconoFormaPago = { CONTADO: Wallet, CREDITO: CalendarClock, MIXTO: PiggyBank } as const;
 
 const localToday = () => {
   const now = new Date();
@@ -55,6 +62,7 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
   const [catalogs, setCatalogs] = useState(emptyCatalogs);
   const [stock, setStock] = useState<StockRow[]>([]);
   const [entityId, setEntityId] = useState('');
+  const [clienteModal, setClienteModal] = useState(false);
   const [warehouseId, setWarehouseId] = useState('');
   // Comprobante (tipo/serie/número) aplica solo a compras; la venta se identifica por su código.
   const [receiptType, setReceiptType] = useState<ReceiptType>('FACTURA');
@@ -86,7 +94,7 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
         setStock(stockData);
         setPaymentMethods(methods);
         setPaymentMethodId(methods.find((method) => !method.requiereOperacion)?.id ?? '');
-        setEntityId((sale ? catalogData.clientes : catalogData.proveedores)[0]?.id ?? '');
+        setEntityId(sale ? '' : (catalogData.proveedores[0]?.id ?? ''));
         setWarehouseId(catalogData.almacenes[0]?.id ?? '');
       })
       .catch((cause) =>
@@ -112,6 +120,26 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
   const total = subtotal + igv;
   const selectedClient = sale ? entities.find((item) => item.id === entityId) : undefined;
   const creditAmount = paymentType === 'MIXTO' ? Math.max(total - initialAmount, 0) : total;
+
+  // Cliente creado desde el formulario de venta: lo agregamos al catálogo y lo dejamos elegido.
+  function handleClienteCreado(cliente: Cliente) {
+    setCatalogs((current) => ({
+      ...current,
+      clientes: [
+        {
+          id: cliente.id,
+          nombre: cliente.name,
+          documento: cliente.document ?? undefined,
+          deudaActual: 0,
+          comprobantesPendientes: 0,
+        },
+        ...current.clientes,
+      ],
+    }));
+    setEntityId(cliente.id);
+    setFieldErrors((current) => ({ ...current, entity: undefined }));
+    setClienteModal(false);
+  }
 
   function changeReceiptType(nextType: ReceiptType) {
     setReceiptType(nextType);
@@ -211,7 +239,7 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
           confirm,
         );
       toast.success(
-        `${sale ? 'Venta' : 'Compra'} ${confirm ? 'confirmada' : 'guardada como borrador'} correctamente.`,
+        `${sale ? 'Venta' : 'Compra'} ${confirm ? 'confirmada' : 'guardada como borrador'}`,
       );
       router.push(backHref);
       router.refresh();
@@ -400,6 +428,8 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
                 }))}
                 placeholder={`Buscar ${sale ? 'cliente' : 'proveedor'}`}
                 required
+                actionLabel={sale ? '+ Agregar cliente' : undefined}
+                onAction={sale ? () => setClienteModal(true) : undefined}
               />
               {fieldErrors.entity ? (
                 <small className="field-error">{fieldErrors.entity}</small>
@@ -455,26 +485,29 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
             <div className="payment-type-field">
               <span className="label">Forma de pago</span>
               <div className="payment-type-options" role="radiogroup" aria-label="Forma de pago">
-                {formaPagoOpciones.map((option) => (
-                  <button
-                    type="button"
-                    key={option.value}
-                    role="radio"
-                    aria-checked={paymentType === option.value}
-                    className={paymentType === option.value ? 'active' : ''}
-                    onClick={() => {
-                      setPaymentType(option.value);
-                      setFieldErrors((current) => ({
-                        ...current,
-                        payment: undefined,
-                        dueDate: undefined,
-                      }));
-                    }}
-                  >
-                    <strong>{option.titulo}</strong>
-                    <small>{option.detalle}</small>
-                  </button>
-                ))}
+                {formaPagoOpciones.map((option) => {
+                  const Icono = iconoFormaPago[option.value];
+                  return (
+                    <button
+                      type="button"
+                      key={option.value}
+                      role="radio"
+                      aria-checked={paymentType === option.value}
+                      className={paymentType === option.value ? 'active' : ''}
+                      onClick={() => {
+                        setPaymentType(option.value);
+                        setFieldErrors((current) => ({
+                          ...current,
+                          payment: undefined,
+                          dueDate: undefined,
+                        }));
+                      }}
+                    >
+                      <Icono size={20} aria-hidden="true" />
+                      <span>{option.label}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -778,6 +811,10 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
             </div>
           </section>
         </div>
+      ) : null}
+
+      {clienteModal ? (
+        <ClienteFormModal onClose={() => setClienteModal(false)} onSaved={handleClienteCreado} />
       ) : null}
     </form>
   );

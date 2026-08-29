@@ -13,6 +13,9 @@ type Props = {
   disabled?: boolean;
   className?: string;
   required?: boolean;
+  /** Opción de acción fija al final del desplegable (p. ej. "+ Agregar cliente"). */
+  actionLabel?: string;
+  onAction?: () => void;
 };
 
 export function SearchableSelect({
@@ -23,6 +26,8 @@ export function SearchableSelect({
   disabled,
   className = '',
   required,
+  actionLabel,
+  onAction,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -143,6 +148,21 @@ export function SearchableSelect({
               Sin resultados para “{query}”
             </span>
           )}
+          {actionLabel && onAction ? (
+            <button
+              type="button"
+              className="searchable-select-action"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                onAction();
+                setQuery('');
+                setOpen(false);
+                setActiveIndex(-1);
+              }}
+            >
+              {actionLabel}
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>

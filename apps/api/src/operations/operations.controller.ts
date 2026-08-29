@@ -24,6 +24,7 @@ export class OperationsController {
   catalogs() {
     return this.operations.catalogs();
   }
+  @Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.WAREHOUSE, RoleName.DELIVERY)
   @Get('products') products() {
     return this.operations.products();
   }
@@ -73,6 +74,7 @@ export class OperationsController {
     return this.operations.confirmSale(id);
   }
 
+  @Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.WAREHOUSE, RoleName.DELIVERY)
   @Get('stock') stock(@Query('almacenId') almacenId?: string) {
     return this.operations.stock(almacenId);
   }

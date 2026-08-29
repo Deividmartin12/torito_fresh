@@ -12,8 +12,10 @@ export class AuthService {
   ) {}
 
   async login(dto: LoginDto) {
-    const user = await this.prisma.user.findUnique({
-      where: { email: dto.email.toLowerCase() },
+    // dto.email admite tanto el nombre de usuario como el correo.
+    const identifier = dto.email.trim().toLowerCase();
+    const user = await this.prisma.user.findFirst({
+      where: { OR: [{ email: identifier }, { username: identifier }] },
       include: { role: true },
     });
 
@@ -38,6 +40,7 @@ export class AuthService {
         id: user.id,
         name: user.name,
         email: user.email,
+        username: user.username,
         role: user.role.name,
       },
     };
@@ -50,6 +53,7 @@ export class AuthService {
         id: true,
         name: true,
         email: true,
+        username: true,
         active: true,
         role: { select: { name: true } },
       },

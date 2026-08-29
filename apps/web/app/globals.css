@@ -1552,32 +1552,38 @@ html[data-theme='dark'] .stock-report-alert {
 
 .payment-type-options {
   display: grid;
+  grid-template-columns: repeat(3, 1fr);
   gap: 8px;
 }
 
 .payment-type-options button {
-  display: grid;
-  gap: 3px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--surface);
-  padding: 10px 12px;
-  text-align: left;
+  padding: 12px 8px;
+  text-align: center;
 }
 
-.payment-type-options button strong {
+.payment-type-options button svg {
+  color: var(--text-muted);
+}
+
+.payment-type-options button span {
   color: var(--text);
   font-size: 13px;
-}
-
-.payment-type-options button small {
-  color: var(--text-muted);
-  font-size: 11px;
 }
 
 .payment-type-options button.active {
   border-color: var(--accent);
   box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.payment-type-options button.active svg {
+  color: var(--accent);
 }
 
 .client-debt-hint {
@@ -1775,6 +1781,26 @@ html[data-theme='dark'] .client-debt-link small.client-debt-overdue {
   padding: 12px;
   color: var(--text-muted);
   font-size: 12px;
+}
+
+/* Opción de acción fija al final del desplegable (p. ej. "+ Agregar cliente"). */
+.searchable-select-menu button.searchable-select-action {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 7px 7px;
+  background: transparent;
+  padding: 9px 10px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: left;
+}
+
+.searchable-select-menu button.searchable-select-action:hover {
+  background: var(--surface-hover);
 }
 
 .operation-line-head,
@@ -2468,6 +2494,38 @@ html[data-theme='dark'] .field-error {
 .theme-toggle:hover {
   border-color: var(--border-strong);
   background: var(--surface-hover);
+}
+
+.admin-logout {
+  display: inline-flex;
+  min-height: 39px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  padding: 0 13px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.admin-logout:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+  color: var(--accent);
+}
+
+@media (max-width: 700px) {
+  .admin-logout {
+    padding: 0;
+    width: 39px;
+  }
+
+  .admin-logout span {
+    display: none;
+  }
 }
 
 .login-page {
@@ -4194,10 +4252,27 @@ input[type='radio'] {
   display: block;
 }
 
+/* Submenú flotante (sidebar compactado): opciones con icono + texto. */
+.desktop-sidebar.collapsed .sidebar-submenu-links .sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .desktop-sidebar.collapsed .sidebar-submenu-links .sidebar-link > svg {
-  width: 17px;
-  height: 17px;
+  display: block !important;
+  width: 16px;
+  height: 16px;
   flex: none;
+  color: currentColor;
+}
+
+/* Al hacer clic en una opción, ocultar el submenú flotante hasta que el cursor
+   salga del sidebar (ver `flyoutSuppressed` en AppShell). */
+.desktop-sidebar.collapsed.flyout-suppressed .sidebar-submenu {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
 }
 
 /* Iconos limpios: sin burbujas, círculos ni fondos alrededor. */

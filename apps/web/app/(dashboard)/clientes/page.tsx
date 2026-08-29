@@ -1,41 +1,16 @@
 'use client';
 
-import { Pencil, Plus, Search, UserX, X } from 'lucide-react';
+import { Pencil, Plus, Search, UserX } from 'lucide-react';
 import Link from 'next/link';
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import { ClienteFormModal } from '../../../components/ClienteFormModal';
 import { Pagination } from '../../../components/Pagination';
 import { api } from '../../../lib/api';
+import { Cliente } from '../../../lib/clients';
 import { money } from '../../../lib/format';
-
-type Cliente = {
-  id: string;
-  name: string;
-  documentType: string | null;
-  document: string | null;
-  phone: string;
-  address: string;
-  debtBalance: number;
-  pendingReceivables: number;
-  overdueBalance: number;
-  overdueCount: number;
-  containerBalance: number;
-  active: boolean;
-};
-type ClientForm = {
-  name: string;
-  documentType: string;
-  document: string;
-  phone: string;
-  address: string;
-};
-const emptyForm: ClientForm = {
-  name: '',
-  documentType: 'DNI',
-  document: '',
-  phone: '',
-  address: '',
-};
+import { puedeEditar } from '../../../lib/permissions';
+import { useRole } from '../../../lib/useCurrentUser';
 
 export default function ClientesPage() {
   const [clientes, setClientes] = useState<Cliente[]>([]);
@@ -44,9 +19,8 @@ export default function ClientesPage() {
   const [pageSize, setPageSize] = useState(10);
   const [modal, setModal] = useState(false);
   const [editando, setEditando] = useState<Cliente | null>(null);
-  const [form, setForm] = useState<ClientForm>(emptyForm);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const editable = puedeEditar(useRole());
   const load = useCallback(async () => {
     try {
       setClientes(await api<Cliente[]>('/clients'));
@@ -73,51 +47,17 @@ export default function ClientesPage() {
   const paginados = visibles.slice((pagina - 1) * pageSize, pagina * pageSize);
   function abrir(cliente?: Cliente) {
     setEditando(cliente ?? null);
-    setForm(
-      cliente
-        ? {
-            name: cliente.name,
-            documentType: cliente.documentType ?? 'DNI',
-            document: cliente.document ?? '',
-            phone: cliente.phone,
-            address: cliente.address,
-          }
-        : emptyForm,
-    );
     setModal(true);
   }
   function cerrar() {
     setModal(false);
     setEditando(null);
-    setForm(emptyForm);
   }
-  async function guardar(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSaving(true);
-    try {
-      const payload = { ...form, document: form.document.trim() || undefined };
-      const saved = editando
-        ? await api<Cliente>(`/clients/${editando.id}`, {
-            method: 'PATCH',
-            body: JSON.stringify(payload),
-          })
-        : await api<Cliente>('/clients', { method: 'POST', body: JSON.stringify(payload) });
-      setClientes((current) =>
-        editando
-          ? current.map((item) => (item.id === saved.id ? saved : item))
-          : [saved, ...current],
-      );
-      toast.success(
-        editando ? 'Cliente actualizado correctamente.' : 'Cliente registrado correctamente.',
-      );
-      cerrar();
-    } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : 'No se pudo registrar el cliente', {
-        action: { label: 'Reintentar', onClick: () => void load() },
-      });
-    } finally {
-      setSaving(false);
-    }
+  function onSaved(saved: Cliente) {
+    setClientes((current) =>
+      editando ? current.map((item) => (item.id === saved.id ? saved : item)) : [saved, ...current],
+    );
+    cerrar();
   }
   async function desactivar(id: string) {
     try {
@@ -174,7 +114,7 @@ export default function ClientesPage() {
                   <th>Deuda</th>
                   <th>Envases</th>
                   <th>Estado</th>
-                  <th>Acciones</th>
+                  {editable ? <th>Acciones</th> : null}
                 </tr>
               </thead>
               <tbody>
@@ -184,7 +124,9 @@ export default function ClientesPage() {
                       <td>
                         <strong>{cliente.name}</strong>
                         <small>
-                          {cliente.documentType || 'DNI'} · {cliente.document || 'Sin documento'}
+                          {cliente.document
+                            ? `${cliente.documentType || 'DOC'} · ${cliente.document}`
+                            : 'Sin documento'}
                         </small>
                       </td>
                       <td>
@@ -221,33 +163,35 @@ export default function ClientesPage() {
                           {cliente.active ? 'Activo' : 'Inactivo'}
                         </span>
                       </td>
-                      <td>
-                        <div className="row-actions">
-                          <button
-                            className="icon-soft"
-                            onClick={() => abrir(cliente)}
-                            title="Editar cliente"
-                            aria-label={`Editar ${cliente.name}`}
-                          >
-                            <Pencil size={16} />
-                          </button>
-                          {cliente.active ? (
+                      {editable ? (
+                        <td>
+                          <div className="row-actions">
                             <button
                               className="icon-soft"
-                              onClick={() => void desactivar(cliente.id)}
-                              title="Desactivar cliente"
-                              aria-label={`Desactivar ${cliente.name}`}
+                              onClick={() => abrir(cliente)}
+                              title="Editar cliente"
+                              aria-label={`Editar ${cliente.name}`}
                             >
-                              <UserX size={16} />
+                              <Pencil size={16} />
                             </button>
-                          ) : null}
-                        </div>
-                      </td>
+                            {cliente.active ? (
+                              <button
+                                className="icon-soft"
+                                onClick={() => void desactivar(cliente.id)}
+                                title="Desactivar cliente"
+                                aria-label={`Desactivar ${cliente.name}`}
+                              >
+                                <UserX size={16} />
+                              </button>
+                            ) : null}
+                          </div>
+                        </td>
+                      ) : null}
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={6}>
+                    <td colSpan={editable ? 6 : 5}>
                       <div className="table-empty">
                         No hay clientes que coincidan con la búsqueda.
                       </div>
@@ -271,78 +215,7 @@ export default function ClientesPage() {
         </>
       )}
       {modal ? (
-        <div className="modal-backdrop">
-          <section
-            className="crud-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label={editando ? 'Editar cliente' : 'Agregar cliente'}
-          >
-            <div className="modal-top">
-              <h2>{editando ? 'Editar cliente' : 'Agregar cliente'}</h2>
-              <button
-                className="modal-close"
-                onClick={cerrar}
-                disabled={saving}
-                aria-label="Cerrar modal"
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <form className="modal-form" onSubmit={(event) => void guardar(event)}>
-              <label>
-                <span>Nombre legal</span>
-                <input
-                  value={form.name}
-                  onChange={(event) => setForm({ ...form, name: event.target.value })}
-                  required
-                />
-              </label>
-              <label>
-                <span>Tipo de documento</span>
-                <select
-                  value={form.documentType}
-                  onChange={(event) => setForm({ ...form, documentType: event.target.value })}
-                >
-                  <option value="DNI">DNI</option>
-                  <option value="RUC">RUC</option>
-                  <option value="CE">CE</option>
-                </select>
-              </label>
-              <label>
-                <span>Número de documento</span>
-                <input
-                  value={form.document}
-                  onChange={(event) => setForm({ ...form, document: event.target.value })}
-                />
-              </label>
-              <label>
-                <span>Teléfono</span>
-                <input
-                  value={form.phone}
-                  onChange={(event) => setForm({ ...form, phone: event.target.value })}
-                  required
-                />
-              </label>
-              <label className="field-wide">
-                <span>Dirección</span>
-                <input
-                  value={form.address}
-                  onChange={(event) => setForm({ ...form, address: event.target.value })}
-                  required
-                />
-              </label>
-              <div className="modal-actions">
-                <button className="btn-secondary" type="button" onClick={cerrar} disabled={saving}>
-                  Cancelar
-                </button>
-                <button className="btn-primary" disabled={saving}>
-                  {saving ? 'Guardando...' : editando ? 'Guardar cambios' : 'Registrar cliente'}
-                </button>
-              </div>
-            </form>
-          </section>
-        </div>
+        <ClienteFormModal editando={editando} onClose={cerrar} onSaved={onSaved} />
       ) : null}
     </div>
   );

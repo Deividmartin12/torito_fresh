@@ -21,7 +21,7 @@ export class ContainersController {
     return this.containers.movements(clientId);
   }
 
-  @Roles(RoleName.ADMIN, RoleName.WAREHOUSE)
+  @Roles(RoleName.ADMIN, RoleName.WAREHOUSE, RoleName.DELIVERY)
   @Post('adjust')
   adjust(@CurrentUser() user: AuthUser, @Body() dto: AdjustContainerDto) {
     return this.containers.adjust(dto, user.userId);

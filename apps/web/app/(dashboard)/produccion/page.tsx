@@ -101,6 +101,7 @@ export default function ProductionPage() {
         insumos: inputs,
       });
       closeForm();
+      toast.success('Producción registrada.');
       await load();
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : 'No se pudo registrar la producción');
@@ -112,8 +113,9 @@ export default function ProductionPage() {
     if (!completeOrder) return;
     setSaving(true);
     try {
-      await completeProductionOrder(completeOrder.id, actual, waste);
+      const done = await completeProductionOrder(completeOrder.id, actual, waste);
       setCompleteOrder(null);
+      toast.success(`Producción completada${done.lote ? ` · Lote ${done.lote}` : ''}`);
       await load();
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : 'No se pudo completar la producción');

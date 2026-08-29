@@ -19,6 +19,8 @@ import {
   OperationalPaymentMethod,
   Sale,
 } from '../../../lib/operations';
+import { puedeEditar } from '../../../lib/permissions';
+import { useRole } from '../../../lib/useCurrentUser';
 
 export default function VentasPage() {
   const [ventas, setVentas] = useState<Sale[]>([]);
@@ -35,6 +37,9 @@ export default function VentasPage() {
   const [receivables, setReceivables] = useState<OperationalAccount[]>([]);
   const [methods, setMethods] = useState<OperationalPaymentMethod[]>([]);
   const [cobrarAccount, setCobrarAccount] = useState<OperationalAccount | null>(null);
+  const role = useRole();
+  // DELIVERY solo crea y lee ventas: sin confirmar, sin cobranzas, sin resumen por cobrar.
+  const editable = puedeEditar(role);
 
   const loadReceivables = useCallback(async () => {
     try {
@@ -50,8 +55,8 @@ export default function VentasPage() {
   }, []);
 
   useEffect(() => {
-    void loadReceivables();
-  }, [loadReceivables]);
+    if (role && puedeEditar(role)) void loadReceivables();
+  }, [role, loadReceivables]);
 
   const porCobrarTotal = receivables.reduce((sum, item) => sum + item.saldo, 0);
   const vencidasCount = receivables.filter((item) => item.estado === 'VENCIDA').length;
@@ -104,7 +109,7 @@ export default function VentasPage() {
     try {
       const updated = await confirmSale(id);
       setVentas((current) => current.map((item) => (item.id === id ? updated : item)));
-      toast.success('Venta confirmada correctamente.');
+      toast.success(`Venta confirmada · ${updated.codigo}`);
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : 'No se pudo confirmar la venta', {
         action: { label: 'Reintentar', onClick: () => void load() },
@@ -135,13 +140,15 @@ export default function VentasPage() {
           <span>Cobrado</span>
           <strong>{money(confirmed.reduce((sum, item) => sum + item.pagado, 0))}</strong>
         </div>
-        <Link className="summary-glass summary-glass-link" href="/cobranzas">
-          <span>Por cobrar (total)</span>
-          <strong>{money(porCobrarTotal)}</strong>
-          <small>
-            {vencidasCount > 0 ? `${vencidasCount} vencidas · ir a Cobranzas` : 'Ir a Cobranzas'}
-          </small>
-        </Link>
+        {editable ? (
+          <Link className="summary-glass summary-glass-link" href="/cobranzas">
+            <span>Por cobrar (total)</span>
+            <strong>{money(porCobrarTotal)}</strong>
+            <small>
+              {vencidasCount > 0 ? `${vencidasCount} vencidas · ir a Cobranzas` : 'Ir a Cobranzas'}
+            </small>
+          </Link>
+        ) : null}
         <div className="summary-glass">
           <span>Con kardex</span>
           <strong>{confirmed.filter((item) => item.kardexId).length}</strong>
@@ -274,7 +281,7 @@ export default function VentasPage() {
                               <Printer size={16} />
                             </button>
                           ) : null}
-                          {item.estado === 'BORRADOR' ? (
+                          {editable && item.estado === 'BORRADOR' ? (
                             <button
                               type="button"
                               className="confirm-soft"
@@ -345,7 +352,7 @@ export default function VentasPage() {
           items={detalle.items}
           onClose={() => setDetalle(null)}
           onRegisterCollection={
-            detalle.saldo > 0 && detalle.cuentaCobrarId
+            editable && detalle.saldo > 0 && detalle.cuentaCobrarId
               ? () => {
                   const account = receivables.find((item) => item.id === detalle.cuentaCobrarId);
                   if (!account) {

@@ -73,11 +73,11 @@ export class ClientsService {
   async create(dto: CreateClientDto) {
     const row = await this.prisma.cliente.create({
       data: {
-        tipoDocumento: dto.documentType ?? 'DNI',
-        numeroDocumento: dto.document ?? `TEMP-${Date.now()}`,
+        tipoDocumento: dto.documentType ?? null,
+        numeroDocumento: dto.document ?? null,
         nombreLegal: dto.name,
         telefono: dto.phone,
-        direccion: dto.address,
+        direccion: dto.address ?? null,
         estado: true,
       },
     });
