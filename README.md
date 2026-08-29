@@ -44,10 +44,17 @@ Servicios por defecto:
 - Backend: http://localhost:4070
 - PostgreSQL: localhost:5432
 
-Usuario inicial:
+Usuarios iniciales (seed):
 
-- Email: admin@toritofresh.local
-- Password: Admin12345
+- `admin` / `admin` (administrador)
+- `01` / `01` y `02` / `02` (reparto)
+
+Se puede iniciar sesión con el usuario o con el correo (`<usuario>@toritofresh.local`).
+
+## Modo kiosko (Windows)
+
+Para dejar una PC que al iniciar sesión abra sola la app a pantalla completa en
+`http://localhost:3070`, ver [`deploy/windows/README-KIOSKO.md`](deploy/windows/README-KIOSKO.md).
 
 ## Alcance implementado
 
