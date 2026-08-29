@@ -56,8 +56,9 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
   const [stock, setStock] = useState<StockRow[]>([]);
   const [entityId, setEntityId] = useState('');
   const [warehouseId, setWarehouseId] = useState('');
-  const [receiptType, setReceiptType] = useState<ReceiptType>(sale ? 'BOLETA' : 'FACTURA');
-  const [series, setSeries] = useState(sale ? 'B001' : 'F001');
+  // Comprobante (tipo/serie/número) aplica solo a compras; la venta se identifica por su código.
+  const [receiptType, setReceiptType] = useState<ReceiptType>('FACTURA');
+  const [series, setSeries] = useState('F001');
   const [number, setNumber] = useState('');
   const [paymentType, setPaymentType] = useState<PaymentType>('CONTADO');
   const [paymentMethods, setPaymentMethods] = useState<OperationalPaymentMethod[]>([]);
@@ -114,7 +115,6 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
 
   function changeReceiptType(nextType: ReceiptType) {
     setReceiptType(nextType);
-    if (sale) setSeries(catalogs.seriesVenta[nextType]?.[0] ?? '');
     setFieldErrors((current) => ({ ...current, series: undefined }));
   }
 
@@ -681,12 +681,12 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
                     </strong>
                   </div>
                 ) : null}
-                <div>
-                  <small>{sale ? 'Número de comprobante' : 'Comprobante'}</small>
-                  <strong>
-                    {sale ? 'Se generará automáticamente' : `${receiptType} ${series}-${number}`}
-                  </strong>
-                </div>
+                {!sale ? (
+                  <div>
+                    <small>Comprobante</small>
+                    <strong>{`${receiptType} ${series}-${number}`}</strong>
+                  </div>
+                ) : null}
                 <div>
                   <small>Pago</small>
                   <strong>

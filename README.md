@@ -22,14 +22,14 @@ packages/
 ## Requisitos
 
 - Node.js 20+
-- Docker Desktop o PostgreSQL local
+- PostgreSQL 16+ local
 - npm
 
 ## Puesta en marcha
 
 ```bash
-cp .env.example .env
-docker compose up -d
+cp ".env copy.example" .env      # editar DATABASE_URL con tu usuario/clave de Postgres
+createdb torito_fresh            # o: psql -c "CREATE DATABASE torito_fresh;"
 npm install
 npm run db:generate
 npm run db:push
@@ -42,7 +42,7 @@ Servicios por defecto:
 
 - Frontend: http://localhost:3070
 - Backend: http://localhost:4070
-- PostgreSQL: localhost:55432
+- PostgreSQL: localhost:5432
 
 Usuario inicial:
 

@@ -80,7 +80,7 @@ export default function VentasPage() {
       ventas.filter(
         (item) =>
           (pago === 'Todos' || item.pago === pago) &&
-          `${item.comprobante} ${item.cliente} ${item.almacen}`
+          `${item.codigo} ${item.cliente} ${item.almacen}`
             .toLowerCase()
             .includes(buscar.toLowerCase()),
       ),
@@ -120,7 +120,7 @@ export default function VentasPage() {
         <div>
           <span className="operation-eyebrow">Operaciones</span>
           <h1>Ventas</h1>
-          <p>Consulta comprobantes, pagos y salidas de inventario.</p>
+          <p>Consulta ventas, pagos y salidas de inventario.</p>
         </div>
         <Link className="btn-primary operation-primary-action" href="/ventas/nueva">
           <Plus size={18} /> Nueva venta
@@ -154,7 +154,7 @@ export default function VentasPage() {
           <input
             value={buscar}
             onChange={(event) => changeFilters(() => setBuscar(event.target.value))}
-            placeholder="Buscar comprobante, cliente o almacen"
+            placeholder="Buscar venta, cliente o almacen"
           />
         </label>
         <label className="filter-field">
@@ -181,7 +181,7 @@ export default function VentasPage() {
         <div className="empty-state">
           <ShoppingCart size={34} />
           <h2>Aun no hay ventas</h2>
-          <p>Registra la primera venta para comenzar a controlar comprobantes e inventario.</p>
+          <p>Registra la primera venta para comenzar a controlar tus ventas e inventario.</p>
           <Link className="btn-primary" href="/ventas/nueva">
             <Plus size={17} /> Registrar venta
           </Link>
@@ -192,7 +192,7 @@ export default function VentasPage() {
             <table>
               <thead>
                 <tr>
-                  <th>Venta / comprobante</th>
+                  <th>Venta</th>
                   <th>Cliente</th>
                   <th>Origen</th>
                   <th>Pago</th>
@@ -208,9 +208,7 @@ export default function VentasPage() {
                     <tr key={item.id}>
                       <td>
                         <strong>{item.codigo}</strong>
-                        <small>
-                          {item.comprobante} · {new Date(item.fecha).toLocaleString('es-PE')}
-                        </small>
+                        <small>{new Date(item.fecha).toLocaleString('es-PE')}</small>
                       </td>
                       <td>{item.cliente}</td>
                       <td>{item.almacen}</td>
@@ -261,7 +259,7 @@ export default function VentasPage() {
                             className="icon-soft"
                             onClick={() => setDetalle(item)}
                             title="Ver venta"
-                            aria-label={`Ver ${item.comprobante}`}
+                            aria-label={`Ver ${item.codigo}`}
                           >
                             <Eye size={16} />
                           </button>
@@ -270,8 +268,8 @@ export default function VentasPage() {
                               type="button"
                               className="icon-soft"
                               onClick={() => setBoleta(item)}
-                              title="Imprimir comprobante"
-                              aria-label={`Imprimir ${item.comprobante}`}
+                              title="Imprimir venta"
+                              aria-label={`Imprimir ${item.codigo}`}
                             >
                               <Printer size={16} />
                             </button>
@@ -329,7 +327,7 @@ export default function VentasPage() {
 
       {detalle ? (
         <OperationDetailDialog
-          title={`${detalle.codigo} · ${detalle.comprobante}`}
+          title={detalle.codigo}
           partyLabel="Cliente"
           party={detalle.cliente}
           warehouseLabel="Almacen origen"

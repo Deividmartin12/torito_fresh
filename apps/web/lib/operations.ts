@@ -59,10 +59,6 @@ export type OperationDetailLine = {
 export type Sale = {
   id: string;
   codigo: string;
-  tipoComprobante: ReceiptType;
-  serie: string;
-  numero: string;
-  comprobante: string;
   fecha: string;
   cliente: string;
   clienteDocumento: string;
@@ -175,7 +171,6 @@ export const emptyCatalogs: OperationCatalogs = {
   clientes: [],
   almacenes: [],
   productos: [],
-  seriesVenta: { BOLETA: [], FACTURA: [], TICKET: [], NOTA: [], OTRO: [] },
   estadosInventario: [],
   preparado: false,
 };

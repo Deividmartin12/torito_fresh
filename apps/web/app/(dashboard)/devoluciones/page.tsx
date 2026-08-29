@@ -405,8 +405,10 @@ export default function DevolucionesPage() {
                     <option value="">Seleccionar operación</option>
                     {sources.map((item) => (
                       <option key={item.id} value={item.id}>
-                        {item.codigo} · {item.comprobante} ·{' '}
-                        {'cliente' in item ? item.cliente : item.proveedor}
+                        {item.codigo} ·{' '}
+                        {'cliente' in item
+                          ? item.cliente
+                          : `${item.comprobante} · ${item.proveedor}`}
                       </option>
                     ))}
                   </select>

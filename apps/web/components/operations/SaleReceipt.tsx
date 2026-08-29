@@ -6,7 +6,7 @@ import { dateTime, money } from '../../lib/format';
 import { Sale } from '../../lib/operations';
 
 /**
- * Boleta de venta que se entrega al cliente con el detalle impreso de su compra.
+ * Ticket de venta que se entrega al cliente con el detalle impreso de su compra.
  */
 export function SaleReceipt({ sale, onClose }: { sale: Sale; onClose: () => void }) {
   return (
@@ -21,14 +21,14 @@ export function SaleReceipt({ sale, onClose }: { sale: Sale; onClose: () => void
           <img src="/torito-logo.jpg" alt="Torito Fresh" />
           <div>
             <strong>AGUA TORITO FRESH</strong>
-            <span>Boleta de venta</span>
+            <span>Venta</span>
           </div>
         </header>
 
         <div className="sale-receipt-meta">
           <div>
-            <small>Comprobante</small>
-            <strong>{sale.comprobante}</strong>
+            <small>Venta</small>
+            <strong>{sale.codigo}</strong>
           </div>
           <div>
             <small>Fecha</small>
