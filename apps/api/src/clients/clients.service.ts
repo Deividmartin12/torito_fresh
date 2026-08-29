@@ -1,10 +1,47 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { accountState } from '../common/receivables';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateClientDto, UpdateClientDto } from './clients.dto';
+
+type ClientDebt = { total: number; comprobantes: number; vencido: number; vencidas: number };
 
 @Injectable()
 export class ClientsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Deuda vigente por cliente, derivada de las cuentas por cobrar con saldo
+   * pendiente. El vencido se calcula por cuenta con la misma lógica que usa el
+   * módulo de operaciones (`accountState`).
+   */
+  private async debtByClient(clienteIds?: bigint[]): Promise<Map<string, ClientDebt>> {
+    const cuentas = await this.prisma.cuentaCobrar.findMany({
+      where: {
+        saldoPendiente: { gt: 0 },
+        ...(clienteIds ? { clienteId: { in: clienteIds } } : {}),
+      },
+      select: {
+        clienteId: true,
+        saldoPendiente: true,
+        montoPagado: true,
+        fechaVencimiento: true,
+      },
+    });
+    const map = new Map<string, ClientDebt>();
+    for (const cuenta of cuentas) {
+      const key = cuenta.clienteId.toString();
+      const entry = map.get(key) ?? { total: 0, comprobantes: 0, vencido: 0, vencidas: 0 };
+      const saldo = Number(cuenta.saldoPendiente);
+      entry.total += saldo;
+      entry.comprobantes += 1;
+      if (accountState(cuenta) === 'VENCIDA') {
+        entry.vencido += saldo;
+        entry.vencidas += 1;
+      }
+      map.set(key, entry);
+    }
+    return map;
+  }
 
   async list(search?: string, active?: string) {
     const rows = await this.prisma.cliente.findMany({
@@ -22,13 +59,15 @@ export class ClientsService {
       },
       orderBy: { createdAt: 'desc' },
     });
-    return rows.map((row) => this.view(row));
+    const debt = await this.debtByClient();
+    return rows.map((row) => this.view(row, debt.get(row.id.toString())));
   }
 
   async get(id: string) {
     const row = await this.prisma.cliente.findUnique({ where: { id: BigInt(id) } });
     if (!row) throw new NotFoundException('Cliente no encontrado');
-    return this.view(row);
+    const debt = await this.debtByClient([row.id]);
+    return this.view(row, debt.get(row.id.toString()));
   }
 
   async create(dto: CreateClientDto) {
@@ -58,7 +97,8 @@ export class ClientsService {
         ...(dto.active === undefined ? {} : { estado: dto.active }),
       },
     });
-    return this.view(row);
+    const debt = await this.debtByClient([row.id]);
+    return this.view(row, debt.get(row.id.toString()));
   }
 
   async deactivate(id: string) {
@@ -70,7 +110,7 @@ export class ClientsService {
     return this.view(row);
   }
 
-  private view(row: any) {
+  private view(row: any, debt?: ClientDebt) {
     return {
       id: row.id.toString(),
       name: row.nombreLegal,
@@ -78,7 +118,10 @@ export class ClientsService {
       document: row.numeroDocumento,
       phone: row.telefono ?? '',
       address: row.direccion ?? '',
-      debtBalance: Number(row.limiteCredito ?? 0),
+      debtBalance: debt?.total ?? 0,
+      pendingReceivables: debt?.comprobantes ?? 0,
+      overdueBalance: debt?.vencido ?? 0,
+      overdueCount: debt?.vencidas ?? 0,
       containerBalance: 0,
       active: row.estado,
     };

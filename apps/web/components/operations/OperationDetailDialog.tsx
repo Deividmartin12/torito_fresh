@@ -1,7 +1,9 @@
 'use client';
 
-import { X } from 'lucide-react';
+import { HandCoins, X } from 'lucide-react';
 import Link from 'next/link';
+import { resumenVencimiento } from '../../lib/credit';
+import { money } from '../../lib/format';
 import { OperationDetailLine } from '../../lib/operations';
 
 type Props = {
@@ -19,8 +21,11 @@ type Props = {
   dueDate?: string | null;
   returnStatus?: string;
   kardexId: string | null;
+  kardexRef?: string | null;
   items: OperationDetailLine[];
   onClose: () => void;
+  /** Solo ventas con saldo: abre el registro de cobro. */
+  onRegisterCollection?: () => void;
 };
 
 export function OperationDetailDialog({
@@ -38,9 +43,12 @@ export function OperationDetailDialog({
   dueDate,
   returnStatus = 'SIN_DEVOLUCION',
   kardexId,
+  kardexRef,
   items,
   onClose,
+  onRegisterCollection,
 }: Props) {
+  const due = resumenVencimiento(dueDate ?? null, balance);
   return (
     <div
       className="modal-backdrop"
@@ -89,10 +97,10 @@ export function OperationDetailDialog({
                 Vencimiento
                 <strong>
                   {dueDate
-                    ? new Intl.DateTimeFormat('es-PE', { timeZone: 'UTC' }).format(
+                    ? `${new Intl.DateTimeFormat('es-PE', { timeZone: 'UTC' }).format(
                         new Date(dueDate),
-                      )
-                    : 'Sin fecha'}
+                      )} · ${due.label}`
+                    : 'Sin fecha programada'}
                 </strong>
               </span>
             ) : null}
@@ -133,9 +141,17 @@ export function OperationDetailDialog({
               Cerrar
             </button>
             {kardexId ? (
-              <Link className="btn-primary" href="/movimientos">
+              <Link
+                className="btn-secondary"
+                href={`/movimientos?ref=${encodeURIComponent(kardexRef ?? '')}`}
+              >
                 Ver kardex
               </Link>
+            ) : null}
+            {balance > 0 && onRegisterCollection ? (
+              <button type="button" className="btn-primary" onClick={onRegisterCollection}>
+                <HandCoins size={16} /> Registrar cobro
+              </button>
             ) : null}
           </div>
         </div>

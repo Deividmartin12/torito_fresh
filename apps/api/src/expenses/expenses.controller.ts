@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { RoleName } from '@prisma/client';
 import { Roles } from '../auth/roles.decorator';
 import {
@@ -14,8 +14,8 @@ export class ExpensesController {
   constructor(private readonly expenses: ExpensesService) {}
 
   @Get()
-  list() {
-    return this.expenses.list();
+  list(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.expenses.list(from, to);
   }
 
   @Get('categories')

@@ -1,10 +1,10 @@
 'use client';
 
 import {
+  ArrowLeftRight,
   Boxes,
   ChevronRight,
   CreditCard,
-  Droplets,
   Factory,
   LayoutDashboard,
   Menu,
@@ -76,16 +76,15 @@ const groups = [
     links: [
       { href: '/productos', label: 'Productos e insumos', icon: Package },
       { href: '/almacenes', label: 'Almacenes', icon: Store },
-      { href: '/inventario', label: 'Stock por estado', icon: Boxes },
-      { href: '/movimientos', label: 'Kardex', icon: ShoppingCart },
+      { href: '/movimientos', label: 'Kardex', icon: ArrowLeftRight },
     ],
   },
   {
     label: 'Caja y cuentas',
     icon: WalletCards,
     links: [
-      { href: '/cobranzas', label: 'Cobros y abonos', icon: WalletCards },
-      { href: '/cuentas-cobrar', label: 'Cuentas por cobrar', icon: CreditCard },
+      { href: '/cobranzas', label: 'Cobranzas', icon: WalletCards },
+      { href: '/cuentas-pagar', label: 'Cuentas por pagar', icon: CreditCard },
       { href: '/metodos-pago', label: 'Métodos de pago', icon: CreditCard },
     ],
   },
@@ -191,12 +190,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       <aside className={sidebarCollapsed ? 'desktop-sidebar collapsed' : 'desktop-sidebar'}>
         <div className="sidebar-brand">
           <span className="sidebar-logo">
-            <Droplets size={21} />
+            <img src="/torito-logo.jpg" alt="Torito Fresh" />
           </span>
-          <div className="sidebar-brand-copy">
-            <strong>Torito Fresh</strong>
-            <small>Gestión administrativa</small>
-          </div>
         </div>
         <nav className="sidebar-nav" aria-label="Navegacion lateral">
           {groups.map((group) => {

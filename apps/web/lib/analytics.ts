@@ -26,14 +26,24 @@ export type HeatmapPoint = {
   sales: number;
 };
 
+export type ReceivablesSummary = {
+  total: number;
+  count: number;
+  overdue: number;
+  overdueCount: number;
+};
+
 export type BusinessAnalytics = {
   range: { from: string; to: string };
+  receivables: ReceivablesSummary;
   summary: {
     sales: number;
     expenses: number;
     cost: number;
     margin: number;
     marginRate: number;
+    profit: number;
+    profitRate: number;
     orders: number;
     ticket: number;
     expenseCount: number;
@@ -58,13 +68,29 @@ export function getBusinessAnalytics(from?: string, to?: string) {
   return api<BusinessAnalytics>(`/reports/business${query.size ? `?${query}` : ''}`);
 }
 
-const localDateKey = (date: Date) =>
-  new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
-const dayLabelFormatter = new Intl.DateTimeFormat('es-PE', { day: '2-digit', month: 'short' });
-const monthLabelFormatter = new Intl.DateTimeFormat('es-PE', { month: 'short', year: '2-digit' });
+// Keys are built in UTC so they match the backend's America/Lima calendar-day keys
+// regardless of the viewer's browser timezone.
+const dayLabelFormatter = new Intl.DateTimeFormat('es-PE', {
+  timeZone: 'UTC',
+  day: '2-digit',
+  month: 'short',
+});
+const monthLabelFormatter = new Intl.DateTimeFormat('es-PE', {
+  timeZone: 'UTC',
+  month: 'short',
+  year: '2-digit',
+});
 
 function emptyPeriod(key: string, label: string): AnalyticsPeriod {
   return { key, label, sales: 0, expenses: 0, cost: 0, margin: 0, orders: 0 };
+}
+
+/** Parses a `YYYY-MM-DD` string to a UTC-midnight Date without browser-timezone drift. */
+function parseUtcDay(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+  const [, y, m, d] = match;
+  return new Date(Date.UTC(Number(y), Number(m) - 1, Number(d)));
 }
 
 /** Fills gaps so every calendar day in [from, to] gets a bar, even without sales/expenses that day. */
@@ -73,15 +99,13 @@ export function fillDailySeries(
   from: string,
   to: string,
 ): AnalyticsPeriod[] {
-  const start = new Date(`${from}T00:00:00`);
-  const end = new Date(`${to}T00:00:00`);
-  if (!from || !to || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) {
-    return rows;
-  }
+  const start = parseUtcDay(from);
+  const end = parseUtcDay(to);
+  if (!start || !end || start > end) return rows;
   const byKey = new Map(rows.map((row) => [row.key, row]));
   const filled: AnalyticsPeriod[] = [];
-  for (const cursor = new Date(start); cursor <= end; cursor.setDate(cursor.getDate() + 1)) {
-    const key = localDateKey(cursor);
+  for (const cursor = new Date(start); cursor <= end; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
+    const key = cursor.toISOString().slice(0, 10);
     filled.push(byKey.get(key) ?? emptyPeriod(key, dayLabelFormatter.format(cursor)));
   }
   return filled;
@@ -93,18 +117,19 @@ export function fillMonthlySeries(
   from: string,
   to: string,
 ): AnalyticsPeriod[] {
-  const start = new Date(`${from}T00:00:00`);
-  const end = new Date(`${to}T00:00:00`);
-  if (!from || !to || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) {
-    return rows;
-  }
+  const start = parseUtcDay(from);
+  const end = parseUtcDay(to);
+  if (!start || !end || start > end) return rows;
   const byKey = new Map(rows.map((row) => [row.key, row]));
   const filled: AnalyticsPeriod[] = [];
-  const last = new Date(end.getFullYear(), end.getMonth(), 1);
-  for (const cursor = new Date(start.getFullYear(), start.getMonth(), 1); cursor <= last;) {
-    const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}`;
+  const last = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), 1));
+  for (
+    const cursor = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1));
+    cursor <= last;
+    cursor.setUTCMonth(cursor.getUTCMonth() + 1)
+  ) {
+    const key = cursor.toISOString().slice(0, 7);
     filled.push(byKey.get(key) ?? emptyPeriod(key, monthLabelFormatter.format(cursor)));
-    cursor.setMonth(cursor.getMonth() + 1);
   }
   return filled;
 }

@@ -1,6 +1,8 @@
-import { Body, Controller, Delete, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { RoleName } from '@prisma/client';
+import { CurrentUser } from '../auth/current-user.decorator';
 import { Roles } from '../auth/roles.decorator';
+import { AuthUser } from '../common/auth-user';
 import {
   CreateOperationalProductDto,
   CreateOperationalSaleDto,
@@ -8,6 +10,7 @@ import {
   CreatePurchaseDto,
   CreateReturnDto,
   RegisterOperationalPaymentDto,
+  UpdateReceivableDueDateDto,
 } from './operations.dto';
 import { OperationsService } from './operations.service';
 
@@ -16,7 +19,9 @@ import { OperationsService } from './operations.service';
 export class OperationsController {
   constructor(private readonly operations: OperationsService) {}
 
-  @Get('catalogs') catalogs() {
+  @Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.WAREHOUSE, RoleName.DELIVERY)
+  @Get('catalogs')
+  catalogs() {
     return this.operations.catalogs();
   }
   @Get('products') products() {
@@ -34,37 +39,60 @@ export class OperationsController {
   @Post('warehouses') createWarehouse(@Body() dto: CreateOperationalWarehouseDto) {
     return this.operations.createWarehouse(dto);
   }
-  @Get('purchases') purchases() {
-    return this.operations.purchases();
+  @Get('purchases') purchases(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.operations.purchases(from, to);
   }
   @Post('purchases') createPurchase(
+    @CurrentUser() user: AuthUser,
     @Body() dto: CreatePurchaseDto,
     @Query('confirm') confirm?: string,
   ) {
-    return this.operations.createPurchase(dto, confirm === 'true');
+    return this.operations.createPurchase(dto, confirm === 'true', user.userId);
   }
   @Post('purchases/:id/confirm') confirmPurchase(@Param('id') id: string) {
     return this.operations.confirmPurchase(id);
   }
 
-  @Get('sales') sales() {
-    return this.operations.sales();
+  @Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.WAREHOUSE, RoleName.DELIVERY)
+  @Get('sales')
+  sales(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.operations.sales(from, to);
   }
-  @Post('sales') createSale(
+  @Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.WAREHOUSE, RoleName.DELIVERY)
+  @Post('sales')
+  createSale(
+    @CurrentUser() user: AuthUser,
     @Body() dto: CreateOperationalSaleDto,
     @Query('confirm') confirm?: string,
   ) {
-    return this.operations.createSale(dto, confirm === 'true');
+    return this.operations.createSale(dto, confirm === 'true', user.userId);
   }
-  @Post('sales/:id/confirm') confirmSale(@Param('id') id: string) {
+  @Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.WAREHOUSE, RoleName.DELIVERY)
+  @Post('sales/:id/confirm')
+  confirmSale(@Param('id') id: string) {
     return this.operations.confirmSale(id);
   }
 
   @Get('stock') stock(@Query('almacenId') almacenId?: string) {
     return this.operations.stock(almacenId);
   }
-  @Get('movements') movements() {
-    return this.operations.movements();
+  @Get('movements') movements(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('productoId') productoId?: string,
+    @Query('almacenId') almacenId?: string,
+    @Query('tipoOperacion') tipoOperacion?: string,
+    @Query('ref') ref?: string,
+  ) {
+    return this.operations.movements({ from, to, productoId, almacenId, tipoOperacion, ref });
+  }
+  @Get('kardex') kardex(
+    @Query('productoId') productoId?: string,
+    @Query('almacenId') almacenId?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.operations.kardex({ productoId, almacenId, from, to });
   }
 
   @Get('returns') returns() {
@@ -72,19 +100,37 @@ export class OperationsController {
   }
   @Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.WAREHOUSE)
   @Post('returns/:type')
-  createReturn(@Param('type') type: string, @Body() dto: CreateReturnDto) {
-    return this.operations.createReturn(type, dto);
+  createReturn(
+    @CurrentUser() user: AuthUser,
+    @Param('type') type: string,
+    @Body() dto: CreateReturnDto,
+  ) {
+    return this.operations.createReturn(type, dto, user.userId);
   }
 
-  @Get('payment-methods') paymentMethods() {
+  @Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.WAREHOUSE, RoleName.DELIVERY)
+  @Get('payment-methods')
+  paymentMethods() {
     return this.operations.paymentMethods();
   }
-  @Get('accounts/:type') accounts(@Param('type') type: string) {
-    return this.operations.accounts(type);
+  @Get('accounts/:type') accounts(
+    @Param('type') type: string,
+    @Query('clienteId') clienteId?: string,
+  ) {
+    return this.operations.accounts(type, clienteId);
   }
   @Roles(RoleName.ADMIN, RoleName.SELLER)
   @Post('accounts/:type/payments')
-  registerAccountPayment(@Param('type') type: string, @Body() dto: RegisterOperationalPaymentDto) {
-    return this.operations.registerAccountPayment(type, dto);
+  registerAccountPayment(
+    @CurrentUser() user: AuthUser,
+    @Param('type') type: string,
+    @Body() dto: RegisterOperationalPaymentDto,
+  ) {
+    return this.operations.registerAccountPayment(type, dto, user.userId);
+  }
+  @Roles(RoleName.ADMIN, RoleName.SELLER)
+  @Patch('accounts/cobrar/:id/vencimiento')
+  updateReceivableDueDate(@Param('id') id: string, @Body() dto: UpdateReceivableDueDateDto) {
+    return this.operations.updateReceivableDueDate(id, dto);
   }
 }

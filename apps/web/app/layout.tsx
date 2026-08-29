@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
+import { AppToaster } from '../components/AppToaster';
 import './globals.css';
 
 const inter = Inter({
@@ -8,7 +9,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: 'TORITO FRESH',
+  title: 'Torito Fresh',
   description: 'Sistema administrativo de venta y reparto de bidones de agua',
 };
 
@@ -22,7 +23,10 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           }}
         />
       </head>
-      <body className={inter.className}>{children}</body>
+      <body className={inter.className}>
+        {children}
+        <AppToaster />
+      </body>
     </html>
   );
 }

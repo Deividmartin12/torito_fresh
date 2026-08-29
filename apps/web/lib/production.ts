@@ -32,6 +32,7 @@ export type ProductionOrder = {
   lote: string | null;
   responsable: string;
   kardexId: string | null;
+  kardexRef: string | null;
   insumos: { producto: string; productoId: string; planificada: number; consumida: number }[];
 };
 export type ProductionPayload = {

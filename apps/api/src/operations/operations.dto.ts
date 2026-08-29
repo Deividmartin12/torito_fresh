@@ -193,6 +193,11 @@ export class RegisterOperationalPaymentDto {
   observaciones?: string;
 }
 
+export class UpdateReceivableDueDateDto {
+  @IsDateString()
+  fechaVencimiento: string;
+}
+
 class ReturnItemDto {
   @Type(() => Number)
   @IsInt()

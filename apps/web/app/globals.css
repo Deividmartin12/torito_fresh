@@ -159,6 +159,22 @@ body {
 .summary-glass strong {
   font-size: 26px !important;
 }
+.summary-glass small {
+  display: block;
+  margin-top: 5px;
+  color: var(--text-muted);
+  font-size: 11px !important;
+  font-weight: 600;
+}
+.summary-glass-link {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.15s ease;
+}
+.summary-glass-link:hover {
+  border-color: var(--accent);
+}
 .modal-top h2 {
   font-size: 21px !important;
 }
@@ -348,7 +364,6 @@ body {
   background: var(--surface-soft);
 }
 
-.notice-success,
 .operation-warning {
   display: flex;
   align-items: center;
@@ -360,15 +375,6 @@ body {
   padding: 11px 13px;
   color: #08784d;
   font-size: 13px;
-}
-
-.notice-success button,
-.notice-error button {
-  margin-left: auto;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  text-decoration: underline;
 }
 
 .table-loading,
@@ -647,9 +653,18 @@ html[data-theme='dark']
 
 .dashboard-kpis {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 16px;
+}
+
+.dashboard-kpi-link {
+  text-decoration: none;
+  transition: transform 0.12s ease;
+}
+
+.dashboard-kpi-link:hover {
+  transform: translateY(-2px);
 }
 
 .dashboard-chart-grid,
@@ -1018,7 +1033,8 @@ html[data-theme='dark']
 }
 
 .report-range-hint {
-  align-self: center;
+  align-self: flex-end;
+  padding-bottom: 11px;
   color: var(--text-muted);
   font-size: 11px;
   white-space: nowrap;
@@ -1528,6 +1544,140 @@ html[data-theme='dark'] .stock-report-alert {
   gap: 10px;
 }
 
+/* Venta a crédito: selector de forma de pago y panel de crédito. */
+.payment-type-field {
+  display: grid;
+  gap: 7px;
+}
+
+.payment-type-options {
+  display: grid;
+  gap: 8px;
+}
+
+.payment-type-options button {
+  display: grid;
+  gap: 3px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.payment-type-options button strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.payment-type-options button small {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.payment-type-options button.active {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.client-debt-hint {
+  color: #8a5707;
+  font-size: 11px;
+}
+
+html[data-theme='dark'] .client-debt-hint {
+  color: #e5b567;
+}
+
+.credit-panel {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #f2d49a;
+  border-radius: 12px;
+  background: #fff8ea;
+  padding: 12px 13px;
+}
+
+html[data-theme='dark'] .credit-panel {
+  border-color: transparent;
+  background: var(--surface-soft);
+}
+
+.credit-panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.credit-panel-head strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.credit-panel-head span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.credit-date-presets {
+  display: flex;
+  gap: 7px;
+  margin-top: 6px;
+}
+
+.credit-date-presets button {
+  min-height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  padding: 0 12px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.credit-date-presets button.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.credit-due-hint {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.client-debt-link {
+  display: grid;
+  gap: 2px;
+  text-decoration: none;
+  color: var(--text);
+}
+
+.client-debt-link:hover strong {
+  color: var(--accent);
+}
+
+.client-debt-link small {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.client-debt-link small.client-debt-overdue {
+  color: #b42340;
+  font-weight: 600;
+}
+
+html[data-theme='dark'] .client-debt-link small.client-debt-overdue {
+  color: #f0879c;
+}
+
+.client-debt-clear {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
 .operation-field-pair.operation-field-single {
   grid-template-columns: minmax(0, 1fr);
 }
@@ -1543,10 +1693,14 @@ html[data-theme='dark'] .stock-report-alert {
 
 .operation-products-section .searchable-select-control,
 .operation-general-section .searchable-select-control {
+  position: relative;
   display: flex;
+  height: 44px;
   align-items: center;
   gap: 8px;
-  padding: 0 10px;
+  /* Hueco reservado para el botón "X", que va posicionado (no ocupa flujo),
+     así el ancho del input es igual con o sin producto seleccionado. */
+  padding: 0 34px 0 10px;
 }
 
 .operation-products-section .searchable-select-control input,
@@ -1558,10 +1712,17 @@ html[data-theme='dark'] .stock-report-alert {
   background: transparent !important;
   padding: 0;
   box-shadow: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .operation-products-section .searchable-select-clear,
 .operation-general-section .searchable-select-clear {
+  position: absolute;
+  top: 50%;
+  right: 7px;
+  transform: translateY(-50%);
   display: grid;
   width: 26px;
   height: 26px;
@@ -1955,16 +2116,6 @@ html[data-theme='dark'] .stock-report-alert {
   color: var(--text-muted);
 }
 
-.operation-review-body .notice-error {
-  margin: 0;
-  border: 1px solid #e49aaa;
-  border-radius: 10px;
-  background: #fff0f3;
-  padding: 10px 12px;
-  color: #a51e3a;
-  font-size: 13px;
-}
-
 .operation-review-actions {
   display: flex;
   align-items: center;
@@ -2216,12 +2367,6 @@ html[data-theme='dark'] .dashboard-kpi-violet > div {
   }
 }
 
-html[data-theme='dark'] .notice-success {
-  border-color: #297a63;
-  background: #123a32;
-  color: #94f2ca;
-}
-
 html[data-theme='dark'] .operation-warning {
   border-color: #8c6827;
   background: #3b2d12;
@@ -2340,6 +2485,13 @@ html[data-theme='dark'] .field-error {
   border-color: var(--border) !important;
   background: var(--surface);
   box-shadow: var(--shadow);
+}
+
+.login-logo {
+  width: auto;
+  height: 46px;
+  flex: none;
+  object-fit: contain;
 }
 
 /* Tema claro: superficies blancas, tipografia y contornos azules. */
@@ -2613,7 +2765,7 @@ html[data-theme='dark']
   color: #b9dcff;
 }
 
-html[data-theme='dark'] :where(.notice-error, .stock-warning) {
+html[data-theme='dark'] :where(.stock-warning) {
   border-color: #91445b;
   background: #411e2b;
   color: #ffb4c3;
@@ -2701,12 +2853,36 @@ body {
 .sidebar-brand {
   position: relative;
   padding: 0 10px 0 14px;
+  
 }
 
 .sidebar-brand-copy {
   min-width: 0;
   flex: 1;
   white-space: nowrap;
+}
+
+.sidebar-logo {
+  width: 42px;
+  height: 62px;
+  flex: 0 0 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.sidebar-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+.desktop-sidebar.collapsed .sidebar-logo img {
+  width: 100%;
+  height: auto;
 }
 
 .sidebar-collapse-button {
@@ -3570,13 +3746,6 @@ html[data-theme='dark'] .operation-page-head {
   min-width: 0;
 }
 
-.operation-products-section .searchable-select-control input {
-  width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .operation-products-section .line-total {
   min-height: 44px;
   align-content: center;
@@ -3814,7 +3983,7 @@ html[data-theme='dark'] .operation-page-head {
 .report-period-shortcuts {
   display: flex;
   gap: 7px;
-  margin: -3px 0 9px;
+  margin: 0;
 }
 
 .report-period-shortcuts button {
@@ -3848,6 +4017,130 @@ html[data-theme='dark']
     .due-state.scheduled
   ) {
   background: var(--surface-soft);
+}
+
+/* Cobranzas: vista por cliente y acciones de cobro. */
+.account-view-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  padding: 3px;
+}
+
+.account-view-toggle button {
+  min-height: 34px;
+  border-radius: 999px;
+  padding: 0 15px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.account-view-toggle button.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.account-group-row {
+  cursor: pointer;
+}
+
+.account-group-row:hover {
+  background: var(--surface-hover);
+}
+
+.account-group-row.open {
+  background: var(--surface-soft);
+}
+
+.account-group-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+}
+
+.account-group-toggle span {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+}
+
+.account-group-toggle small {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.account-group-toggle svg {
+  transition: transform 0.15s ease;
+}
+
+.account-group-toggle svg.rotated {
+  transform: rotate(-180deg);
+}
+
+.account-nested-row td:first-child {
+  padding-left: 34px;
+}
+
+.account-nested-row {
+  background: var(--surface);
+}
+
+.collection-overdue-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 18px;
+  border: 1px solid #f2c2ce;
+  border-radius: 11px;
+  background: #fff0f3;
+  padding: 9px 12px;
+  color: #b42340;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+html[data-theme='dark'] .collection-overdue-banner {
+  border-color: transparent;
+  background: var(--surface-soft);
+}
+
+.collection-amount-shortcuts {
+  display: flex;
+  gap: 7px;
+  margin-top: 6px;
+}
+
+.collection-amount-shortcuts button {
+  min-height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  padding: 0 12px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.collection-amount-shortcuts button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.collection-fixed-account {
+  display: grid;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-soft);
+  padding: 10px 13px;
+}
+
+.collection-fixed-account span {
+  color: var(--text-muted);
+  font-size: 11px;
 }
 
 @media (max-width: 800px) {
@@ -4264,6 +4557,90 @@ input[type='radio'] {
   color: #c2415d;
 }
 
+.kardex-balance-equation > span.entry {
+  color: #1f9d6b;
+}
+
+.kardex-product-head .kardex-link {
+  display: inline-block;
+  margin-top: 6px;
+}
+
+/* Pestañas Movimientos / Kardex por producto */
+.kardex-tabs {
+  margin-bottom: 12px !important;
+}
+
+.kardex-filters {
+  align-items: center;
+}
+
+.kardex-ref-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-soft);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.kardex-ref-chip button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.kardex-filters .searchable-select {
+  min-width: 200px;
+}
+
+/* Vista "Kardex por producto" */
+.kardex-ledger-filters {
+  align-items: center;
+}
+
+.kardex-ledger-filters .searchable-select {
+  min-width: 220px;
+}
+
+.kardex-ledger-head {
+  margin: 6px 0 10px;
+}
+
+.kardex-ledger-head strong {
+  display: block;
+  font-size: 15px;
+}
+
+.kardex-ledger-head small {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.kardex-ledger .glass-table table {
+  min-width: 900px;
+}
+
+.kardex-ledger th.num,
+.kardex-ledger td.num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.kardex-ledger-opening td,
+.kardex-ledger-closing td {
+  background: var(--surface-soft);
+  font-weight: 500;
+}
+
 .kardex-product-meta {
   display: flex;
   flex-wrap: wrap;
@@ -4494,5 +4871,195 @@ input[type='radio'] {
     width: 100%;
     overflow-x: auto;
     padding-bottom: 3px;
+  }
+}
+
+/* Comprobante imprimible de venta */
+.sale-receipt-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  gap: 14px;
+  overflow-y: auto;
+  background: rgba(31, 47, 78, 0.38);
+  padding: 24px 16px;
+  backdrop-filter: blur(3px);
+}
+
+.sale-receipt {
+  width: min(100%, 420px);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: #ffffff;
+  padding: 22px;
+  color: #1a1a1a;
+  box-shadow: 0 22px 60px rgba(42, 61, 97, 0.24);
+  font-size: 13px;
+}
+
+.sale-receipt-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px dashed #c9c9c9;
+  padding-bottom: 12px;
+}
+
+.sale-receipt-head img {
+  width: auto;
+  height: 44px;
+  object-fit: contain;
+}
+
+.sale-receipt-head strong {
+  display: block;
+  font-size: 15px;
+}
+
+.sale-receipt-head span {
+  color: #666;
+  font-size: 11px;
+}
+
+.sale-receipt-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 12px;
+  margin: 14px 0;
+}
+
+.sale-receipt-meta small {
+  display: block;
+  color: #777;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.sale-receipt-meta strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.sale-receipt-items {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 12px;
+}
+
+.sale-receipt-items th,
+.sale-receipt-items td {
+  border-bottom: 1px solid #e6e6e6;
+  padding: 6px 4px;
+  text-align: left;
+}
+
+.sale-receipt-items th {
+  color: #777;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.sale-receipt-items .num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.sale-receipt-totals {
+  display: grid;
+  gap: 4px;
+  border-top: 1px dashed #c9c9c9;
+  padding-top: 10px;
+}
+
+.sale-receipt-totals span {
+  display: flex;
+  justify-content: space-between;
+  color: #555;
+}
+
+.sale-receipt-grand {
+  border-top: 1px solid #ddd;
+  margin-top: 4px;
+  padding-top: 6px;
+  color: #111;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.sale-receipt-payment {
+  display: grid;
+  gap: 2px;
+  margin-top: 12px;
+  color: #555;
+  font-size: 12px;
+}
+
+.sale-receipt-foot {
+  margin-top: 16px;
+  color: #777;
+  font-size: 12px;
+  text-align: center;
+}
+
+.sale-receipt-actions {
+  display: flex;
+  gap: 8px;
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 14mm;
+  }
+
+  body {
+    background: #ffffff !important;
+  }
+
+  /* Fuera de la impresión: navegación y todo lo que no sea el comprobante.
+     Se usa display:none (no visibility:hidden) para que no reserve alto y
+     no genere páginas en blanco. */
+  .desktop-sidebar,
+  .admin-bar,
+  .app-menu,
+  .app-menu-backdrop,
+  .skip-link,
+  .sale-receipt-actions {
+    display: none !important;
+  }
+
+  .module-page > *:not(.sale-receipt-overlay) {
+    display: none !important;
+  }
+
+  .app-shell,
+  .app-main,
+  .module-page {
+    display: block !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .sale-receipt-overlay {
+    position: static !important;
+    display: block !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    background: none !important;
+    backdrop-filter: none !important;
+  }
+
+  .sale-receipt {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    font-size: 12px !important;
   }
 }

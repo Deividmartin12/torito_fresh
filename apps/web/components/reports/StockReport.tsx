@@ -2,24 +2,26 @@
 
 import { AlertTriangle, Download } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { TopProductRow } from '../../lib/dashboard';
-import { money } from '../../lib/format';
+import { money, quantity } from '../../lib/format';
 import { getOperationStock, StockRow } from '../../lib/operations';
 import { ProductRankingChart } from '../charts/BusinessCharts';
 import { ReportHeader, ReportMetric } from './ReportNav';
+
+const round3 = (value: number) => Math.round(value * 1000) / 1000;
 
 export function StockReport() {
   const [stock, setStock] = useState<StockRow[]>([]);
   const [warehouse, setWarehouse] = useState('Todos');
   const [state, setState] = useState('Todos');
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
 
   useEffect(() => {
     getOperationStock()
       .then(setStock)
       .catch((cause) =>
-        setError(cause instanceof Error ? cause.message : 'No se pudo cargar el stock'),
+        toast.error(cause instanceof Error ? cause.message : 'No se pudo cargar el stock'),
       )
       .finally(() => setLoading(false));
   }, []);
@@ -78,9 +80,9 @@ export function StockReport() {
         row.almacen,
         row.lote,
         row.estado,
-        row.cantidad,
-        row.reservada,
-        Math.max(row.cantidad - row.reservada, 0),
+        round3(row.cantidad),
+        round3(row.reservada),
+        round3(Math.max(row.cantidad - row.reservada, 0)),
         row.costo.toFixed(4),
         (row.cantidad * row.costo).toFixed(2),
       ]),
@@ -104,10 +106,10 @@ export function StockReport() {
       <section className="report-metrics">
         <ReportMetric
           label="Disponible real"
-          value={available}
+          value={quantity(available)}
           detail={`${filtered.length} posiciones`}
         />
-        <ReportMetric label="Reservado" value={reserved} detail="Unidades comprometidas" />
+        <ReportMetric label="Reservado" value={quantity(reserved)} detail="Unidades comprometidas" />
         <ReportMetric
           label="Bajo minimo"
           value={low.length}
@@ -161,7 +163,6 @@ export function StockReport() {
           <Download size={16} /> Exportar CSV
         </button>
       </div>
-      {error ? <div className="notice-error">{error}</div> : null}
       {loading ? (
         <div className="table-loading">
           <span className="loading-spinner" /> Cargando stock...

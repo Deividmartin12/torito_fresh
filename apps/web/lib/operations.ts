@@ -11,6 +11,10 @@ export type CatalogItem = {
   documento?: string;
   precioVenta?: number;
   costoReferencia?: number;
+  /** Deuda vigente del cliente (suma de saldos por cobrar). Solo en `clientes`. */
+  deudaActual?: number;
+  /** Cantidad de comprobantes con saldo pendiente. Solo en `clientes`. */
+  comprobantesPendientes?: number;
 };
 
 export type OperationCatalogs = {
@@ -18,7 +22,6 @@ export type OperationCatalogs = {
   clientes: CatalogItem[];
   almacenes: CatalogItem[];
   productos: CatalogItem[];
-  seriesVenta: Record<ReceiptType, string[]>;
   estadosInventario: CatalogItem[];
   preparado: boolean;
 };
@@ -62,20 +65,25 @@ export type Sale = {
   comprobante: string;
   fecha: string;
   cliente: string;
+  clienteDocumento: string;
+  clienteTipoDocumento: string;
   almacen: string;
   pago: string;
   subtotal: number;
   igv: number;
+  descuento: number;
   total: number;
   totalNeto: number;
   montoInicial: number;
   fechaVencimiento: string | null;
+  cuentaCobrarId: string | null;
   pagado: number;
   saldo: number;
   estado: string;
   estadoPago: string;
   estadoDevolucion: string;
   kardexId: string | null;
+  kardexRef: string | null;
   items: OperationDetailLine[];
 };
 
@@ -102,6 +110,7 @@ export type Purchase = {
   estadoPago: string;
   estadoDevolucion: string;
   kardexId: string | null;
+  kardexRef: string | null;
   items: OperationDetailLine[];
 };
 
@@ -183,11 +192,17 @@ export function getOperationCatalogs() {
 export function getOperationStock() {
   return api<StockRow[]>('/operations/stock');
 }
-export function getSales() {
-  return api<Sale[]>('/operations/sales');
+function dateRangeQuery(from?: string, to?: string) {
+  const query = new URLSearchParams();
+  if (from) query.set('from', from);
+  if (to) query.set('to', to);
+  return query.size ? `?${query}` : '';
 }
-export function getPurchases() {
-  return api<Purchase[]>('/operations/purchases');
+export function getSales(from?: string, to?: string) {
+  return api<Sale[]>(`/operations/sales${dateRangeQuery(from, to)}`);
+}
+export function getPurchases(from?: string, to?: string) {
+  return api<Purchase[]>(`/operations/purchases${dateRangeQuery(from, to)}`);
 }
 export function createSale(payload: SaleOperationPayload, confirm: boolean) {
   return api<Sale>(`/operations/sales?confirm=${confirm}`, {
@@ -207,8 +222,16 @@ export function confirmSale(id: string) {
 export function confirmPurchase(id: string) {
   return api<Purchase>(`/operations/purchases/${id}/confirm`, { method: 'POST' });
 }
-export function getOperationalAccounts(type: 'cobrar' | 'pagar') {
-  return api<OperationalAccount[]>(`/operations/accounts/${type}`);
+export function getOperationalAccounts(type: 'cobrar' | 'pagar', clienteId?: string) {
+  const query = clienteId ? `?clienteId=${encodeURIComponent(clienteId)}` : '';
+  return api<OperationalAccount[]>(`/operations/accounts/${type}${query}`);
+}
+
+export function updateReceivableDueDate(id: string, fechaVencimiento: string) {
+  return api<OperationalAccount>(`/operations/accounts/cobrar/${id}/vencimiento`, {
+    method: 'PATCH',
+    body: JSON.stringify({ fechaVencimiento }),
+  });
 }
 export function getOperationalPaymentMethods() {
   return api<OperationalPaymentMethod[]>('/operations/payment-methods');
@@ -235,6 +258,7 @@ export type OperationalReturn = {
   total: number;
   estado: string;
   kardexId: string | null;
+  kardexRef: string | null;
   saldoFavor: number;
   items: { producto: string; cantidad: number; importe: number; destino: string }[];
 };
@@ -267,4 +291,102 @@ export function createOperationalReturn(type: 'venta' | 'compra', payload: Retur
     method: 'POST',
     body: JSON.stringify(payload),
   });
+}
+
+/* ---- Kardex / movimientos de inventario ---- */
+
+export type MovementDetail = {
+  productoId: string;
+  producto: string;
+  codigo: string | null;
+  almacenId: string;
+  almacen: string;
+  lote: string;
+  estadoInventario: string;
+  direccion: 'ENTRADA' | 'SALIDA';
+  cantidad: number;
+  costoUnitario: number;
+  costoTotal: number;
+  saldoAnterior: number;
+  saldoPosterior: number;
+};
+
+export type Movement = {
+  id: string;
+  referencia: string;
+  fecha: string;
+  tipo: string;
+  operacion: string;
+  operacionLabel: string;
+  comprobante: string;
+  tercero: string;
+  explicacion: string;
+  observaciones: string | null;
+  responsable: string;
+  origen: string;
+  destino: string;
+  estado: string;
+  unidades: number;
+  detalles: MovementDetail[];
+};
+
+export type MovementFilters = {
+  from?: string;
+  to?: string;
+  productoId?: string;
+  almacenId?: string;
+  tipoOperacion?: string;
+  ref?: string;
+};
+
+export function getMovements(filters: MovementFilters = {}) {
+  const query = new URLSearchParams();
+  if (filters.from) query.set('from', filters.from);
+  if (filters.to) query.set('to', filters.to);
+  if (filters.productoId) query.set('productoId', filters.productoId);
+  if (filters.almacenId) query.set('almacenId', filters.almacenId);
+  if (filters.tipoOperacion) query.set('tipoOperacion', filters.tipoOperacion);
+  if (filters.ref) query.set('ref', filters.ref);
+  return api<Movement[]>(`/operations/movements${query.size ? `?${query}` : ''}`);
+}
+
+export type KardexEntry = {
+  detalleId: string;
+  movimientoId: string;
+  fecha: string;
+  referencia: string;
+  documento: string;
+  operacion: string;
+  operacionLabel: string;
+  tercero: string;
+  direccion: 'ENTRADA' | 'SALIDA';
+  entrada: number;
+  salida: number;
+  saldo: number;
+  costoUnitario: number;
+  costoTotal: number;
+  lote: string;
+  almacen: string;
+  estadoInventario: string;
+};
+
+export type KardexLedger = {
+  producto: { id: string; nombre: string; codigo: string | null };
+  almacen: string;
+  saldoInicial: number;
+  saldoFinal: number;
+  movimientos: KardexEntry[];
+};
+
+export function getKardex(params: {
+  productoId: string;
+  almacenId?: string;
+  from?: string;
+  to?: string;
+}) {
+  const query = new URLSearchParams({ productoId: params.productoId });
+  if (params.almacenId) query.set('almacenId', params.almacenId);
+  if (params.from) query.set('from', params.from);
+  if (params.to) query.set('to', params.to);
+  return api<KardexLedger>(`/operations/kardex?${query}`);
 }

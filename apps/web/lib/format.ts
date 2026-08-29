@@ -7,6 +7,11 @@ export function money(value: unknown) {
   }).format(amount);
 }
 
+export function quantity(value: unknown) {
+  const amount = Number(value ?? 0);
+  return new Intl.NumberFormat('es-PE', { maximumFractionDigits: 3 }).format(amount);
+}
+
 export function dateTime(value: string | Date | undefined) {
   if (!value) return '-';
   return new Intl.DateTimeFormat('es-PE', {

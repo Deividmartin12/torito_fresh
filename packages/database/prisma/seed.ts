@@ -1,4 +1,4 @@
-import { PrismaClient, Prisma, RoleName, ClientType, ProductCategory } from '@prisma/client';
+import { PrismaClient, Prisma, RoleName, ClientType } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
@@ -24,7 +24,7 @@ async function main() {
   );
   const passwordHash = await bcrypt.hash('Admin12345', 10);
 
-  await prisma.user.upsert({
+  const adminUser = await prisma.user.upsert({
     where: { email: 'admin@toritofresh.local' },
     update: {
       name: 'Administrador',
@@ -42,7 +42,7 @@ async function main() {
   });
 
   const deliveryPassword = await bcrypt.hash('Reparto12345', 10);
-  await prisma.user.upsert({
+  const deliveryUser = await prisma.user.upsert({
     where: { email: 'reparto@toritofresh.local' },
     update: {
       name: 'Repartidor demo',
@@ -87,45 +87,6 @@ async function main() {
       },
     ],
     skipDuplicates: true,
-  });
-
-  await prisma.product.createMany({
-    data: [
-      {
-        name: 'Vidon de agua 20L',
-        sku: 'VIDON-20L',
-        description: 'Vidon retornable lleno de 20 litros',
-        category: ProductCategory.WATER,
-        price: 12,
-        stock: 120,
-        returnable: true,
-      },
-      {
-        name: 'Bidon pequeno 7L',
-        sku: 'BIDON-7L',
-        description: 'Bidon pequeno para hogares y oficinas',
-        category: ProductCategory.WATER,
-        price: 6,
-        stock: 80,
-        returnable: false,
-      },
-      {
-        name: 'Dispensador manual',
-        sku: 'DISP-MANUAL',
-        description: 'Dispensador para vidon de 20 litros',
-        category: ProductCategory.DISPENSER,
-        price: 18,
-        stock: 25,
-        returnable: false,
-      },
-    ],
-    skipDuplicates: true,
-  });
-
-  await prisma.warehouseState.upsert({
-    where: { id: 'main' },
-    update: { emptyContainers: 45 },
-    create: { id: 'main', emptyContainers: 45 },
   });
 
   const tiposProducto = await Promise.all(
@@ -299,6 +260,7 @@ async function main() {
       apellidos: 'Torito Fresh',
       cargo: 'Administrador',
       estado: true,
+      userId: adminUser.id,
     },
     create: {
       tipoDocumento: 'DNI',
@@ -307,6 +269,27 @@ async function main() {
       apellidos: 'Torito Fresh',
       correo: 'admin@toritofresh.local',
       cargo: 'Administrador',
+      userId: adminUser.id,
+    },
+  });
+
+  await prisma.trabajador.upsert({
+    where: { numeroDocumento: '45870002' },
+    update: {
+      nombres: 'Repartidor',
+      apellidos: 'Demo',
+      cargo: 'Repartidor',
+      estado: true,
+      userId: deliveryUser.id,
+    },
+    create: {
+      tipoDocumento: 'DNI',
+      numeroDocumento: '45870002',
+      nombres: 'Repartidor',
+      apellidos: 'Demo',
+      correo: 'reparto@toritofresh.local',
+      cargo: 'Repartidor',
+      userId: deliveryUser.id,
     },
   });
 
@@ -344,7 +327,6 @@ async function main() {
         nombreLegal: 'Juan Perez',
         telefono: '987654321',
         direccion: 'Av. Los Olivos 123',
-        limiteCredito: 300,
       },
       {
         tipoDocumento: 'RUC',
@@ -352,7 +334,6 @@ async function main() {
         nombreLegal: 'Restaurante El Buen Sabor',
         telefono: '955222111',
         direccion: 'Jr. Comercio 450',
-        limiteCredito: 1500,
       },
       {
         tipoDocumento: 'RUC',
@@ -360,7 +341,6 @@ async function main() {
         nombreLegal: 'Minimarket La Esquina',
         telefono: '944333222',
         direccion: 'Calle Central 890',
-        limiteCredito: 800,
       },
     ].map((cliente) =>
       prisma.cliente.upsert({

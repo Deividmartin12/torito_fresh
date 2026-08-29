@@ -1,12 +1,24 @@
 'use client';
 
-import { Check, Eye, Plus, Search, ShoppingCart } from 'lucide-react';
+import { Check, Eye, Plus, Printer, Search, ShoppingCart } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { OperationDetailDialog } from '../../../components/operations/OperationDetailDialog';
+import { RegisterCollectionModal } from '../../../components/operations/RegisterCollectionModal';
+import { SaleReceipt } from '../../../components/operations/SaleReceipt';
 import { Pagination } from '../../../components/Pagination';
 import { PeriodFilter } from '../../../components/PeriodFilter';
-import { confirmSale, getSales, Sale } from '../../../lib/operations';
+import { money } from '../../../lib/format';
+import {
+  confirmSale,
+  getOperationalAccounts,
+  getOperationalPaymentMethods,
+  getSales,
+  OperationalAccount,
+  OperationalPaymentMethod,
+  Sale,
+} from '../../../lib/operations';
 
 export default function VentasPage() {
   const [ventas, setVentas] = useState<Sale[]>([]);
@@ -17,49 +29,66 @@ export default function VentasPage() {
   const [pagina, setPagina] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [detalle, setDetalle] = useState<Sale | null>(null);
+  const [boleta, setBoleta] = useState<Sale | null>(null);
   const [procesandoId, setProcesandoId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
+  const [receivables, setReceivables] = useState<OperationalAccount[]>([]);
+  const [methods, setMethods] = useState<OperationalPaymentMethod[]>([]);
+  const [cobrarAccount, setCobrarAccount] = useState<OperationalAccount | null>(null);
 
-  const load = useCallback(async () => {
-    setError('');
+  const loadReceivables = useCallback(async () => {
     try {
-      setVentas(await getSales());
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudieron cargar las ventas');
-    } finally {
-      setLoading(false);
+      const [accounts, paymentMethods] = await Promise.all([
+        getOperationalAccounts('cobrar'),
+        getOperationalPaymentMethods(),
+      ]);
+      setReceivables(accounts);
+      setMethods(paymentMethods);
+    } catch {
+      /* el resumen por cobrar es informativo; no bloquea la lista de ventas */
     }
   }, []);
 
   useEffect(() => {
-    void load();
-    const feedback = sessionStorage.getItem('torito-operation-feedback');
-    if (feedback) {
-      setMessage(feedback);
-      sessionStorage.removeItem('torito-operation-feedback');
-    }
-  }, [load]);
+    void loadReceivables();
+  }, [loadReceivables]);
 
+  const porCobrarTotal = receivables.reduce((sum, item) => sum + item.saldo, 0);
+  const vencidasCount = receivables.filter((item) => item.estado === 'VENCIDA').length;
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      setVentas(await getSales(from || undefined, to || undefined));
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : 'No se pudieron cargar las ventas', {
+        action: { label: 'Reintentar', onClick: () => void load() },
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [from, to]);
+
+  useEffect(() => {
+    if (from && to) void load();
+  }, [from, load, to]);
+
+  // The date window is applied server-side (getSales(from, to)); here we only refine by
+  // payment type and text search.
   const filtradas = useMemo(
     () =>
-      ventas.filter((item) => {
-        const fecha = item.fecha.slice(0, 10);
-        return (
+      ventas.filter(
+        (item) =>
           (pago === 'Todos' || item.pago === pago) &&
-          (!from || fecha >= from) &&
-          (!to || fecha <= to) &&
           `${item.comprobante} ${item.cliente} ${item.almacen}`
             .toLowerCase()
-            .includes(buscar.toLowerCase())
-        );
-      }),
-    [buscar, from, pago, to, ventas],
+            .includes(buscar.toLowerCase()),
+      ),
+    [buscar, pago, ventas],
   );
   const pages = Math.max(1, Math.ceil(filtradas.length / pageSize));
   const visibles = filtradas.slice((pagina - 1) * pageSize, pagina * pageSize);
-  const confirmed = ventas.filter((item) => item.estado === 'CONFIRMADA');
+  const confirmed = filtradas.filter((item) => item.estado === 'CONFIRMADA');
 
   function changeFilters(action: () => void) {
     action();
@@ -72,14 +101,14 @@ export default function VentasPage() {
   }, []);
   async function confirmar(id: string) {
     setProcesandoId(id);
-    setError('');
-    setMessage('');
     try {
       const updated = await confirmSale(id);
       setVentas((current) => current.map((item) => (item.id === id ? updated : item)));
-      setMessage('Venta confirmada correctamente.');
+      toast.success('Venta confirmada correctamente.');
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo confirmar la venta');
+      toast.error(cause instanceof Error ? cause.message : 'No se pudo confirmar la venta', {
+        action: { label: 'Reintentar', onClick: () => void load() },
+      });
     } finally {
       setProcesandoId(null);
     }
@@ -100,40 +129,24 @@ export default function VentasPage() {
       <div className="summary-row">
         <div className="summary-glass">
           <span>Ventas confirmadas</span>
-          <strong>S/ {confirmed.reduce((sum, item) => sum + item.total, 0).toFixed(2)}</strong>
+          <strong>{money(confirmed.reduce((sum, item) => sum + item.totalNeto, 0))}</strong>
         </div>
         <div className="summary-glass">
           <span>Cobrado</span>
-          <strong>
-            S/ {confirmed.reduce((sum, item) => sum + item.total - item.saldo, 0).toFixed(2)}
-          </strong>
+          <strong>{money(confirmed.reduce((sum, item) => sum + item.pagado, 0))}</strong>
         </div>
-        <div className="summary-glass">
-          <span>Por cobrar</span>
-          <strong>S/ {confirmed.reduce((sum, item) => sum + item.saldo, 0).toFixed(2)}</strong>
-        </div>
+        <Link className="summary-glass summary-glass-link" href="/cobranzas">
+          <span>Por cobrar (total)</span>
+          <strong>{money(porCobrarTotal)}</strong>
+          <small>
+            {vencidasCount > 0 ? `${vencidasCount} vencidas · ir a Cobranzas` : 'Ir a Cobranzas'}
+          </small>
+        </Link>
         <div className="summary-glass">
           <span>Con kardex</span>
           <strong>{confirmed.filter((item) => item.kardexId).length}</strong>
         </div>
       </div>
-
-      {message ? (
-        <div className="notice-success" role="status">
-          <Check size={17} /> {message}
-          <button type="button" onClick={() => setMessage('')} aria-label="Cerrar mensaje">
-            ×
-          </button>
-        </div>
-      ) : null}
-      {error ? (
-        <div className="notice-error" role="alert">
-          {error}
-          <button type="button" onClick={() => void load()}>
-            Reintentar
-          </button>
-        </div>
-      ) : null}
 
       <div className="module-tools operations-filters">
         <label className="pill-search">
@@ -211,16 +224,19 @@ export default function VentasPage() {
                         >
                           {item.estadoPago}
                         </span>
-                        <small>Saldo S/ {item.saldo.toFixed(2)}</small>
+                        <small>Saldo {money(item.saldo)}</small>
                       </td>
                       <td>
-                        <strong>S/ {item.total.toFixed(2)}</strong>
-                        <small>Neto S/ {item.totalNeto.toFixed(2)}</small>
+                        <strong>{money(item.total)}</strong>
+                        <small>Neto {money(item.totalNeto)}</small>
                       </td>
                       <td>
                         {item.kardexId ? (
-                          <Link className="kardex-link" href="/movimientos">
-                            <Check size={13} /> Kardex #{item.kardexId}
+                          <Link
+                            className="kardex-link"
+                            href={`/movimientos?ref=${encodeURIComponent(item.kardexRef ?? '')}`}
+                          >
+                            <Check size={13} /> {item.kardexRef ?? 'Ver kardex'}
                           </Link>
                         ) : (
                           <span className="status status-amber">Pendiente</span>
@@ -249,6 +265,17 @@ export default function VentasPage() {
                           >
                             <Eye size={16} />
                           </button>
+                          {item.estado === 'CONFIRMADA' ? (
+                            <button
+                              type="button"
+                              className="icon-soft"
+                              onClick={() => setBoleta(item)}
+                              title="Imprimir comprobante"
+                              aria-label={`Imprimir ${item.comprobante}`}
+                            >
+                              <Printer size={16} />
+                            </button>
+                          ) : null}
                           {item.estado === 'BORRADOR' ? (
                             <button
                               type="button"
@@ -316,10 +343,42 @@ export default function VentasPage() {
           dueDate={detalle.fechaVencimiento}
           returnStatus={detalle.estadoDevolucion}
           kardexId={detalle.kardexId}
+          kardexRef={detalle.kardexRef}
           items={detalle.items}
           onClose={() => setDetalle(null)}
+          onRegisterCollection={
+            detalle.saldo > 0 && detalle.cuentaCobrarId
+              ? () => {
+                  const account = receivables.find((item) => item.id === detalle.cuentaCobrarId);
+                  if (!account) {
+                    toast.error('No se encontró la cuenta por cobrar de esta venta.');
+                    return;
+                  }
+                  setCobrarAccount(account);
+                  setDetalle(null);
+                }
+              : undefined
+          }
         />
       ) : null}
+
+      {cobrarAccount ? (
+        <RegisterCollectionModal
+          tipo="cobrar"
+          cuenta={cobrarAccount}
+          metodos={methods}
+          onClose={() => setCobrarAccount(null)}
+          onDone={(updated) => {
+            setReceivables((current) =>
+              current.map((item) => (item.id === updated.id ? updated : item)),
+            );
+            setCobrarAccount(null);
+            void load();
+          }}
+        />
+      ) : null}
+
+      {boleta ? <SaleReceipt sale={boleta} onClose={() => setBoleta(null)} /> : null}
     </div>
   );
 }

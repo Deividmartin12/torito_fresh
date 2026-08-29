@@ -2,6 +2,7 @@
 
 import { Boxes, Pencil, Plus, Search, X } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { api } from '../../../lib/api';
 
 type Almacen = {
@@ -21,13 +22,12 @@ export default function AlmacenesPage() {
   const [buscar, setBuscar] = useState('');
   const [modal, setModal] = useState(false);
   const [editando, setEditando] = useState<Almacen | null>(null);
-  const [error, setError] = useState('');
   const [guardando, setGuardando] = useState(false);
   useEffect(() => {
     api<Almacen[]>('/operations/warehouses')
       .then(setAlmacenes)
       .catch((cause) =>
-        setError(cause instanceof Error ? cause.message : 'No se pudieron cargar los almacenes'),
+        toast.error(cause instanceof Error ? cause.message : 'No se pudieron cargar los almacenes'),
       );
   }, []);
   const visibles = useMemo(
@@ -50,7 +50,6 @@ export default function AlmacenesPage() {
       return;
     }
     const values = new FormData(event.currentTarget as HTMLFormElement);
-    setError('');
     setGuardando(true);
     try {
       await api('/operations/warehouses', {
@@ -65,7 +64,7 @@ export default function AlmacenesPage() {
       setAlmacenes(await api<Almacen[]>('/operations/warehouses'));
       setModal(false);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo registrar el almacén');
+      toast.error(cause instanceof Error ? cause.message : 'No se pudo registrar el almacén');
     } finally {
       setGuardando(false);
     }
@@ -96,11 +95,6 @@ export default function AlmacenesPage() {
           />
         </label>
       </div>
-      {error ? (
-        <div className="notice-error" role="alert">
-          {error}
-        </div>
-      ) : null}
       <div className="glass-table">
         <table>
           <thead>

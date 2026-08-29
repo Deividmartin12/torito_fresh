@@ -38,6 +38,16 @@ const formatRange = (from: string, to: string) => {
   return from === to ? format(from) : `${format(from)} — ${format(to)}`;
 };
 
+function formatFullDate(value: string) {
+  const raw = new Intl.DateTimeFormat('es-PE', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  }).format(new Date(`${value}T00:00:00`));
+  const cleaned = raw.replace(',', '');
+  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+}
+
 export function PeriodFilter({
   onChange,
   hideRangeHint = false,
@@ -46,14 +56,15 @@ export function PeriodFilter({
   hideRangeHint?: boolean;
 }) {
   const today = localDate();
-  const [period, setPeriod] = useState<Period>('month');
+  const [period, setPeriod] = useState<Period>('week');
   const [anchor, setAnchor] = useState(today);
-  const [from, setFrom] = useState(() => range('month', today).from);
-  const [to, setTo] = useState(() => range('month', today).to);
+  const [from, setFrom] = useState(() => range('week', today).from);
+  const [to, setTo] = useState(() => range('week', today).to);
+  const label = period === 'day' ? formatFullDate(anchor) : formatRange(from, to);
 
   useEffect(() => {
-    onChange(from, to, { period, label: formatRange(from, to) });
-  }, [from, onChange, period, to]);
+    onChange(from, to, { period, label });
+  }, [from, label, onChange, period, to]);
 
   function select(next: Period) {
     setPeriod(next);
@@ -138,8 +149,8 @@ export function PeriodFilter({
           />
         </label>
       )}
-      {!hideRangeHint && period !== 'custom' && period !== 'day' ? (
-        <span className="report-range-hint">{formatRange(from, to)}</span>
+      {!hideRangeHint && period !== 'custom' ? (
+        <span className="report-range-hint">{label}</span>
       ) : null}
     </div>
   );

@@ -55,11 +55,6 @@ BEGIN
       CHECK ("tipo_pago" IN ('CONTADO', 'CREDITO', 'MIXTO'));
   END IF;
 
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'venta_comprobante_valido') THEN
-    ALTER TABLE "venta" ADD CONSTRAINT "venta_comprobante_valido"
-      CHECK ("tipo_comprobante" IN ('FACTURA', 'BOLETA', 'TICKET', 'NOTA', 'OTRO'));
-  END IF;
-
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'venta_estado_valido') THEN
     ALTER TABLE "venta" ADD CONSTRAINT "venta_estado_valido"
       CHECK ("estado" IN ('BORRADOR', 'CONFIRMADA', 'ANULADA'));

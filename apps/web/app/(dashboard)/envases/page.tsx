@@ -2,6 +2,7 @@
 
 import { Droplets } from 'lucide-react';
 import { FormEvent, useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import { api } from '../../../lib/api';
 import { dateTime } from '../../../lib/format';
 import { SearchableSelect } from '../../../components/SearchableSelect';
@@ -16,9 +17,6 @@ export default function ContainersPage() {
     quantity: 1,
     notes: '',
   });
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
-
   async function load() {
     const [clientData, pendingData, movementData] = await Promise.all([
       api<any[]>('/clients?active=true'),
@@ -32,13 +30,11 @@ export default function ContainersPage() {
   }
 
   useEffect(() => {
-    load().catch((err) => setError(err.message));
+    load().catch((err) => toast.error(err.message));
   }, []);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    setMessage('');
-    setError('');
     try {
       const signedQuantity =
         form.movementType === 'RETORNO'
@@ -56,7 +52,7 @@ export default function ContainersPage() {
               : 'Entrega de envases al cliente'),
         }),
       });
-      setMessage(
+      toast.success(
         form.movementType === 'RETORNO'
           ? 'Retorno de envases registrado sin afectar la venta'
           : 'Entrega de envases registrada',
@@ -64,7 +60,7 @@ export default function ContainersPage() {
       setForm({ clientId: clients[0]?.id || '', movementType: 'RETORNO', quantity: 1, notes: '' });
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo ajustar envases');
+      toast.error(err instanceof Error ? err.message : 'No se pudo ajustar envases');
     }
   }
 
@@ -123,16 +119,6 @@ export default function ContainersPage() {
             <Droplets size={17} /> Registrar movimiento
           </button>
         </div>
-        {message ? (
-          <p className="rounded-md bg-emerald-50 p-2 text-sm font-semibold text-emerald-700 md:col-span-5">
-            {message}
-          </p>
-        ) : null}
-        {error ? (
-          <p className="rounded-md bg-rose-50 p-2 text-sm font-semibold text-rose-700 md:col-span-5">
-            {error}
-          </p>
-        ) : null}
       </form>
 
       <section className="panel p-4">

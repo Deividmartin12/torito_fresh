@@ -16,10 +16,25 @@ import {
 export class ExpensesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list() {
+  async list(from?: string, to?: string) {
+    // `Gasto.fecha` is a date-only column stored at UTC midnight; filter with UTC boundaries
+    // so an expense dated exactly on `from` is included and `to` stays inclusive.
+    const hasRange = Boolean(from || to);
+    const gte = from ? new Date(`${from}T00:00:00Z`) : undefined;
+    let lt: Date | undefined;
+    if (to) {
+      lt = new Date(`${to}T00:00:00Z`);
+      lt.setUTCDate(lt.getUTCDate() + 1);
+    }
+    if ((gte && Number.isNaN(gte.getTime())) || (lt && Number.isNaN(lt.getTime()))) {
+      throw new BadRequestException('El rango de fechas no es válido');
+    }
     const rows = await this.prisma.gasto.findMany({
+      where: hasRange
+        ? { fecha: { ...(gte ? { gte } : {}), ...(lt ? { lt } : {}) } }
+        : undefined,
       orderBy: [{ fecha: 'desc' }, { id: 'desc' }],
-      take: 200,
+      take: hasRange ? 500 : 200,
       include: { trabajador: true },
     });
     return rows.map((row) => this.view(row));

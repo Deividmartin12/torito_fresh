@@ -3,6 +3,7 @@
 import { Check, Factory, Plus, Search, Trash2, X } from 'lucide-react';
 import Link from 'next/link';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { SearchableSelect } from '../../../components/SearchableSelect';
 import {
   completeProductionOrder,
@@ -29,7 +30,6 @@ export default function ProductionPage() {
   const [waste, setWaste] = useState(0);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [form, setForm] = useState({
     productoId: '',
@@ -60,7 +60,7 @@ export default function ProductionPage() {
   useEffect(() => {
     void load()
       .catch((cause) =>
-        setError(cause instanceof Error ? cause.message : 'No se pudo cargar producción'),
+        toast.error(cause instanceof Error ? cause.message : 'No se pudo cargar producción'),
       )
       .finally(() => setLoading(false));
   }, []);
@@ -89,9 +89,10 @@ export default function ProductionPage() {
   }
   async function submit(event: FormEvent) {
     event.preventDefault();
-    setError('');
-    if (inputs.some((item) => !item.productoId || item.cantidad <= 0))
-      return setError('Completa o elimina los insumos agregados.');
+    if (inputs.some((item) => !item.productoId || item.cantidad <= 0)) {
+      toast.error('Completa o elimina los insumos agregados.');
+      return;
+    }
     setSaving(true);
     try {
       await createProductionOrder({
@@ -102,7 +103,7 @@ export default function ProductionPage() {
       closeForm();
       await load();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo registrar la producción');
+      toast.error(cause instanceof Error ? cause.message : 'No se pudo registrar la producción');
     } finally {
       setSaving(false);
     }
@@ -110,13 +111,12 @@ export default function ProductionPage() {
   async function complete() {
     if (!completeOrder) return;
     setSaving(true);
-    setError('');
     try {
       await completeProductionOrder(completeOrder.id, actual, waste);
       setCompleteOrder(null);
       await load();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo completar la producción');
+      toast.error(cause instanceof Error ? cause.message : 'No se pudo completar la producción');
     } finally {
       setSaving(false);
     }
@@ -166,11 +166,6 @@ export default function ProductionPage() {
           <small>Consumo valorizado</small>
         </div>
       </div>
-      {error ? (
-        <div className="notice-error" role="alert">
-          {error}
-        </div>
-      ) : null}
       <div className="module-tools">
         <label className="pill-search">
           <Search size={17} />
@@ -242,8 +237,11 @@ export default function ProductionPage() {
                         <Check size={15} /> Completar
                       </button>
                     ) : item.kardexId ? (
-                      <Link className="kardex-link" href="/movimientos">
-                        Kardex #{item.kardexId}
+                      <Link
+                        className="kardex-link"
+                        href={`/movimientos?ref=${encodeURIComponent(item.kardexRef ?? '')}`}
+                      >
+                        {item.kardexRef ?? 'Ver kardex'}
                       </Link>
                     ) : null}
                   </td>

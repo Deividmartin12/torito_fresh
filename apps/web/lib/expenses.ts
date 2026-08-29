@@ -18,8 +18,11 @@ export type CreateExpensePayload = Pick<Expense, 'fecha' | 'concepto' | 'categor
 
 export type ExpenseCategory = { id: string; nombre: string };
 
-export function getExpenses() {
-  return api<Expense[]>('/expenses');
+export function getExpenses(from?: string, to?: string) {
+  const query = new URLSearchParams();
+  if (from) query.set('from', from);
+  if (to) query.set('to', to);
+  return api<Expense[]>(`/expenses${query.size ? `?${query}` : ''}`);
 }
 export function createExpense(payload: CreateExpensePayload) {
   return api<Expense>('/expenses', { method: 'POST', body: JSON.stringify(payload) });

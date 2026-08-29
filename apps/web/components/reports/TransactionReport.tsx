@@ -2,7 +2,13 @@
 
 import { Download } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
-import { BusinessAnalytics, getBusinessAnalytics } from '../../lib/analytics';
+import { toast } from 'sonner';
+import {
+  BusinessAnalytics,
+  fillDailySeries,
+  fillMonthlySeries,
+  getBusinessAnalytics,
+} from '../../lib/analytics';
 import { money } from '../../lib/format';
 import { PeriodFilter } from '../PeriodFilter';
 import {
@@ -29,15 +35,16 @@ export function TransactionReport({ kind }: { kind: ReportKind }) {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
 
   useEffect(() => {
+    // Wait for PeriodFilter to publish its range before the first request so the report
+    // does not briefly show the backend's 12-month default window.
+    if (!from || !to) return;
     setLoading(true);
-    setError('');
-    getBusinessAnalytics(from || undefined, to || undefined)
+    getBusinessAnalytics(from, to)
       .then(setAnalytics)
       .catch((cause) =>
-        setError(
+        toast.error(
           cause instanceof Error ? cause.message : 'No se pudieron calcular los indicadores',
         ),
       )
@@ -57,6 +64,15 @@ export function TransactionReport({ kind }: { kind: ReportKind }) {
     quantity: row.quantity,
     total: row.revenue,
   }));
+  const spanDays =
+    from && to
+      ? Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) +
+        1
+      : 0;
+  const comparisonSeries =
+    spanDays > 31
+      ? fillMonthlySeries(analytics?.monthly ?? [], from, to)
+      : fillDailySeries(analytics?.daily ?? [], from, to);
 
   const changePeriod = useCallback((start: string, end: string) => {
     setFrom(start);
@@ -110,7 +126,9 @@ export function TransactionReport({ kind }: { kind: ReportKind }) {
           label={sales ? 'Margen bruto' : 'Ventas del período'}
           value={money(sales ? summary?.margin : summary?.sales)}
           detail={
-            sales ? `${(summary?.marginRate ?? 0).toFixed(1)}% sobre ventas` : 'Base de comparación'
+            sales
+              ? `Ingresos menos costo de inventario · ${(summary?.marginRate ?? 0).toFixed(1)}%`
+              : 'Base de comparación'
           }
         />
         <ReportMetric
@@ -135,11 +153,6 @@ export function TransactionReport({ kind }: { kind: ReportKind }) {
           <Download size={16} /> Exportar CSV
         </button>
       </div>
-      {error ? (
-        <div className="notice-error" role="alert">
-          {error}
-        </div>
-      ) : null}
       {loading ? (
         <div className="table-loading">
           <span className="loading-spinner" /> Calculando indicadores...
@@ -167,7 +180,7 @@ export function TransactionReport({ kind }: { kind: ReportKind }) {
             />
           )}
           <ComparisonBarChart
-            data={analytics.monthly}
+            data={comparisonSeries}
             title={sales ? 'Ventas vs gastos' : 'Gastos vs ventas'}
           />
           {sales ? (

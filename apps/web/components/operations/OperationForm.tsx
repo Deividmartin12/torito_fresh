@@ -13,6 +13,9 @@ import {
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
+import { formaPagoLabel, formaPagoOpciones, resumenVencimiento } from '../../lib/credit';
+import { money } from '../../lib/format';
 import {
   createPurchase,
   createSale,
@@ -39,6 +42,12 @@ const localToday = () => {
   return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
 };
 
+const localTodayPlus = (days: number) => {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
+};
+
 export function OperationForm({ kind }: { kind: OperationKind }) {
   const sale = kind === 'sale';
   const router = useRouter();
@@ -60,7 +69,6 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
-  const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
 
   useEffect(() => {
@@ -81,7 +89,7 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
         setWarehouseId(catalogData.almacenes[0]?.id ?? '');
       })
       .catch((cause) =>
-        setError(
+        toast.error(
           cause instanceof Error
             ? cause.message
             : 'No se pudieron cargar los datos de la operación',
@@ -101,6 +109,8 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
   );
   const igv = sale ? 0 : subtotal * 0.18;
   const total = subtotal + igv;
+  const selectedClient = sale ? entities.find((item) => item.id === entityId) : undefined;
+  const creditAmount = paymentType === 'MIXTO' ? Math.max(total - initialAmount, 0) : total;
 
   function changeReceiptType(nextType: ReceiptType) {
     setReceiptType(nextType);
@@ -172,11 +182,9 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
     return Object.keys(next).length === 0;
   }
   function openReview() {
-    setError('');
     if (validate()) setReviewOpen(true);
   }
   async function save(confirm: boolean) {
-    setError('');
     if (!validate()) return;
     setSaving(true);
     try {
@@ -202,14 +210,13 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
           },
           confirm,
         );
-      sessionStorage.setItem(
-        'torito-operation-feedback',
+      toast.success(
         `${sale ? 'Venta' : 'Compra'} ${confirm ? 'confirmada' : 'guardada como borrador'} correctamente.`,
       );
       router.push(backHref);
       router.refresh();
     } catch (cause) {
-      setError(
+      toast.error(
         cause instanceof Error
           ? cause.message
           : `No se pudo guardar la ${sale ? 'venta' : 'compra'}`,
@@ -396,6 +403,12 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
               />
               {fieldErrors.entity ? (
                 <small className="field-error">{fieldErrors.entity}</small>
+              ) : selectedClient && (selectedClient.deudaActual ?? 0) > 0 ? (
+                <small className="client-debt-hint">
+                  Deuda actual: {money(selectedClient.deudaActual)} ·{' '}
+                  {selectedClient.comprobantesPendientes}{' '}
+                  {selectedClient.comprobantesPendientes === 1 ? 'comprobante' : 'comprobantes'}
+                </small>
               ) : null}
             </label>
             {!sale ? (
@@ -423,85 +436,107 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
                 ) : null}
               </label>
             ) : null}
-            <div className={`operation-field-pair${sale ? ' operation-field-single' : ''}`}>
-              {!sale ? (
-                <label>
-                  <span>Tipo de comprobante</span>
-                  <select
-                    value={receiptType}
-                    onChange={(event) => changeReceiptType(event.target.value as ReceiptType)}
+            {!sale ? (
+              <label>
+                <span>Tipo de comprobante</span>
+                <select
+                  value={receiptType}
+                  onChange={(event) => changeReceiptType(event.target.value as ReceiptType)}
+                >
+                  <option>FACTURA</option>
+                  <option>BOLETA</option>
+                  <option>TICKET</option>
+                  <option>NOTA</option>
+                  <option>OTRO</option>
+                </select>
+              </label>
+            ) : null}
+
+            <div className="payment-type-field">
+              <span className="label">Forma de pago</span>
+              <div className="payment-type-options" role="radiogroup" aria-label="Forma de pago">
+                {formaPagoOpciones.map((option) => (
+                  <button
+                    type="button"
+                    key={option.value}
+                    role="radio"
+                    aria-checked={paymentType === option.value}
+                    className={paymentType === option.value ? 'active' : ''}
+                    onClick={() => {
+                      setPaymentType(option.value);
+                      setFieldErrors((current) => ({
+                        ...current,
+                        payment: undefined,
+                        dueDate: undefined,
+                      }));
+                    }}
                   >
-                    <option>FACTURA</option>
-                    <option>BOLETA</option>
-                    <option>TICKET</option>
-                    <option>NOTA</option>
-                    <option>OTRO</option>
-                  </select>
-                </label>
-              ) : null}
-              <label>
-                <span>Forma de pago</span>
-                <select
-                  value={paymentType}
-                  onChange={(event) => {
-                    setPaymentType(event.target.value as PaymentType);
-                    setFieldErrors((current) => ({
-                      ...current,
-                      payment: undefined,
-                      dueDate: undefined,
-                    }));
-                  }}
-                >
-                  <option>CONTADO</option>
-                  <option>CREDITO</option>
-                  <option>MIXTO</option>
-                </select>
-              </label>
+                    <strong>{option.titulo}</strong>
+                    <small>{option.detalle}</small>
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="operation-field-pair">
-              <label>
-                <span>Método del pago inicial</span>
-                <select
-                  value={paymentMethodId}
-                  onChange={(event) => {
-                    setPaymentMethodId(event.target.value);
-                    setFieldErrors((current) => ({ ...current, payment: undefined }));
-                  }}
-                  disabled={paymentType === 'CREDITO'}
-                >
-                  <option value="">Seleccionar</option>
-                  {paymentMethods
-                    .filter((method) => !method.requiereOperacion)
-                    .map((method) => (
-                      <option key={method.id} value={method.id}>
-                        {method.nombre}
-                      </option>
-                    ))}
-                </select>
-              </label>
-              {paymentType === 'CONTADO' ? (
+
+            {paymentType !== 'CREDITO' ? (
+              <div className="operation-field-pair">
                 <label>
-                  <span>Monto pagado</span>
-                  <input value={`S/ ${total.toFixed(2)}`} readOnly />
-                </label>
-              ) : paymentType === 'MIXTO' ? (
-                <label>
-                  <span>Abono inicial</span>
-                  <input
-                    type="number"
-                    min="0.01"
-                    max={Math.max(total - 0.01, 0)}
-                    step="0.01"
-                    value={initialAmount}
+                  <span>
+                    {paymentType === 'MIXTO' ? 'Método del abono inicial' : 'Método de pago'}
+                  </span>
+                  <select
+                    value={paymentMethodId}
                     onChange={(event) => {
-                      setInitialAmount(Number(event.target.value));
+                      setPaymentMethodId(event.target.value);
                       setFieldErrors((current) => ({ ...current, payment: undefined }));
                     }}
-                  />
+                  >
+                    <option value="">Seleccionar</option>
+                    {paymentMethods
+                      .filter((method) => !method.requiereOperacion)
+                      .map((method) => (
+                        <option key={method.id} value={method.id}>
+                          {method.nombre}
+                        </option>
+                      ))}
+                  </select>
                 </label>
-              ) : (
+                {paymentType === 'CONTADO' ? (
+                  <label>
+                    <span>Monto que paga</span>
+                    <input value={money(total)} readOnly />
+                  </label>
+                ) : (
+                  <label>
+                    <span>Abono inicial</span>
+                    <input
+                      type="number"
+                      min="0.01"
+                      max={Math.max(total - 0.01, 0)}
+                      step="0.01"
+                      value={initialAmount}
+                      onChange={(event) => {
+                        setInitialAmount(Number(event.target.value));
+                        setFieldErrors((current) => ({ ...current, payment: undefined }));
+                      }}
+                    />
+                  </label>
+                )}
+              </div>
+            ) : null}
+
+            {paymentType !== 'CONTADO' ? (
+              <div className="credit-panel">
+                <div className="credit-panel-head">
+                  <strong>Esta {sale ? 'venta' : 'compra'} queda a crédito</strong>
+                  <span>
+                    Quedará pendiente <b>{money(creditAmount)}</b>
+                  </span>
+                </div>
                 <label>
-                  <span>Fecha de vencimiento</span>
+                  <span>
+                    {sale ? '¿Cuándo pagará el cliente?' : '¿Cuándo se paga al proveedor?'}
+                  </span>
                   <input
                     type="date"
                     min={localToday()}
@@ -512,35 +547,33 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
                     }}
                     required
                   />
-                  {fieldErrors.dueDate ? (
-                    <small className="field-error">{fieldErrors.dueDate}</small>
-                  ) : null}
+                  <div className="credit-date-presets">
+                    {[7, 15, 30].map((days) => (
+                      <button
+                        type="button"
+                        key={days}
+                        className={dueDate === localTodayPlus(days) ? 'active' : ''}
+                        onClick={() => {
+                          setDueDate(localTodayPlus(days));
+                          setFieldErrors((current) => ({ ...current, dueDate: undefined }));
+                        }}
+                      >
+                        {days} días
+                      </button>
+                    ))}
+                  </div>
                 </label>
-              )}
-            </div>
-            {paymentType === 'MIXTO' ? (
-              <label>
-                <span>Fecha de vencimiento del saldo</span>
-                <input
-                  type="date"
-                  min={localToday()}
-                  value={dueDate}
-                  onChange={(event) => {
-                    setDueDate(event.target.value);
-                    setFieldErrors((current) => ({ ...current, dueDate: undefined }));
-                  }}
-                  required
-                />
+                {dueDate && !fieldErrors.dueDate ? (
+                  <small className="credit-due-hint">
+                    {resumenVencimiento(dueDate, creditAmount).label}
+                  </small>
+                ) : null}
                 {fieldErrors.dueDate ? (
                   <small className="field-error">{fieldErrors.dueDate}</small>
                 ) : null}
-                {fieldErrors.payment ? (
-                  <small className="field-error">{fieldErrors.payment}</small>
-                ) : null}
-              </label>
-            ) : fieldErrors.payment ? (
-              <p className="field-error">{fieldErrors.payment}</p>
+              </div>
             ) : null}
+            {fieldErrors.payment ? <p className="field-error">{fieldErrors.payment}</p> : null}
             {!sale ? (
               <div className="operation-field-pair operation-receipt-number">
                 <label>
@@ -585,11 +618,6 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
         </aside>
       </div>
 
-      {error ? (
-        <div className="notice-error" role="alert">
-          {error}
-        </div>
-      ) : null}
       <div className="operation-sticky-actions">
         <Link href={backHref} className="btn-secondary">
           Cancelar
@@ -662,9 +690,9 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
                 <div>
                   <small>Pago</small>
                   <strong>
-                    {paymentType}
+                    {formaPagoLabel[paymentType] ?? paymentType}
                     {paymentType !== 'CONTADO' && dueDate
-                      ? ` · vence ${new Intl.DateTimeFormat('es-PE', { timeZone: 'UTC' }).format(new Date(dueDate))}`
+                      ? ` · ${money(creditAmount)} a crédito · ${resumenVencimiento(dueDate, creditAmount).label.toLowerCase()}`
                       : ''}
                   </strong>
                 </div>
@@ -718,11 +746,6 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
                 <Check size={15} /> Al confirmar se {sale ? 'descontará' : 'ingresará'} el stock y
                 se creará el kardex automáticamente.
               </p>
-              {error ? (
-                <div className="notice-error" role="alert">
-                  {error}
-                </div>
-              ) : null}
             </div>
             <div className="operation-review-actions">
               <button

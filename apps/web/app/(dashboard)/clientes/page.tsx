@@ -1,9 +1,12 @@
 'use client';
 
-import { Check, Pencil, Plus, Search, UserX, X } from 'lucide-react';
+import { Pencil, Plus, Search, UserX, X } from 'lucide-react';
+import Link from 'next/link';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { Pagination } from '../../../components/Pagination';
 import { api } from '../../../lib/api';
+import { money } from '../../../lib/format';
 
 type Cliente = {
   id: string;
@@ -13,6 +16,9 @@ type Cliente = {
   phone: string;
   address: string;
   debtBalance: number;
+  pendingReceivables: number;
+  overdueBalance: number;
+  overdueCount: number;
   containerBalance: number;
   active: boolean;
 };
@@ -41,14 +47,13 @@ export default function ClientesPage() {
   const [form, setForm] = useState<ClientForm>(emptyForm);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
   const load = useCallback(async () => {
-    setError('');
     try {
       setClientes(await api<Cliente[]>('/clients'));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudieron cargar los clientes');
+      toast.error(cause instanceof Error ? cause.message : 'No se pudieron cargar los clientes', {
+        action: { label: 'Reintentar', onClick: () => void load() },
+      });
     } finally {
       setLoading(false);
     }
@@ -80,7 +85,6 @@ export default function ClientesPage() {
         : emptyForm,
     );
     setModal(true);
-    setError('');
   }
   function cerrar() {
     setModal(false);
@@ -90,7 +94,6 @@ export default function ClientesPage() {
   async function guardar(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
-    setError('');
     try {
       const payload = { ...form, document: form.document.trim() || undefined };
       const saved = editando
@@ -104,12 +107,14 @@ export default function ClientesPage() {
           ? current.map((item) => (item.id === saved.id ? saved : item))
           : [saved, ...current],
       );
-      setMessage(
+      toast.success(
         editando ? 'Cliente actualizado correctamente.' : 'Cliente registrado correctamente.',
       );
       cerrar();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo registrar el cliente');
+      toast.error(cause instanceof Error ? cause.message : 'No se pudo registrar el cliente', {
+        action: { label: 'Reintentar', onClick: () => void load() },
+      });
     } finally {
       setSaving(false);
     }
@@ -119,7 +124,9 @@ export default function ClientesPage() {
       const updated = await api<Cliente>(`/clients/${id}/deactivate`, { method: 'PATCH' });
       setClientes((current) => current.map((item) => (item.id === id ? updated : item)));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo desactivar el cliente');
+      toast.error(cause instanceof Error ? cause.message : 'No se pudo desactivar el cliente', {
+        action: { label: 'Reintentar', onClick: () => void load() },
+      });
     }
   }
 
@@ -139,22 +146,6 @@ export default function ClientesPage() {
           <Plus size={20} />
         </button>
       </div>
-      {message ? (
-        <div className="notice-success" role="status">
-          <Check size={17} /> {message}
-          <button type="button" onClick={() => setMessage('')} aria-label="Cerrar mensaje">
-            ×
-          </button>
-        </div>
-      ) : null}
-      {error ? (
-        <div className="notice-error" role="alert">
-          {error}
-          <button type="button" onClick={() => void load()}>
-            Reintentar
-          </button>
-        </div>
-      ) : null}
       <div className="module-tools">
         <label className="pill-search">
           <Search size={17} />
@@ -200,7 +191,28 @@ export default function ClientesPage() {
                         {cliente.phone}
                         <small>{cliente.address}</small>
                       </td>
-                      <td>S/ {Number(cliente.debtBalance ?? 0).toFixed(2)}</td>
+                      <td>
+                        {cliente.debtBalance > 0 ? (
+                          <Link
+                            className="client-debt-link"
+                            href={`/cobranzas?cliente=${cliente.id}`}
+                          >
+                            <strong>{money(cliente.debtBalance)}</strong>
+                            {cliente.overdueCount > 0 ? (
+                              <small className="client-debt-overdue">
+                                {cliente.overdueCount} vencidas · {money(cliente.overdueBalance)}
+                              </small>
+                            ) : (
+                              <small>
+                                {cliente.pendingReceivables}{' '}
+                                {cliente.pendingReceivables === 1 ? 'comprobante' : 'comprobantes'}
+                              </small>
+                            )}
+                          </Link>
+                        ) : (
+                          <span className="client-debt-clear">Sin deuda</span>
+                        )}
+                      </td>
                       <td>{cliente.containerBalance ?? 0}</td>
                       <td>
                         <span

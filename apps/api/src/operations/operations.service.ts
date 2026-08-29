@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
+import { accountState as deriveAccountState, limaTodayKey } from '../common/receivables';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   CreateOperationalProductDto,
@@ -8,6 +9,7 @@ import {
   CreatePurchaseDto,
   CreateReturnDto,
   RegisterOperationalPaymentDto,
+  UpdateReceivableDueDateDto,
 } from './operations.dto';
 
 type Transaction = Omit<
@@ -15,16 +17,35 @@ type Transaction = Omit<
   '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'
 >;
 
-const SALE_RECEIPT_SERIES: Record<string, readonly string[]> = {
-  BOLETA: ['B001'],
-  FACTURA: ['F001'],
-  TICKET: ['T001'],
-  NOTA: ['NC01'],
-  OTRO: ['O001'],
+const saleCode = (id: bigint | number | string) =>
+  `V-${id.toString().padStart(6, '0')}`;
+
+const MOVEMENT_LABELS: Record<string, string> = {
+  COMPRA: 'Entrada por compra',
+  VENTA: 'Salida por venta',
+  DEVOLUCION_VENTA: 'Devolución de cliente',
+  DEVOLUCION_COMPRA: 'Devolución a proveedor',
+  PRODUCCION: 'Producción',
+  TRANSFERENCIA: 'Transferencia entre almacenes',
+  AJUSTE: 'Ajuste de inventario',
+};
+const movementLabel = (operacion: string) =>
+  MOVEMENT_LABELS[operacion] ?? operacion.replace(/_/g, ' ').toLowerCase();
+
+/** Moving weighted-average unit cost after adding `addQty` units valued at `addCost` each. */
+const weightedAverage = (prevQty: number, prevCost: number, addQty: number, addCost: number) => {
+  const total = prevQty + addQty;
+  return total > 0 ? (prevQty * prevCost + addQty * addCost) / total : 0;
 };
 
-const AUTOMATIC_SALE_RECEIPT = { tipoComprobante: 'BOLETA', serie: 'B001' } as const;
-const SALE_NUMBER_LOCK = BigInt('824731');
+type MovementsFilter = {
+  from?: string;
+  to?: string;
+  productoId?: string;
+  almacenId?: string;
+  tipoOperacion?: string;
+  ref?: string;
+};
 
 @Injectable()
 export class OperationsService {
@@ -51,6 +72,19 @@ export class OperationsService {
         }),
       ]);
 
+    const debtByClient = await this.prisma.cuentaCobrar.groupBy({
+      by: ['clienteId'],
+      where: { saldoPendiente: { gt: 0 } },
+      _sum: { saldoPendiente: true },
+      _count: { _all: true },
+    });
+    const debtMap = new Map(
+      debtByClient.map((row) => [
+        row.clienteId.toString(),
+        { deuda: Number(row._sum.saldoPendiente ?? 0), comprobantes: row._count._all },
+      ]),
+    );
+
     return {
       proveedores: proveedores.map((item) => ({
         id: item.id.toString(),
@@ -61,6 +95,8 @@ export class OperationsService {
         id: item.id.toString(),
         nombre: item.nombreLegal,
         documento: item.numeroDocumento,
+        deudaActual: debtMap.get(item.id.toString())?.deuda ?? 0,
+        comprobantesPendientes: debtMap.get(item.id.toString())?.comprobantes ?? 0,
       })),
       almacenes: almacenes.map((item) => ({
         id: item.id.toString(),
@@ -76,7 +112,6 @@ export class OperationsService {
         controlaLote: item.controlaLote,
         lotes: item.lotes.map((lote) => ({ id: lote.id.toString(), codigo: lote.codigoLote })),
       })),
-      seriesVenta: SALE_RECEIPT_SERIES,
       estadosInventario: estadosInventario.map((item) => ({
         id: item.id.toString(),
         nombre: item.nombre,
@@ -192,10 +227,12 @@ export class OperationsService {
     return { message: 'Producto eliminado' };
   }
 
-  async purchases() {
+  async purchases(from?: string, to?: string) {
+    const range = this.listDateRange(from, to);
     const rows = await this.prisma.compra.findMany({
+      where: range ? { fecha: range } : undefined,
       orderBy: { fecha: 'desc' },
-      take: 100,
+      take: range ? 500 : 100,
       include: {
         proveedor: true,
         almacenDestino: true,
@@ -207,16 +244,18 @@ export class OperationsService {
         },
         cuentaPagar: true,
         devoluciones: true,
-        movimientosInventario: true,
+        movimientosInventario: { orderBy: { id: 'asc' } },
       },
     });
     return rows.map((row) => this.purchaseView(row));
   }
 
-  async sales() {
+  async sales(from?: string, to?: string) {
+    const range = this.listDateRange(from, to);
     const rows = await this.prisma.venta.findMany({
+      where: range ? { fecha: range } : undefined,
       orderBy: { fecha: 'desc' },
-      take: 100,
+      take: range ? 500 : 100,
       include: {
         cliente: true,
         almacenOrigen: true,
@@ -228,7 +267,7 @@ export class OperationsService {
         },
         cuentaCobrar: true,
         devoluciones: true,
-        movimientosInventario: true,
+        movimientosInventario: { orderBy: { id: 'asc' } },
       },
     });
     return rows.map((row) => this.saleView(row));
@@ -274,10 +313,11 @@ export class OperationsService {
     }));
   }
 
-  async accounts(type: string) {
+  async accounts(type: string, clienteId?: string) {
     this.ensureAccountType(type);
     if (type === 'cobrar') {
       const rows = await this.prisma.cuentaCobrar.findMany({
+        where: clienteId ? { clienteId: BigInt(clienteId) } : undefined,
         orderBy: { fechaEmision: 'desc' },
         include: {
           cliente: true,
@@ -301,10 +341,10 @@ export class OperationsService {
     return rows.map((row) => this.payableView(row));
   }
 
-  async registerAccountPayment(type: string, dto: RegisterOperationalPaymentDto) {
+  async registerAccountPayment(type: string, dto: RegisterOperationalPaymentDto, userId?: string) {
     this.ensureAccountType(type);
     return this.prisma.$transaction(async (tx) => {
-      const workerId = await this.workerId(tx);
+      const workerId = await this.workerId(tx, userId);
       const method = await tx.metodoPago.findUnique({ where: { id: BigInt(dto.metodoPagoId) } });
       if (!method || !method.estado)
         throw new BadRequestException('El método de pago no está disponible');
@@ -312,13 +352,7 @@ export class OperationsService {
       if (method.requiereOperacion && !operationNumber) {
         throw new BadRequestException(`Ingrese el número de operación para ${method.nombre}`);
       }
-      const todayKey = new Intl.DateTimeFormat('en-CA', {
-        timeZone: 'America/Lima',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-      }).format(new Date());
-      if (dto.fechaPago && dto.fechaPago.slice(0, 10) > todayKey)
+      if (dto.fechaPago && dto.fechaPago.slice(0, 10) > limaTodayKey())
         throw new BadRequestException('La fecha del pago no puede estar en el futuro');
       const paidAt = dto.fechaPago ? new Date(dto.fechaPago) : new Date();
 
@@ -389,6 +423,34 @@ export class OperationsService {
     });
   }
 
+  async updateReceivableDueDate(id: string, dto: UpdateReceivableDueDateDto) {
+    return this.prisma.$transaction(async (tx) => {
+      const account = await tx.cuentaCobrar.findUnique({ where: { id: BigInt(id) } });
+      if (!account) throw new NotFoundException('Cuenta por cobrar no encontrada');
+      if (Number(account.saldoPendiente) <= 0)
+        throw new BadRequestException(
+          'La cuenta ya está pagada; no tiene vencimiento por programar',
+        );
+
+      const dueKey = dto.fechaVencimiento.slice(0, 10);
+      if (dueKey < limaTodayKey())
+        throw new BadRequestException('La fecha de vencimiento no puede estar en el pasado');
+      const dueDate = new Date(`${dueKey}T00:00:00.000Z`);
+
+      await tx.cuentaCobrar.update({
+        where: { id: account.id },
+        data: { fechaVencimiento: dueDate },
+      });
+      await tx.venta.update({
+        where: { id: account.ventaId },
+        data: { fechaVencimientoPago: dueDate },
+      });
+
+      const accounts = await this.accountsInTransaction(tx, 'cobrar');
+      return accounts.find((row) => row.id === id);
+    });
+  }
+
   async returns() {
     const [sales, purchases, clientCredits, supplierCredits] = await Promise.all([
       this.prisma.devolucionVenta.findMany({
@@ -396,7 +458,7 @@ export class OperationsService {
         include: {
           venta: { include: { cliente: true } },
           detalles: { include: { producto: true, estadoDestino: true } },
-          movimientosInventario: true,
+          movimientosInventario: { orderBy: { id: 'asc' } },
           saldosFavor: true,
         },
       }),
@@ -405,7 +467,7 @@ export class OperationsService {
         include: {
           compra: { include: { proveedor: true } },
           detalles: { include: { producto: true } },
-          movimientosInventario: true,
+          movimientosInventario: { orderBy: { id: 'asc' } },
           saldosFavor: true,
         },
       }),
@@ -428,12 +490,13 @@ export class OperationsService {
           tipo: 'VENTA',
           fecha: row.fecha,
           operacionId: row.ventaId.toString(),
-          comprobante: `${row.venta.tipoComprobante} ${row.venta.serie}-${row.venta.numero}`,
+          comprobante: saleCode(row.venta.id),
           tercero: row.venta.cliente.nombreLegal,
           motivo: row.motivo,
           total: Number(row.total),
           estado: row.estado,
           kardexId: row.movimientosInventario[0]?.id?.toString() ?? null,
+          kardexRef: row.movimientosInventario[0]?.numeroReferencia ?? null,
           saldoFavor: row.saldosFavor.reduce(
             (sum, credit) => sum + Number(credit.montoOriginal),
             0,
@@ -459,6 +522,7 @@ export class OperationsService {
           total: Number(row.total),
           estado: row.estado,
           kardexId: row.movimientosInventario[0]?.id?.toString() ?? null,
+          kardexRef: row.movimientosInventario[0]?.numeroReferencia ?? null,
           saldoFavor: row.saldosFavor.reduce(
             (sum, credit) => sum + Number(credit.montoOriginal),
             0,
@@ -494,11 +558,11 @@ export class OperationsService {
     };
   }
 
-  async createReturn(type: string, dto: CreateReturnDto) {
+  async createReturn(type: string, dto: CreateReturnDto, userId?: string) {
     if (type !== 'venta' && type !== 'compra')
       throw new BadRequestException('Tipo de devolución inválido');
     const id = await this.prisma.$transaction(async (tx) => {
-      const workerId = await this.workerId(tx);
+      const workerId = await this.workerId(tx, userId);
       return type === 'venta'
         ? this.createSaleReturnTx(tx, dto, workerId)
         : this.createPurchaseReturnTx(tx, dto, workerId);
@@ -509,86 +573,200 @@ export class OperationsService {
     );
   }
 
-  async movements() {
-    const rows = await this.prisma.movimientoInventario.findMany({
-      orderBy: { fecha: 'desc' },
-      take: 200,
-      include: {
-        almacenOrigen: true,
-        almacenDestino: true,
-        trabajador: true,
-        compra: { include: { proveedor: true } },
-        venta: { include: { cliente: true } },
-        ordenProduccion: { include: { producto: true } },
-        detalles: {
-          include: { producto: true, almacen: true, lote: true, estadoInventario: true },
-        },
-      },
-    });
-    return rows.map((row) => {
-      const document = row.venta
-        ? `${row.venta.tipoComprobante} ${row.venta.serie}-${row.venta.numero}`
-        : row.compra
-          ? `${row.compra.tipoComprobante} ${row.compra.serie}-${row.compra.numero}`
-          : row.ordenProduccion
-            ? `ORDEN ${row.ordenProduccion.codigo}`
-            : (row.numeroReferencia ?? 'Movimiento manual');
-      const thirdParty =
-        row.venta?.cliente.nombreLegal ??
-        row.compra?.proveedor.razonSocial ??
-        (row.ordenProduccion
-          ? `Producción · ${row.ordenProduccion.producto.nombre}`
-          : 'Movimiento interno');
-      const origin =
-        row.almacenOrigen?.nombre ?? (row.compra ? `Proveedor · ${thirdParty}` : 'Origen externo');
-      const destination =
-        row.almacenDestino?.nombre ?? (row.venta ? `Cliente · ${thirdParty}` : 'Destino externo');
-      const units = row.detalles
-        .filter((item) => row.tipoMovimiento !== 'PRODUCCION' || item.direccion === 'ENTRADA')
-        .reduce((sum, item) => sum + Number(item.cantidad), 0);
-      const explanation =
-        row.tipoMovimiento === 'PRODUCCION'
-          ? `Se consumieron insumos y se generaron ${units} unidades de producto terminado.`
-          : row.tipoMovimiento === 'ENTRADA'
-            ? `Ingresaron ${units} unidades al inventario por una ${row.tipoOperacion.toLowerCase()}.`
-            : row.tipoMovimiento === 'SALIDA'
-              ? `Salieron ${units} unidades del inventario por una ${row.tipoOperacion.toLowerCase()}.`
-              : `Se trasladaron ${units} unidades entre ubicaciones.`;
-      return {
-        id: row.id.toString(),
-        referencia: row.numeroReferencia ?? `MOV-${row.id.toString().padStart(6, '0')}`,
-        fecha: row.fecha,
-        tipo: row.tipoMovimiento,
-        operacion: row.tipoOperacion,
-        comprobante: document,
-        tercero: thirdParty,
-        explicacion: explanation,
-        observaciones: row.observaciones,
-        responsable: `${row.trabajador.nombres} ${row.trabajador.apellidos}`,
-        origen: origin,
-        destino: destination,
-        estado: row.estado,
-        unidades: units,
-        detalles: row.detalles.map((item) => ({
-          producto: item.producto.nombre,
-          codigo: item.producto.codigo,
-          almacen: item.almacen.nombre,
-          lote: item.lote?.codigoLote ?? 'Sin lote',
-          estadoInventario: item.estadoInventario.nombre,
-          direccion: item.direccion,
-          cantidad: Number(item.cantidad),
-          costoUnitario: Number(item.costoUnitario),
-          costoTotal: Number(item.costoTotal),
-          saldoAnterior: Number(item.saldoAnterior),
-          saldoPosterior: Number(item.saldoPosterior),
-        })),
-      };
-    });
+  private static readonly MOVEMENTS_INCLUDE = {
+    almacenOrigen: true,
+    almacenDestino: true,
+    trabajador: true,
+    compra: { include: { proveedor: true } },
+    venta: { include: { cliente: true } },
+    ordenProduccion: { include: { producto: true } },
+    detalles: {
+      include: { producto: true, almacen: true, lote: true, estadoInventario: true },
+    },
+  } as const;
+
+  private movementView(row: any) {
+    const document = row.venta
+      ? `Venta ${saleCode(row.venta.id)}`
+      : row.compra
+        ? `${row.compra.tipoComprobante} ${row.compra.serie}-${row.compra.numero}`
+        : row.ordenProduccion
+          ? `ORDEN ${row.ordenProduccion.codigo}`
+          : (row.numeroReferencia ?? 'Movimiento manual');
+    const thirdParty =
+      row.venta?.cliente.nombreLegal ??
+      row.compra?.proveedor.razonSocial ??
+      (row.ordenProduccion
+        ? `Producción · ${row.ordenProduccion.producto.nombre}`
+        : 'Movimiento interno');
+    const origin =
+      row.almacenOrigen?.nombre ?? (row.compra ? `Proveedor · ${thirdParty}` : 'Origen externo');
+    const destination =
+      row.almacenDestino?.nombre ?? (row.venta ? `Cliente · ${thirdParty}` : 'Destino externo');
+    const units = row.detalles
+      .filter((item: any) => row.tipoMovimiento !== 'PRODUCCION' || item.direccion === 'ENTRADA')
+      .reduce((sum: number, item: any) => sum + Number(item.cantidad), 0);
+    const explanation =
+      row.tipoMovimiento === 'PRODUCCION'
+        ? `Se consumieron insumos y se generaron ${units} unidades de producto terminado.`
+        : row.tipoMovimiento === 'ENTRADA'
+          ? `Ingresaron ${units} unidades al inventario por una ${movementLabel(
+              row.tipoOperacion,
+            ).toLowerCase()}.`
+          : row.tipoMovimiento === 'SALIDA'
+            ? `Salieron ${units} unidades del inventario por una ${movementLabel(
+                row.tipoOperacion,
+              ).toLowerCase()}.`
+            : `Se trasladaron ${units} unidades entre ubicaciones.`;
+    return {
+      id: row.id.toString(),
+      referencia: row.numeroReferencia ?? `MOV-${row.id.toString().padStart(6, '0')}`,
+      fecha: row.fecha,
+      tipo: row.tipoMovimiento,
+      operacion: row.tipoOperacion,
+      operacionLabel: movementLabel(row.tipoOperacion),
+      comprobante: document,
+      tercero: thirdParty,
+      explicacion: explanation,
+      observaciones: row.observaciones,
+      responsable: `${row.trabajador.nombres} ${row.trabajador.apellidos}`,
+      origen: origin,
+      destino: destination,
+      estado: row.estado,
+      unidades: units,
+      detalles: row.detalles.map((item: any) => ({
+        productoId: item.productoId.toString(),
+        producto: item.producto.nombre,
+        codigo: item.producto.codigo,
+        almacenId: item.almacenId.toString(),
+        almacen: item.almacen.nombre,
+        lote: item.lote?.codigoLote ?? 'Sin lote',
+        estadoInventario: item.estadoInventario.nombre,
+        direccion: item.direccion,
+        cantidad: Number(item.cantidad),
+        costoUnitario: Number(item.costoUnitario),
+        costoTotal: Number(item.costoTotal),
+        saldoAnterior: Number(item.saldoAnterior),
+        saldoPosterior: Number(item.saldoPosterior),
+      })),
+    };
   }
 
-  async createPurchase(dto: CreatePurchaseDto, confirm = false) {
+  async movements(filters: MovementsFilter = {}) {
+    const fecha = this.listDateRange(filters.from, filters.to);
+    const detalleFilter: Prisma.DetalleMovimientoInventarioWhereInput = {};
+    if (filters.productoId) detalleFilter.productoId = BigInt(filters.productoId);
+    if (filters.almacenId) detalleFilter.almacenId = BigInt(filters.almacenId);
+    const where: Prisma.MovimientoInventarioWhereInput = {
+      ...(fecha ? { fecha } : {}),
+      ...(filters.tipoOperacion ? { tipoOperacion: filters.tipoOperacion } : {}),
+      ...(filters.ref ? { numeroReferencia: { contains: filters.ref, mode: 'insensitive' } } : {}),
+      ...(Object.keys(detalleFilter).length ? { detalles: { some: detalleFilter } } : {}),
+    };
+    const rows = await this.prisma.movimientoInventario.findMany({
+      where,
+      orderBy: { fecha: 'desc' },
+      take: 300,
+      include: OperationsService.MOVEMENTS_INCLUDE,
+    });
+    return rows.map((row) => this.movementView(row));
+  }
+
+  /**
+   * Per-product inventory ledger ("Registro de inventario permanente"): every movement line for
+   * one product in chronological order with a running balance. Unlike the stored
+   * `saldoAnterior/saldoPosterior` (which are per producto+almacén+lote+estado), the balance here
+   * is recomputed over the requested scope so it reads as one continuous column.
+   */
+  async kardex(filters: { productoId?: string; almacenId?: string; from?: string; to?: string }) {
+    if (!filters.productoId) throw new BadRequestException('Seleccione un producto para el kardex');
+    const productoId = BigInt(filters.productoId);
+    const almacenId = filters.almacenId ? BigInt(filters.almacenId) : undefined;
+    const producto = await this.prisma.producto.findUnique({ where: { id: productoId } });
+    if (!producto) throw new NotFoundException('Producto no encontrado');
+    const almacen = almacenId
+      ? await this.prisma.almacen.findUnique({ where: { id: almacenId } })
+      : null;
+    const fecha = this.listDateRange(filters.from, filters.to);
+
+    const scopeFilter: Prisma.DetalleMovimientoInventarioWhereInput = {
+      productoId,
+      ...(almacenId ? { almacenId } : {}),
+    };
+    const saldoInicial = fecha?.gte
+      ? await this.kardexSaldoInicial(scopeFilter, fecha.gte)
+      : 0;
+
+    const lines = await this.prisma.detalleMovimientoInventario.findMany({
+      where: { ...scopeFilter, ...(fecha ? { movimiento: { fecha } } : {}) },
+      orderBy: [{ movimiento: { fecha: 'asc' } }, { id: 'asc' }],
+      include: {
+        almacen: true,
+        lote: true,
+        estadoInventario: true,
+        movimiento: { include: OperationsService.MOVEMENTS_INCLUDE },
+      },
+    });
+
+    let saldo = saldoInicial;
+    const movimientos = lines.map((line) => {
+      const view = this.movementView(line.movimiento);
+      const cantidad = Number(line.cantidad);
+      const isEntry = line.direccion === 'ENTRADA';
+      saldo += isEntry ? cantidad : -cantidad;
+      return {
+        detalleId: line.id.toString(),
+        movimientoId: line.movimientoId.toString(),
+        fecha: line.movimiento.fecha,
+        referencia: view.referencia,
+        documento: view.comprobante,
+        operacion: view.operacion,
+        operacionLabel: view.operacionLabel,
+        tercero: view.tercero,
+        direccion: line.direccion,
+        entrada: isEntry ? cantidad : 0,
+        salida: isEntry ? 0 : cantidad,
+        saldo,
+        costoUnitario: Number(line.costoUnitario),
+        costoTotal: Number(line.costoTotal),
+        lote: line.lote?.codigoLote ?? 'Sin lote',
+        almacen: line.almacen.nombre,
+        estadoInventario: line.estadoInventario.nombre,
+      };
+    });
+
+    return {
+      producto: {
+        id: producto.id.toString(),
+        nombre: producto.nombre,
+        codigo: producto.codigo,
+      },
+      almacen: almacen?.nombre ?? 'Todos los almacenes',
+      saldoInicial,
+      saldoFinal: saldo,
+      movimientos,
+    };
+  }
+
+  /** Suma de entradas menos salidas anteriores a `before` para ese producto/almacén. */
+  private async kardexSaldoInicial(
+    scopeFilter: Prisma.DetalleMovimientoInventarioWhereInput,
+    before: Date,
+  ) {
+    const grupos = await this.prisma.detalleMovimientoInventario.groupBy({
+      by: ['direccion'],
+      where: { ...scopeFilter, movimiento: { fecha: { lt: before } } },
+      _sum: { cantidad: true },
+    });
+    return grupos.reduce(
+      (sum, row) => sum + (row.direccion === 'ENTRADA' ? 1 : -1) * Number(row._sum.cantidad ?? 0),
+      0,
+    );
+  }
+
+  async createPurchase(dto: CreatePurchaseDto, confirm = false, userId?: string) {
     return this.prisma.$transaction(async (tx) => {
-      const trabajadorId = await this.workerId(tx);
+      const trabajadorId = await this.workerId(tx, userId);
       const totals = this.totals(dto.items, dto.descuento);
       const terms = await this.paymentTerms(tx, dto, totals.total);
       const purchase = await tx.compra.create({
@@ -624,7 +802,7 @@ export class OperationsService {
           proveedor: true,
           almacenDestino: true,
           detalles: { include: { producto: true } },
-          movimientosInventario: true,
+          movimientosInventario: { orderBy: { id: 'asc' } },
         },
       });
       if (confirm) await this.confirmPurchaseTx(tx, purchase.id);
@@ -640,9 +818,9 @@ export class OperationsService {
     });
   }
 
-  async createSale(dto: CreateOperationalSaleDto, confirm = false) {
+  async createSale(dto: CreateOperationalSaleDto, confirm = false, userId?: string) {
     return this.prisma.$transaction(async (tx) => {
-      const trabajadorId = await this.workerId(tx);
+      const trabajadorId = await this.workerId(tx, userId);
       const warehouse = dto.almacenId
         ? await tx.almacen.findUnique({ where: { id: BigInt(dto.almacenId) } })
         : await tx.almacen.findFirst({ where: { estado: true }, orderBy: { id: 'asc' } });
@@ -650,14 +828,11 @@ export class OperationsService {
         throw new BadRequestException('No existe un almacén activo para registrar la venta');
       const totals = this.totals(dto.items, dto.descuento, false);
       const terms = await this.paymentTerms(tx, dto, totals.total);
-      const numero = await this.nextSaleNumber(tx);
       const sale = await tx.venta.create({
         data: {
           clienteId: BigInt(dto.clienteId),
           almacenOrigenId: warehouse.id,
           trabajadorId,
-          ...AUTOMATIC_SALE_RECEIPT,
-          numero,
           tipoPago: dto.tipoPago,
           metodoPagoInicialId: terms.methodId,
           montoInicial: terms.initial,
@@ -684,7 +859,7 @@ export class OperationsService {
           almacenOrigen: true,
           detalles: { include: { producto: true } },
           cuentaCobrar: true,
-          movimientosInventario: true,
+          movimientosInventario: { orderBy: { id: 'asc' } },
         },
       });
       if (confirm) await this.confirmSaleTx(tx, sale.id);
@@ -725,10 +900,12 @@ export class OperationsService {
       );
       const previous = stock ? Number(stock.cantidad) : 0;
       const next = previous + Number(item.cantidad);
-      const previousValue = previous * Number(stock?.costoPromedio ?? 0);
-      const nextCost = next
-        ? (previousValue + Number(item.cantidad) * Number(item.costoUnitario)) / next
-        : 0;
+      const nextCost = weightedAverage(
+        previous,
+        Number(stock?.costoPromedio ?? 0),
+        Number(item.cantidad),
+        Number(item.costoUnitario),
+      );
       if (stock)
         await tx.stockAlmacen.update({
           where: { id: stock.id },
@@ -804,7 +981,7 @@ export class OperationsService {
         trabajadorId: sale.trabajadorId,
         estado: 'CONFIRMADO',
         numeroReferencia: `VEN-${sale.id.toString().padStart(6, '0')}`,
-        observaciones: `Salida automatica por ${sale.tipoComprobante} ${sale.serie}-${sale.numero}`,
+        observaciones: `Salida automática por venta ${saleCode(sale.id)}`,
       },
     });
     for (const item of sale.detalles) {
@@ -893,6 +1070,10 @@ export class OperationsService {
             detallesDevolucion: { where: { devolucionVenta: { estado: 'CONFIRMADA' } } },
           },
         },
+        movimientosInventario: {
+          where: { tipoOperacion: 'VENTA', estado: 'CONFIRMADO' },
+          include: { detalles: true },
+        },
       },
     });
     if (!sale || sale.estado !== 'CONFIRMADA')
@@ -901,6 +1082,16 @@ export class OperationsService {
       throw new BadRequestException('La venta no tiene su cuenta por cobrar principal');
     const selected = this.validateReturnItems(sale.detalles, dto.items);
     const defaultState = await this.availableState(tx);
+    // Costo al que salió cada producto en esta venta, para que la devolución vuelva a entrar
+    // valorizada y no a cero. Si el movimiento de la venta no tiene la línea (datos viejos),
+    // usa el costo de referencia del producto.
+    const lineasDeSalida = sale.movimientosInventario.flatMap((movimiento) => movimiento.detalles);
+    const costoDeSalida = (productoId: bigint, fallback: number) => {
+      const lineas = lineasDeSalida.filter((linea) => linea.productoId === productoId);
+      const qty = lineas.reduce((sum, linea) => sum + Number(linea.cantidad), 0);
+      const costo = lineas.reduce((sum, linea) => sum + Number(linea.costoTotal), 0);
+      return qty > 0 ? costo / qty : fallback;
+    };
     const total = selected.reduce(
       (sum, entry) =>
         sum +
@@ -963,7 +1154,7 @@ export class OperationsService {
           trabajadorId: workerId,
           estado: 'CONFIRMADO',
           numeroReferencia: code,
-          observaciones: `Ingreso por devolución de ${sale.serie}-${sale.numero}`,
+          observaciones: `Ingreso por devolución de venta ${saleCode(sale.id)}`,
         },
       });
       for (const entry of physical) {
@@ -979,8 +1170,23 @@ export class OperationsService {
         );
         const previous = Number(stock?.cantidad ?? 0);
         const next = previous + entry.quantity;
+        const unitCost = costoDeSalida(
+          entry.detail.productoId,
+          Number(entry.detail.producto.costoReferencia),
+        );
         if (stock)
-          await tx.stockAlmacen.update({ where: { id: stock.id }, data: { cantidad: next } });
+          await tx.stockAlmacen.update({
+            where: { id: stock.id },
+            data: {
+              cantidad: next,
+              costoPromedio: weightedAverage(
+                previous,
+                Number(stock.costoPromedio),
+                entry.quantity,
+                unitCost,
+              ),
+            },
+          });
         else
           await tx.stockAlmacen.create({
             data: {
@@ -989,6 +1195,7 @@ export class OperationsService {
               loteId: entry.detail.loteId,
               estadoInventarioId: stateId,
               cantidad: next,
+              costoPromedio: unitCost,
             },
           });
         await tx.detalleMovimientoInventario.create({
@@ -1000,8 +1207,8 @@ export class OperationsService {
             estadoInventarioId: stateId,
             direccion: 'ENTRADA',
             cantidad: entry.quantity,
-            costoUnitario: 0,
-            costoTotal: 0,
+            costoUnitario: unitCost,
+            costoTotal: entry.quantity * unitCost,
             saldoAnterior: previous,
             saldoPosterior: next,
           },
@@ -1124,6 +1331,9 @@ export class OperationsService {
           `Stock insuficiente para devolver ${entry.detail.producto.nombre}`,
         );
       const next = previous - entry.quantity;
+      // Value the outbound at the stock row's current weighted-average cost, the same rule
+      // used for sales, instead of the original purchase-line cost.
+      const unitCost = Number(stock.costoPromedio);
       await tx.stockAlmacen.update({ where: { id: stock.id }, data: { cantidad: next } });
       await tx.detalleMovimientoInventario.create({
         data: {
@@ -1134,8 +1344,8 @@ export class OperationsService {
           estadoInventarioId: available.id,
           direccion: 'SALIDA',
           cantidad: entry.quantity,
-          costoUnitario: entry.detail.costoUnitario,
-          costoTotal: entry.quantity * Number(entry.detail.costoUnitario),
+          costoUnitario: unitCost,
+          costoTotal: entry.quantity * unitCost,
           saldoAnterior: previous,
           saldoPosterior: next,
         },
@@ -1289,13 +1499,7 @@ export class OperationsService {
     let dueDate: Date | null = null;
     if (dto.fechaVencimiento) {
       const dueKey = dto.fechaVencimiento.slice(0, 10);
-      const todayKey = new Intl.DateTimeFormat('en-CA', {
-        timeZone: 'America/Lima',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-      }).format(new Date());
-      if (dueKey < todayKey)
+      if (dueKey < limaTodayKey())
         throw new BadRequestException('La fecha de vencimiento no puede estar en el pasado');
       dueDate = new Date(`${dueKey}T00:00:00.000Z`);
     }
@@ -1316,7 +1520,11 @@ export class OperationsService {
     return { methodId, initial, dueDate };
   }
 
-  private async workerId(tx: Transaction) {
+  private async workerId(tx: Transaction, userId?: string) {
+    if (userId) {
+      const linked = await tx.trabajador.findFirst({ where: { userId, estado: true } });
+      if (linked) return linked.id;
+    }
     const worker = await tx.trabajador.findFirst({
       where: { estado: true },
       orderBy: { id: 'asc' },
@@ -1325,22 +1533,6 @@ export class OperationsService {
     return worker.id;
   }
 
-  private async nextSaleNumber(tx: Transaction) {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${SALE_NUMBER_LOCK})`;
-    const previousSales = await tx.venta.findMany({
-      where: AUTOMATIC_SALE_RECEIPT,
-      select: { numero: true },
-    });
-    const lastNumber = previousSales.reduce((largest, sale) => {
-      if (!/^\d+$/.test(sale.numero)) return largest;
-      const current = BigInt(sale.numero);
-      return current > largest ? current : largest;
-    }, BigInt(0));
-    const nextNumber = (lastNumber + BigInt(1)).toString().padStart(6, '0');
-    if (nextNumber.length > 20)
-      throw new BadRequestException('Se alcanzó el límite de numeración automática de ventas');
-    return nextNumber;
-  }
 
   private async availableState(tx: Transaction) {
     const state = await tx.estadoInventario.findUnique({ where: { codigo: 'DISPONIBLE' } });
@@ -1390,13 +1582,7 @@ export class OperationsService {
   }
 
   private accountState(row: any) {
-    if (Number(row.saldoPendiente) <= 0) return 'PAGADA';
-    if (
-      row.fechaVencimiento &&
-      new Date(row.fechaVencimiento).getTime() < new Date().setHours(0, 0, 0, 0)
-    )
-      return 'VENCIDA';
-    return Number(row.montoPagado) > 0 ? 'PARCIAL' : 'PENDIENTE';
+    return deriveAccountState(row);
   }
 
   private receivableView(row: any) {
@@ -1405,7 +1591,7 @@ export class OperationsService {
       tipo: 'cobrar',
       tercero: row.cliente.nombreLegal,
       documento: row.cliente.numeroDocumento,
-      comprobante: `${row.venta.serie}-${row.venta.numero}`,
+      comprobante: saleCode(row.venta.id),
       emision: row.fechaEmision,
       vencimiento: row.fechaVencimiento,
       original: Number(row.montoOriginal),
@@ -1480,7 +1666,7 @@ export class OperationsService {
           },
           cuentaPagar: true,
           devoluciones: true,
-          movimientosInventario: true,
+          movimientosInventario: { orderBy: { id: 'asc' } },
         },
       })
       .then((row) => row ?? Promise.reject(new NotFoundException('Compra no encontrada')));
@@ -1501,7 +1687,7 @@ export class OperationsService {
           },
           cuentaCobrar: true,
           devoluciones: true,
-          movimientosInventario: true,
+          movimientosInventario: { orderBy: { id: 'asc' } },
         },
       })
       .then((row) => row ?? Promise.reject(new NotFoundException('Venta no encontrada')));
@@ -1509,6 +1695,24 @@ export class OperationsService {
 
   private lineTotal(item: { cantidad: number; precioUnitario: number; descuento?: number }) {
     return Math.max(item.cantidad * item.precioUnitario - (item.descuento ?? 0), 0);
+  }
+
+  /**
+   * Optional `fecha` filter for list endpoints. `from`/`to` are `YYYY-MM-DD` calendar days
+   * in America/Lima; `to` is inclusive. Returns `undefined` when neither is provided.
+   */
+  private listDateRange(from?: string, to?: string): { gte?: Date; lt?: Date } | undefined {
+    if (!from && !to) return undefined;
+    const gte = from ? new Date(`${from}T00:00:00-05:00`) : undefined;
+    let lt: Date | undefined;
+    if (to) {
+      lt = new Date(`${to}T00:00:00-05:00`);
+      lt.setDate(lt.getDate() + 1);
+    }
+    if ((gte && Number.isNaN(gte.getTime())) || (lt && Number.isNaN(lt.getTime()))) {
+      throw new BadRequestException('El rango de fechas no es valido');
+    }
+    return { gte, lt };
   }
 
   private totals(
@@ -1552,6 +1756,7 @@ export class OperationsService {
       estadoPago: row.estadoPago,
       estadoDevolucion: row.estadoDevolucion,
       kardexId: row.movimientosInventario[0]?.id?.toString() ?? null,
+      kardexRef: row.movimientosInventario[0]?.numeroReferencia ?? null,
       items: row.detalles.map((item: any) => ({
         id: item.id.toString(),
         producto: item.producto.nombre,
@@ -1574,13 +1779,11 @@ export class OperationsService {
         .reduce((sum: number, item: any) => sum + Number(item.total), 0) ?? 0;
     return {
       id: row.id.toString(),
-      codigo: `V-${row.id.toString().padStart(6, '0')}`,
-      tipoComprobante: row.tipoComprobante,
-      serie: row.serie,
-      numero: row.numero,
-      comprobante: `${row.tipoComprobante} ${row.serie}-${row.numero}`,
+      codigo: saleCode(row.id),
       fecha: row.fecha,
       cliente: row.cliente.nombreLegal,
+      clienteDocumento: row.cliente.numeroDocumento,
+      clienteTipoDocumento: row.cliente.tipoDocumento,
       almacen: row.almacenOrigen.nombre,
       pago: row.tipoPago,
       subtotal: Number(row.subtotal),
@@ -1589,6 +1792,7 @@ export class OperationsService {
       total: Number(row.total),
       montoInicial: Number(row.montoInicial),
       fechaVencimiento: row.cuentaCobrar?.fechaVencimiento ?? row.fechaVencimientoPago,
+      cuentaCobrarId: row.cuentaCobrar?.id?.toString() ?? null,
       totalNeto: Math.max(Number(row.total) - returned, 0),
       pagado: Number(row.cuentaCobrar?.montoPagado ?? 0),
       saldo: Number(row.cuentaCobrar?.saldoPendiente ?? 0),
@@ -1596,6 +1800,7 @@ export class OperationsService {
       estadoPago: row.estadoPago,
       estadoDevolucion: row.estadoDevolucion,
       kardexId: row.movimientosInventario[0]?.id?.toString() ?? null,
+      kardexRef: row.movimientosInventario[0]?.numeroReferencia ?? null,
       items: row.detalles.map((item: any) => ({
         id: item.id.toString(),
         producto: item.producto.nombre,

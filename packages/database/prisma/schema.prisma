@@ -21,13 +21,6 @@ enum ClientType {
   RESTAURANT
 }
 
-enum ProductCategory {
-  WATER
-  DISPENSER
-  ACCESSORY
-  OTHER
-}
-
 enum OrderStatus {
   PENDING
   PREPARING
@@ -36,33 +29,10 @@ enum OrderStatus {
   CANCELLED
 }
 
-enum PaymentMethod {
-  CASH
-  YAPE
-  PLIN
-  TRANSFER
-  CREDIT
-}
-
-enum PaymentStatus {
-  PAID
-  PENDING
-  PARTIAL
-}
-
 enum ContainerMovementType {
   OUT_FULL
   IN_EMPTY
   ADJUSTMENT
-}
-
-enum InventoryMovementType {
-  PRODUCTION_IN
-  PURCHASE_IN
-  SALE_OUT
-  ADJUSTMENT_IN
-  ADJUSTMENT_OUT
-  RETURN_IN
 }
 
 model Role {
@@ -85,11 +55,8 @@ model User {
   role           Role                @relation(fields: [roleId], references: [id])
   assignedOrders Order[]             @relation("AssignedDelivery")
   createdOrders  Order[]             @relation("CreatedOrders")
-  sales          Sale[]
-  payments       Payment[]
-  deliveries     Delivery[]
   containerMoves ContainerMovement[]
-  inventoryMoves InventoryMovement[]
+  trabajador     Trabajador?
   createdAt      DateTime            @default(now()) @map("created_at")
   updatedAt      DateTime            @updatedAt @map("updated_at")
 
@@ -109,33 +76,12 @@ model Client {
   containerBalance Int                 @default(0) @map("container_balance")
   debtBalance      Decimal             @default(0) @map("debt_balance") @db.Decimal(10, 2)
   orders           Order[]
-  sales            Sale[]
-  payments         Payment[]
   containerMoves   ContainerMovement[]
   createdAt        DateTime            @default(now()) @map("created_at")
   updatedAt        DateTime            @updatedAt @map("updated_at")
 
   @@index([name])
   @@map("clients")
-}
-
-model Product {
-  id             String              @id @default(cuid())
-  name           String
-  sku            String?             @unique
-  description    String?
-  category       ProductCategory
-  price          Decimal             @db.Decimal(10, 2)
-  stock          Int                 @default(0)
-  active         Boolean             @default(true)
-  returnable     Boolean             @default(false)
-  orderItems     OrderItem[]
-  inventoryMoves InventoryMovement[]
-  createdAt      DateTime            @default(now()) @map("created_at")
-  updatedAt      DateTime            @updatedAt @map("updated_at")
-
-  @@index([name])
-  @@map("products")
 }
 
 model Order {
@@ -150,89 +96,13 @@ model Order {
   client         Client              @relation(fields: [clientId], references: [id])
   createdBy      User?               @relation("CreatedOrders", fields: [createdById], references: [id])
   deliveryUser   User?               @relation("AssignedDelivery", fields: [deliveryUserId], references: [id])
-  items          OrderItem[]
-  sale           Sale?
-  delivery       Delivery?
   containerMoves ContainerMovement[]
-  inventoryMoves InventoryMovement[]
   createdAt      DateTime            @default(now()) @map("created_at")
   updatedAt      DateTime            @updatedAt @map("updated_at")
 
   @@index([status])
   @@index([orderedAt])
   @@map("orders")
-}
-
-model OrderItem {
-  id        String   @id @default(cuid())
-  orderId   String   @map("order_id")
-  productId String   @map("product_id")
-  quantity  Int
-  unitPrice Decimal  @map("unit_price") @db.Decimal(10, 2)
-  total     Decimal  @db.Decimal(10, 2)
-  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product   Product  @relation(fields: [productId], references: [id])
-  createdAt DateTime @default(now()) @map("created_at")
-
-  @@map("order_items")
-}
-
-model Sale {
-  id            String        @id @default(cuid())
-  orderId       String        @unique @map("order_id")
-  clientId      String        @map("client_id")
-  userId        String?       @map("user_id")
-  totalAmount   Decimal       @map("total_amount") @db.Decimal(10, 2)
-  paidAmount    Decimal       @default(0) @map("paid_amount") @db.Decimal(10, 2)
-  debtAmount    Decimal       @default(0) @map("debt_amount") @db.Decimal(10, 2)
-  paymentStatus PaymentStatus @default(PENDING) @map("payment_status")
-  issuedAt      DateTime      @default(now()) @map("issued_at")
-  ticketNumber  String        @unique @map("ticket_number")
-  order         Order         @relation(fields: [orderId], references: [id])
-  client        Client        @relation(fields: [clientId], references: [id])
-  user          User?         @relation(fields: [userId], references: [id])
-  payments      Payment[]
-  createdAt     DateTime      @default(now()) @map("created_at")
-  updatedAt     DateTime      @updatedAt @map("updated_at")
-
-  @@index([issuedAt])
-  @@map("sales")
-}
-
-model Payment {
-  id        String        @id @default(cuid())
-  clientId  String        @map("client_id")
-  saleId    String?       @map("sale_id")
-  userId    String?       @map("user_id")
-  amount    Decimal       @db.Decimal(10, 2)
-  method    PaymentMethod
-  notes     String?
-  paidAt    DateTime      @default(now()) @map("paid_at")
-  client    Client        @relation(fields: [clientId], references: [id])
-  sale      Sale?         @relation(fields: [saleId], references: [id])
-  user      User?         @relation(fields: [userId], references: [id])
-  createdAt DateTime      @default(now()) @map("created_at")
-
-  @@index([paidAt])
-  @@map("payments")
-}
-
-model Delivery {
-  id                  String   @id @default(cuid())
-  orderId             String   @unique @map("order_id")
-  deliveryUserId      String?  @map("delivery_user_id")
-  containersDelivered Int      @default(0) @map("containers_delivered")
-  containersReturned  Int      @default(0) @map("containers_returned")
-  paymentReceived     Decimal  @default(0) @map("payment_received") @db.Decimal(10, 2)
-  observations        String?
-  deliveredAt         DateTime @default(now()) @map("delivered_at")
-  order               Order    @relation(fields: [orderId], references: [id])
-  deliveryUser        User?    @relation(fields: [deliveryUserId], references: [id])
-  createdAt           DateTime @default(now()) @map("created_at")
-  updatedAt           DateTime @updatedAt @map("updated_at")
-
-  @@index([deliveredAt])
-  @@map("deliveries")
 }
 
 model ContainerMovement {
@@ -253,39 +123,12 @@ model ContainerMovement {
   @@map("container_movements")
 }
 
-model InventoryMovement {
-  id                   String                @id @default(cuid())
-  productId            String?               @map("product_id")
-  orderId              String?               @map("order_id")
-  userId               String?               @map("user_id")
-  type                 InventoryMovementType
-  quantity             Int
-  stockAfter           Int?                  @map("stock_after")
-  emptyContainersDelta Int                   @default(0) @map("empty_containers_delta")
-  emptyContainersAfter Int?                  @map("empty_containers_after")
-  notes                String?
-  movedAt              DateTime              @default(now()) @map("moved_at")
-  product              Product?              @relation(fields: [productId], references: [id])
-  order                Order?                @relation(fields: [orderId], references: [id])
-  user                 User?                 @relation(fields: [userId], references: [id])
-
-  @@index([movedAt])
-  @@map("inventory_movements")
-}
-
-model WarehouseState {
-  id              String   @id @default("main")
-  emptyContainers Int      @default(0) @map("empty_containers")
-  updatedAt       DateTime @updatedAt @map("updated_at")
-
-  @@map("warehouse_state")
-}
-
 // Nuevo modelo operativo. Las tablas heredadas de arriba se mantienen de forma
 // temporal para que el API actual siga funcionando durante la migracion.
 
 model Trabajador {
   id              BigInt   @id @default(autoincrement())
+  userId          String?  @unique @map("user_id")
   tipoDocumento   String   @map("tipo_documento") @db.VarChar(20)
   numeroDocumento String   @unique @map("numero_documento") @db.VarChar(20)
   nombres         String   @db.VarChar(100)
@@ -297,6 +140,7 @@ model Trabajador {
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
+  user                  User?                  @relation(fields: [userId], references: [id])
   compras               Compra[]
   pagosProveedor        PagoProveedor[]
   devolucionesCompra    DevolucionCompra[]
@@ -611,7 +455,6 @@ model Cliente {
   telefono        String?             @db.VarChar(20)
   correo          String?             @db.VarChar(150)
   direccion       String?             @db.VarChar(250)
-  limiteCredito   Decimal             @default(0) @map("limite_credito") @db.Decimal(12, 2)
   estado          Boolean             @default(true)
   createdAt       DateTime            @default(now()) @map("created_at")
   updatedAt       DateTime            @updatedAt @map("updated_at")
@@ -629,9 +472,6 @@ model Venta {
   almacenOrigenId       BigInt                 @map("almacen_origen_id")
   trabajadorId          BigInt                 @map("trabajador_id")
   fecha                 DateTime               @default(now())
-  tipoComprobante       String                 @map("tipo_comprobante") @db.VarChar(30)
-  serie                 String                 @db.VarChar(10)
-  numero                String                 @db.VarChar(20)
   subtotal              Decimal                @db.Decimal(12, 2)
   igv                   Decimal                @db.Decimal(12, 2)
   descuento             Decimal                @default(0) @db.Decimal(12, 2)
@@ -654,7 +494,6 @@ model Venta {
   devoluciones          DevolucionVenta[]
   movimientosInventario MovimientoInventario[]
 
-  @@unique([tipoComprobante, serie, numero])
   @@index([fecha])
   @@map("venta")
 }

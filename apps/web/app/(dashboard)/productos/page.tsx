@@ -2,6 +2,7 @@
 
 import { Boxes, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { Pagination } from '../../../components/Pagination';
 import { api } from '../../../lib/api';
 
@@ -29,13 +30,12 @@ export default function ProductosPage() {
   const [pageSize, setPageSize] = useState(10);
   const [modal, setModal] = useState(false);
   const [editando, setEditando] = useState<Producto | null>(null);
-  const [error, setError] = useState('');
   const [guardando, setGuardando] = useState(false);
   useEffect(() => {
     api<Producto[]>('/operations/products')
       .then(setDatos)
       .catch((cause) =>
-        setError(cause instanceof Error ? cause.message : 'No se pudieron cargar los productos'),
+        toast.error(cause instanceof Error ? cause.message : 'No se pudieron cargar los productos'),
       );
   }, []);
   const tipos = useMemo(
@@ -64,7 +64,6 @@ export default function ProductosPage() {
     }
     const form = event.currentTarget as HTMLFormElement;
     const values = new FormData(form);
-    setError('');
     setGuardando(true);
     try {
       await api('/operations/products', {
@@ -83,7 +82,7 @@ export default function ProductosPage() {
       setDatos(await api<Producto[]>('/operations/products'));
       setModal(false);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo registrar el producto');
+      toast.error(cause instanceof Error ? cause.message : 'No se pudo registrar el producto');
     } finally {
       setGuardando(false);
     }
@@ -94,12 +93,11 @@ export default function ProductosPage() {
       !window.confirm(`¿Eliminar ${item.nombre}? Esta acción no se puede deshacer.`)
     )
       return;
-    setError('');
     try {
       await api(`/operations/products/${item.id}`, { method: 'DELETE' });
       setDatos((current) => current.filter((product) => product.id !== item.id));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo eliminar el producto');
+      toast.error(cause instanceof Error ? cause.message : 'No se pudo eliminar el producto');
     }
   }
   return (
@@ -144,11 +142,6 @@ export default function ProductosPage() {
           ))}
         </select>
       </div>
-      {error ? (
-        <div className="notice-error" role="alert">
-          {error}
-        </div>
-      ) : null}
       <div className="glass-table">
         <table>
           <thead>

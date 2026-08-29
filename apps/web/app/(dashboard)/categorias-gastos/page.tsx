@@ -1,7 +1,8 @@
 'use client';
 
-import { Check, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
+import { Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import {
   createExpenseCategory,
   deleteExpenseCategory,
@@ -18,16 +19,16 @@ export default function ExpenseCategoriesPage() {
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
-    setError('');
     try {
       setCategories(await getExpenseCategories());
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudieron cargar las categorías');
+      toast.error(
+        cause instanceof Error ? cause.message : 'No se pudieron cargar las categorías',
+        { action: { label: 'Reintentar', onClick: () => void load() } },
+      );
     } finally {
       setLoading(false);
     }
@@ -45,7 +46,6 @@ export default function ExpenseCategoriesPage() {
     setName('');
   }
   function openForm(category?: ExpenseCategory) {
-    setError('');
     setEditing(category ?? null);
     setName(category?.nombre ?? '');
     setOpen(true);
@@ -53,7 +53,6 @@ export default function ExpenseCategoriesPage() {
   async function save(event: FormEvent) {
     event.preventDefault();
     setSaving(true);
-    setError('');
     try {
       const saved = editing
         ? await updateExpenseCategory(editing.id, name)
@@ -64,23 +63,26 @@ export default function ExpenseCategoriesPage() {
           : [...current, saved]
         ).sort((a, b) => a.nombre.localeCompare(b.nombre)),
       );
-      setMessage(editing ? 'Categoría actualizada.' : 'Categoría registrada.');
+      toast.success(editing ? 'Categoría actualizada.' : 'Categoría registrada.');
       close();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo guardar la categoría');
+      toast.error(cause instanceof Error ? cause.message : 'No se pudo guardar la categoría', {
+        action: { label: 'Reintentar', onClick: () => void load() },
+      });
     } finally {
       setSaving(false);
     }
   }
   async function remove(category: ExpenseCategory) {
     if (!window.confirm(`¿Eliminar la categoría ${category.nombre}?`)) return;
-    setError('');
     try {
       await deleteExpenseCategory(category.id);
       setCategories((current) => current.filter((item) => item.id !== category.id));
-      setMessage('Categoría eliminada.');
+      toast.success('Categoría eliminada.');
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo eliminar la categoría');
+      toast.error(cause instanceof Error ? cause.message : 'No se pudo eliminar la categoría', {
+        action: { label: 'Reintentar', onClick: () => void load() },
+      });
     }
   }
 
@@ -101,22 +103,6 @@ export default function ExpenseCategoriesPage() {
           <Plus size={20} />
         </button>
       </div>
-      {message ? (
-        <div className="notice-success" role="status">
-          <Check size={17} /> {message}
-          <button type="button" onClick={() => setMessage('')} aria-label="Cerrar mensaje">
-            ×
-          </button>
-        </div>
-      ) : null}
-      {error ? (
-        <div className="notice-error" role="alert">
-          {error}
-          <button type="button" onClick={() => void load()}>
-            Reintentar
-          </button>
-        </div>
-      ) : null}
       <div className="module-tools">
         <label className="pill-search">
           <Search size={17} />

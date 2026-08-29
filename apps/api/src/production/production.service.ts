@@ -225,10 +225,17 @@ export class ProductionService {
         });
         const previousOutput = Number(outputStock?.cantidad ?? 0);
         const nextOutput = previousOutput + dto.cantidadProducida;
+        const previousCost = Number(outputStock?.costoPromedio ?? 0);
+        // Cada producción crea un lote nuevo, así que `previousOutput` normalmente es 0; se
+        // promedia igual por si el código de lote se reutiliza, para no pisar el costo.
+        const costoPromedio =
+          nextOutput > 0
+            ? (previousOutput * previousCost + dto.cantidadProducida * unitCost) / nextOutput
+            : unitCost;
         if (outputStock)
           await tx.stockAlmacen.update({
             where: { id: outputStock.id },
-            data: { cantidad: nextOutput, costoPromedio: unitCost },
+            data: { cantidad: nextOutput, costoPromedio },
           });
         else
           await tx.stockAlmacen.create({
@@ -286,7 +293,7 @@ export class ProductionService {
       trabajador: true,
       lote: true,
       consumos: { include: { producto: true } },
-      movimientosInventario: true,
+      movimientosInventario: { orderBy: { id: 'asc' } },
     } as const;
   }
 
@@ -328,6 +335,7 @@ export class ProductionService {
       lote: row.lote?.codigoLote ?? row.codigoLote,
       responsable: `${row.trabajador.nombres} ${row.trabajador.apellidos}`,
       kardexId: row.movimientosInventario[0]?.id?.toString() ?? null,
+      kardexRef: row.movimientosInventario[0]?.numeroReferencia ?? null,
       insumos: row.consumos.map((item: any) => ({
         producto: item.producto.nombre,
         productoId: item.productoId.toString(),

@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { OrderStatus, ProductCategory } from '@prisma/client';
+import { accountState } from '../common/receivables';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -8,6 +8,7 @@ export class ReportsService {
 
   async business(from?: string, to?: string) {
     const dateRange = this.dateRange(from, to);
+    const expenseRange = this.expenseDateRange(from, to);
     const [sales, expenses, stocks, firstSales] = await Promise.all([
       this.prisma.venta.findMany({
         where: { estado: 'CONFIRMADA', fecha: dateRange },
@@ -26,12 +27,17 @@ export class ReportsService {
             include: { detalles: true },
           },
           cuentaCobrar: {
-            include: { pagos: { where: { estado: 'CONFIRMADO' }, include: { metodoPago: true } } },
+            include: {
+              pagos: {
+                where: { estado: 'CONFIRMADO', fechaPago: dateRange },
+                include: { metodoPago: true },
+              },
+            },
           },
         },
       }),
       this.prisma.gasto.findMany({
-        where: { fecha: dateRange },
+        where: { fecha: expenseRange },
         orderBy: { fecha: 'asc' },
       }),
       this.prisma.producto.findMany({
@@ -77,36 +83,55 @@ export class ReportsService {
     const firstSaleByClient = new Map(
       firstSales.map((row) => [row.clienteId.toString(), row._min.fecha?.getTime()]),
     );
+    const rangeStart = dateRange.gte.getTime();
+    const rangeEnd = dateRange.lt.getTime();
     const customerMix = { new: 0, recurring: 0 };
     let totalSales = 0;
-    let totalRevenue = 0;
     let totalExpenses = 0;
     let totalCost = 0;
+    let orderCount = 0;
 
     for (const sale of sales) {
       const returned = sale.devoluciones.reduce((sum, item) => sum + Number(item.total), 0);
       const netSale = Math.max(Number(sale.total) - returned, 0);
-      const taxFactor = Number(sale.subtotal) > 0 ? Number(sale.total) / Number(sale.subtotal) : 1;
-      const netBase = Math.max(Number(sale.subtotal) - returned / taxFactor, 0);
+      const counts = netSale > 0 ? 1 : 0;
+      orderCount += counts;
+      const detalleSubtotal = sale.detalles.reduce((sum, item) => sum + Number(item.subtotal), 0);
       const movementDetails = sale.movimientosInventario.flatMap((movement) => movement.detalles);
+      // Kardex cost and sold quantity aggregated per product so multi-lot / null-lot
+      // fulfilment and split lines are handled without falling back to costoReferencia.
+      const kardexCostByProduct = new Map<string, number>();
+      for (const movement of movementDetails) {
+        const key = movement.productoId.toString();
+        kardexCostByProduct.set(
+          key,
+          (kardexCostByProduct.get(key) ?? 0) + Number(movement.costoTotal),
+        );
+      }
+      const soldQtyByProduct = new Map<string, number>();
+      for (const detail of sale.detalles) {
+        const key = detail.productoId.toString();
+        soldQtyByProduct.set(key, (soldQtyByProduct.get(key) ?? 0) + Number(detail.cantidad));
+      }
       let saleCost = 0;
       for (const detail of sale.detalles) {
+        const productKey = detail.productoId.toString();
         const returnedQuantity = detail.detallesDevolucion.reduce(
           (sum, item) => sum + Number(item.cantidad),
           0,
         );
         const netQuantity = Math.max(Number(detail.cantidad) - returnedQuantity, 0);
-        const movement = movementDetails.find(
-          (item) => item.productoId === detail.productoId && item.loteId === detail.loteId,
-        );
-        const unitCost = Number(movement?.costoUnitario ?? detail.producto.costoReferencia);
-        const lineCost = netQuantity * unitCost;
-        const share =
-          Number(sale.subtotal) > 0 ? Number(detail.subtotal) / Number(sale.subtotal) : 0;
-        const lineRevenue = netBase * share;
+        const soldQty = soldQtyByProduct.get(productKey) ?? Number(detail.cantidad);
+        const kardexCost = kardexCostByProduct.get(productKey);
+        const lineCost =
+          kardexCost != null && soldQty > 0
+            ? kardexCost * (netQuantity / soldQty)
+            : netQuantity * Number(detail.producto.costoReferencia);
+        const share = detalleSubtotal > 0 ? Number(detail.subtotal) / detalleSubtotal : 0;
+        const lineRevenue = netSale * share;
         saleCost += lineCost;
-        const current = products.get(detail.productoId.toString()) ?? {
-          id: detail.productoId.toString(),
+        const current = products.get(productKey) ?? {
+          id: productKey,
           name: detail.producto.nombre,
           quantity: 0,
           revenue: 0,
@@ -120,19 +145,18 @@ export class ReportsService {
         products.set(current.id, current);
       }
       totalSales += netSale;
-      totalRevenue += netBase;
       totalCost += saleCost;
       this.addPeriod(days, this.dayKey(sale.fecha), this.dayLabel(sale.fecha), {
         sales: netSale,
         cost: saleCost,
-        margin: netBase - saleCost,
-        orders: 1,
+        margin: netSale - saleCost,
+        orders: counts,
       });
       this.addPeriod(months, this.monthKey(sale.fecha), this.monthLabel(sale.fecha), {
         sales: netSale,
         cost: saleCost,
-        margin: netBase - saleCost,
-        orders: 1,
+        margin: netSale - saleCost,
+        orders: counts,
       });
       this.addRanking(
         zones,
@@ -142,7 +166,7 @@ export class ReportsService {
       );
       this.addRanking(clients, sale.cliente.nombreLegal, sale.clienteId.toString(), netSale);
       const first = firstSaleByClient.get(sale.clienteId.toString());
-      if (first === sale.fecha.getTime()) customerMix.new += netSale;
+      if (first != null && first >= rangeStart && first < rangeEnd) customerMix.new += netSale;
       else customerMix.recurring += netSale;
       const local = this.localParts(sale.fecha);
       const heatKey = `${local.weekday}-${local.hour}`;
@@ -167,10 +191,12 @@ export class ReportsService {
     for (const expense of expenses) {
       const amount = Number(expense.monto);
       totalExpenses += amount;
-      this.addPeriod(days, this.dayKey(expense.fecha), this.dayLabel(expense.fecha), {
+      // `Gasto.fecha` is a date-only column (stored at UTC midnight); bucket it by its
+      // calendar date in UTC so it is not shifted to the previous day like Lima would.
+      this.addPeriod(days, this.utcDayKey(expense.fecha), this.utcDayLabel(expense.fecha), {
         expenses: amount,
       });
-      this.addPeriod(months, this.monthKey(expense.fecha), this.monthLabel(expense.fecha), {
+      this.addPeriod(months, this.utcMonthKey(expense.fecha), this.utcMonthLabel(expense.fecha), {
         expenses: amount,
       });
       this.addRanking(expenseCategories, expense.categoria, expense.categoria, amount);
@@ -194,17 +220,42 @@ export class ReportsService {
       });
     }
 
-    const margin = [...months.values()].reduce((sum, row) => sum + row.margin, 0);
+    const grossMargin = [...months.values()].reduce((sum, row) => sum + row.margin, 0);
+    const profit = totalSales - totalExpenses;
+
+    // Cartera por cobrar: total vigente y vencido en todo el negocio (no acotado
+    // al período), para el indicador del panel y el acceso directo a Cobranzas.
+    const openReceivables = await this.prisma.cuentaCobrar.findMany({
+      where: { saldoPendiente: { gt: 0 } },
+      select: { saldoPendiente: true, montoPagado: true, fechaVencimiento: true },
+    });
+    const receivables = openReceivables.reduce(
+      (acc, cuenta) => {
+        const saldo = Number(cuenta.saldoPendiente);
+        acc.total += saldo;
+        acc.count += 1;
+        if (accountState(cuenta) === 'VENCIDA') {
+          acc.overdue += saldo;
+          acc.overdueCount += 1;
+        }
+        return acc;
+      },
+      { total: 0, count: 0, overdue: 0, overdueCount: 0 },
+    );
+
     return {
       range: { from: dateRange.gte, to: dateRange.lt },
+      receivables,
       summary: {
         sales: totalSales,
         expenses: totalExpenses,
         cost: totalCost,
-        margin,
-        marginRate: totalRevenue > 0 ? (margin / totalRevenue) * 100 : 0,
-        orders: sales.length,
-        ticket: sales.length ? totalSales / sales.length : 0,
+        margin: grossMargin,
+        marginRate: totalSales > 0 ? (grossMargin / totalSales) * 100 : 0,
+        profit,
+        profitRate: totalSales > 0 ? (profit / totalSales) * 100 : 0,
+        orders: orderCount,
+        ticket: orderCount ? totalSales / orderCount : 0,
         expenseCount: expenses.length,
         averageExpense: expenses.length ? totalExpenses / expenses.length : 0,
       },
@@ -228,16 +279,42 @@ export class ReportsService {
     };
   }
 
+  /** First day of the month `monthsBack` months before "today" in America/Lima. */
+  private defaultRangeStart(monthsBack: number) {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Lima',
+      year: 'numeric',
+      month: '2-digit',
+    }).formatToParts(new Date());
+    const year = Number(parts.find((part) => part.type === 'year')?.value);
+    const month = Number(parts.find((part) => part.type === 'month')?.value);
+    return new Date(year, month - 1 - monthsBack, 1);
+  }
+
   private dateRange(from?: string, to?: string) {
-    const start = from
-      ? new Date(`${from}T00:00:00-05:00`)
-      : new Date(new Date().getFullYear(), new Date().getMonth() - 11, 1);
+    const start = from ? new Date(`${from}T00:00:00-05:00`) : this.defaultRangeStart(11);
     const end = to ? new Date(`${to}T00:00:00-05:00`) : new Date();
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) {
       throw new BadRequestException('El rango de fechas no es valido');
     }
     if (to) end.setDate(end.getDate() + 1);
-    else end.setHours(23, 59, 59, 999);
+    return { gte: start, lt: end };
+  }
+
+  /**
+   * Range for `Gasto.fecha`, a date-only column Postgres returns at UTC midnight.
+   * Boundaries are UTC midnight so an expense dated exactly on `from` is included.
+   */
+  private expenseDateRange(from?: string, to?: string) {
+    const defaultStart = this.defaultRangeStart(11);
+    const start = from
+      ? new Date(`${from}T00:00:00Z`)
+      : new Date(Date.UTC(defaultStart.getFullYear(), defaultStart.getMonth(), 1));
+    const end = to ? new Date(`${to}T00:00:00Z`) : new Date();
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) {
+      throw new BadRequestException('El rango de fechas no es valido');
+    }
+    if (to) end.setUTCDate(end.getUTCDate() + 1);
     return { gte: start, lt: end };
   }
 
@@ -303,6 +380,26 @@ export class ReportsService {
       year: '2-digit',
     }).format(date);
   }
+  private utcDayKey(date: Date) {
+    return date.toISOString().slice(0, 10);
+  }
+  private utcMonthKey(date: Date) {
+    return date.toISOString().slice(0, 7);
+  }
+  private utcDayLabel(date: Date) {
+    return new Intl.DateTimeFormat('es-PE', {
+      timeZone: 'UTC',
+      day: '2-digit',
+      month: 'short',
+    }).format(date);
+  }
+  private utcMonthLabel(date: Date) {
+    return new Intl.DateTimeFormat('es-PE', {
+      timeZone: 'UTC',
+      month: 'short',
+      year: '2-digit',
+    }).format(date);
+  }
   private localParts(date: Date) {
     const parts = new Intl.DateTimeFormat('en-US', {
       timeZone: 'America/Lima',
@@ -326,173 +423,5 @@ export class ReportsService {
       weekdayLabel,
       hour: Number(parts.find((part) => part.type === 'hour')?.value ?? 0),
     };
-  }
-
-  async dashboard() {
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(start);
-    end.setDate(end.getDate() + 1);
-
-    const [
-      salesToday,
-      pendingOrders,
-      onRouteOrders,
-      totalDebt,
-      pendingContainers,
-      fullStock,
-      activeClients,
-      warehouse,
-    ] = await Promise.all([
-      this.prisma.sale.aggregate({
-        where: { issuedAt: { gte: start, lt: end } },
-        _sum: { totalAmount: true, paidAmount: true, debtAmount: true },
-        _count: true,
-      }),
-      this.prisma.order.count({ where: { status: OrderStatus.PENDING } }),
-      this.prisma.order.count({ where: { status: OrderStatus.ON_ROUTE } }),
-      this.prisma.client.aggregate({ _sum: { debtBalance: true } }),
-      this.prisma.client.aggregate({
-        where: { containerBalance: { gt: 0 } },
-        _sum: { containerBalance: true },
-      }),
-      this.prisma.product.aggregate({
-        where: { category: ProductCategory.WATER, returnable: true, active: true },
-        _sum: { stock: true },
-      }),
-      this.prisma.client.count({ where: { active: true } }),
-      this.prisma.warehouseState.upsert({
-        where: { id: 'main' },
-        update: {},
-        create: { id: 'main', emptyContainers: 0 },
-      }),
-    ]);
-
-    return {
-      salesToday: Number(salesToday._sum.totalAmount ?? 0),
-      paidToday: Number(salesToday._sum.paidAmount ?? 0),
-      debtToday: Number(salesToday._sum.debtAmount ?? 0),
-      salesCountToday: salesToday._count,
-      pendingOrders,
-      onRouteOrders,
-      totalDebt: Number(totalDebt._sum.debtBalance ?? 0),
-      pendingContainers: pendingContainers._sum.containerBalance ?? 0,
-      fullJugStock: fullStock._sum.stock ?? 0,
-      emptyContainerStock: warehouse.emptyContainers,
-      activeClients,
-    };
-  }
-
-  async salesByPeriod(from?: string, to?: string) {
-    const sales = await this.prisma.sale.findMany({
-      where: {
-        ...(from || to
-          ? {
-              issuedAt: {
-                ...(from ? { gte: new Date(from) } : {}),
-                ...(to ? { lte: new Date(to) } : {}),
-              },
-            }
-          : {}),
-      },
-      orderBy: { issuedAt: 'asc' },
-    });
-
-    const buckets = new Map<
-      string,
-      { date: string; total: number; paid: number; debt: number; count: number }
-    >();
-    for (const sale of sales) {
-      const date = sale.issuedAt.toISOString().slice(0, 10);
-      const bucket = buckets.get(date) ?? { date, total: 0, paid: 0, debt: 0, count: 0 };
-      bucket.total += Number(sale.totalAmount);
-      bucket.paid += Number(sale.paidAmount);
-      bucket.debt += Number(sale.debtAmount);
-      bucket.count += 1;
-      buckets.set(date, bucket);
-    }
-
-    return Array.from(buckets.values());
-  }
-
-  async topProducts() {
-    const grouped = await this.prisma.orderItem.groupBy({
-      by: ['productId'],
-      where: { order: { sale: { isNot: null } } },
-      _sum: { quantity: true, total: true },
-      orderBy: { _sum: { quantity: 'desc' } },
-      take: 10,
-    });
-    const products = await this.prisma.product.findMany({
-      where: { id: { in: grouped.map((item) => item.productId) } },
-    });
-    const byId = new Map(products.map((product) => [product.id, product]));
-    return grouped.map((item) => ({
-      product: byId.get(item.productId),
-      quantity: item._sum.quantity ?? 0,
-      total: Number(item._sum.total ?? 0),
-    }));
-  }
-
-  async frequentClients() {
-    const grouped = await this.prisma.order.groupBy({
-      by: ['clientId'],
-      _count: { id: true },
-      _sum: { total: true },
-      orderBy: { _count: { id: 'desc' } },
-      take: 10,
-    });
-    const clients = await this.prisma.client.findMany({
-      where: { id: { in: grouped.map((item) => item.clientId) } },
-    });
-    const byId = new Map(clients.map((client) => [client.id, client]));
-    return grouped.map((item) => ({
-      client: byId.get(item.clientId),
-      orders: item._count.id,
-      total: Number(item._sum.total ?? 0),
-    }));
-  }
-
-  debts() {
-    return this.prisma.client.findMany({
-      where: { debtBalance: { gt: 0 } },
-      orderBy: { debtBalance: 'desc' },
-      include: { sales: { where: { debtAmount: { gt: 0 } }, orderBy: { issuedAt: 'asc' } } },
-    });
-  }
-
-  containersPending() {
-    return this.prisma.client.findMany({
-      where: { containerBalance: { gt: 0 } },
-      orderBy: { containerBalance: 'desc' },
-    });
-  }
-
-  pendingOrders() {
-    return this.prisma.order.findMany({
-      where: { status: { in: [OrderStatus.PENDING, OrderStatus.PREPARING, OrderStatus.ON_ROUTE] } },
-      orderBy: { orderedAt: 'asc' },
-      include: { client: true, deliveryUser: true, items: { include: { product: true } } },
-    });
-  }
-
-  async salesByDelivery() {
-    const sales = await this.prisma.sale.findMany({
-      include: { order: { include: { deliveryUser: true } } },
-    });
-    const grouped = new Map<string, { repartidor: string; total: number; count: number }>();
-    for (const sale of sales) {
-      const delivery = sale.order.deliveryUser;
-      const key = delivery?.id ?? 'sin-repartidor';
-      const current = grouped.get(key) ?? {
-        repartidor: delivery?.name ?? 'Sin repartidor',
-        total: 0,
-        count: 0,
-      };
-      current.total += Number(sale.totalAmount);
-      current.count += 1;
-      grouped.set(key, current);
-    }
-    return Array.from(grouped.values()).sort((a, b) => b.total - a.total);
   }
 }

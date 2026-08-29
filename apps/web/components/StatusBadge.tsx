@@ -37,6 +37,19 @@ const labels: Record<string, string> = {
   ACTIVO: 'Activo',
   INACTIVO: 'Inactivo',
   DANADO: 'Dañado',
+  PENDIENTE: 'Pendiente',
+  PARCIAL: 'Pago parcial',
+  PAGADA: 'Pagada',
+  PAGADO: 'Pagado',
+  VENCIDA: 'Vencida',
+  POR_VENCER: 'Por vencer',
+  SIN_FECHA: 'Sin fecha programada',
+  BORRADOR: 'Borrador',
+  CONFIRMADA: 'Confirmada',
+  CONFIRMADO: 'Confirmado',
+  ANULADA: 'Anulada',
+  DISPONIBLE: 'Disponible',
+  CUARENTENA: 'En cuarentena',
 };
 
 export function StatusBadge({ value }: { value: string }) {

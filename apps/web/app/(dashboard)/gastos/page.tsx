@@ -1,8 +1,10 @@
 'use client';
 
-import { Check, Plus, ReceiptText, Search, X } from 'lucide-react';
+import { Plus, ReceiptText, Search, X } from 'lucide-react';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { PeriodFilter } from '../../../components/PeriodFilter';
+import { money } from '../../../lib/format';
 import {
   CreateExpensePayload,
   createExpense,
@@ -34,28 +36,27 @@ export default function GastosPage() {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
-    setError('');
     try {
       const [expenseData, categoryData] = await Promise.all([
-        getExpenses(),
+        getExpenses(from || undefined, to || undefined),
         getExpenseCategories(),
       ]);
       setExpenses(expenseData);
       setExpenseCategories(categoryData);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudieron cargar los gastos');
+      toast.error(cause instanceof Error ? cause.message : 'No se pudieron cargar los gastos', {
+        action: { label: 'Reintentar', onClick: () => void load() },
+      });
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [from, to]);
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (from && to) void load();
+  }, [from, load, to]);
 
   const categories = useMemo(
     () =>
@@ -67,22 +68,21 @@ export default function GastosPage() {
       ].sort(),
     [expenseCategories, expenses],
   );
+  // The date window is applied server-side (getExpenses(from, to)); here we only refine by
+  // category and text search.
   const visible = useMemo(
     () =>
-      expenses.filter((item) => {
-        const fecha = item.fecha.slice(0, 10);
-        return (
+      expenses.filter(
+        (item) =>
           (category === 'Todas' || item.categoria === category) &&
-          (!from || fecha >= from) &&
-          (!to || fecha <= to) &&
           `${item.concepto} ${item.categoria} ${item.comprobante ?? ''}`
             .toLowerCase()
-            .includes(search.toLowerCase())
-        );
-      }),
-    [category, expenses, from, search, to],
+            .includes(search.toLowerCase()),
+      ),
+    [category, expenses, search],
   );
   const total = visible.reduce((sum, item) => sum + item.monto, 0);
+  const average = visible.length ? total / visible.length : 0;
   const changePeriod = useCallback((start: string, end: string) => {
     setFrom(start);
     setTo(end);
@@ -95,14 +95,15 @@ export default function GastosPage() {
   async function submit(event: FormEvent) {
     event.preventDefault();
     setSaving(true);
-    setError('');
     try {
       const created = await createExpense(form);
       setExpenses((current) => [created, ...current]);
-      setMessage('Gasto registrado correctamente.');
+      toast.success('Gasto registrado correctamente.');
       closeForm();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo registrar el gasto');
+      toast.error(cause instanceof Error ? cause.message : 'No se pudo registrar el gasto', {
+        action: { label: 'Reintentar', onClick: () => void load() },
+      });
     } finally {
       setSaving(false);
     }
@@ -126,12 +127,12 @@ export default function GastosPage() {
       </div>
       <div className="summary-row">
         <div className="summary-glass">
-          <span>Gastos registrados</span>
-          <strong>S/ {expenses.reduce((sum, item) => sum + item.monto, 0).toFixed(2)}</strong>
+          <span>Gastos del período</span>
+          <strong>{money(total)}</strong>
         </div>
         <div className="summary-glass">
-          <span>Este listado</span>
-          <strong>S/ {total.toFixed(2)}</strong>
+          <span>Gasto promedio</span>
+          <strong>{money(average)}</strong>
         </div>
         <div className="summary-glass">
           <span>Categorías</span>
@@ -139,25 +140,9 @@ export default function GastosPage() {
         </div>
         <div className="summary-glass">
           <span>Registros</span>
-          <strong>{expenses.length}</strong>
+          <strong>{visible.length}</strong>
         </div>
       </div>
-      {message ? (
-        <div className="notice-success" role="status">
-          <Check size={17} /> {message}
-          <button type="button" onClick={() => setMessage('')} aria-label="Cerrar mensaje">
-            ×
-          </button>
-        </div>
-      ) : null}
-      {error ? (
-        <div className="notice-error" role="alert">
-          {error}
-          <button type="button" onClick={() => void load()}>
-            Reintentar
-          </button>
-        </div>
-      ) : null}
       <div className="module-tools operations-filters">
         <label className="pill-search">
           <Search size={17} />
@@ -224,7 +209,7 @@ export default function GastosPage() {
                     </td>
                     <td>{item.comprobante || '—'}</td>
                     <td>
-                      <strong>S/ {item.monto.toFixed(2)}</strong>
+                      <strong>{money(item.monto)}</strong>
                     </td>
                     <td>{item.registradoPor || '—'}</td>
                   </tr>

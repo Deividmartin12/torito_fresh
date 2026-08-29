@@ -1,7 +1,9 @@
 'use client';
 
-import { CircleDollarSign, PackageCheck, RefreshCw, Truck } from 'lucide-react';
+import { CircleDollarSign, HandCoins, PackageCheck, RefreshCw, Truck } from 'lucide-react';
+import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import { PeriodFilter, PeriodKind } from '../../../components/PeriodFilter';
 import {
   ComparisonBarChart,
@@ -30,7 +32,6 @@ function pickGranularity(spanDays: number): Granularity {
 export default function DashboardPage() {
   const [data, setData] = useState<BusinessDashboard | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [periodLabel, setPeriodLabel] = useState('');
@@ -45,18 +46,22 @@ export default function DashboardPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    setError('');
     try {
       setData(await getBusinessDashboard(from || undefined, to || undefined));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo cargar el resumen del negocio');
+      toast.error(
+        cause instanceof Error ? cause.message : 'No se pudo cargar el resumen del negocio',
+        { action: { label: 'Reintentar', onClick: () => void load() } },
+      );
     } finally {
       setLoading(false);
     }
   }, [from, to]);
   useEffect(() => {
-    void load();
-  }, [load]);
+    // Wait for PeriodFilter to publish its range so the dashboard fetches once with the
+    // real window instead of also firing a request with the backend's 12-month default.
+    if (from && to) void load();
+  }, [from, load, to]);
 
   const analytics = data?.analytics;
   const spanDays =
@@ -74,7 +79,8 @@ export default function DashboardPage() {
         ? fillMonthlySeries(analytics?.monthly ?? [], from, to)
         : groupPeriodsByYear(analytics?.monthly ?? []);
   const comparisonSubtitle = `Importes registrados ${granularityLabel[granularity]}`;
-  const marginSubtitle = `Venta sin IGV menos costo de inventario · ${granularityLabel[granularity]}`;
+  const marginSubtitle = `Ventas menos gastos · ${granularityLabel[granularity]}`;
+  const profitSeries = periodSeries.map((row) => ({ ...row, margin: row.sales - row.expenses }));
 
   return (
     <div className="module-page business-dashboard">
@@ -95,14 +101,6 @@ export default function DashboardPage() {
 
       <PeriodFilter onChange={changePeriod} hideRangeHint />
 
-      {error ? (
-        <div className="notice-error" role="alert">
-          {error}
-          <button type="button" onClick={() => void load()}>
-            Reintentar
-          </button>
-        </div>
-      ) : null}
       {loading && !data ? (
         <div className="dashboard-loading" role="status">
           <span className="loading-spinner" /> Preparando indicadores del negocio...
@@ -129,9 +127,23 @@ export default function DashboardPage() {
             <DashboardKpi
               icon={<PackageCheck size={21} />}
               label="Margen"
-              value={money(analytics?.summary.margin)}
-              detail={`${(analytics?.summary.marginRate ?? 0).toFixed(1)}% sobre ventas`}
+              value={money(analytics?.summary.profit)}
+              detail={`${(analytics?.summary.profitRate ?? 0).toFixed(1)}% sobre ventas`}
               tone="green"
+            />
+            <DashboardKpi
+              icon={<HandCoins size={21} />}
+              label="Por cobrar"
+              value={money(analytics?.receivables.total)}
+              detail={
+                (analytics?.receivables.overdueCount ?? 0) > 0
+                  ? `${analytics?.receivables.overdueCount} vencidas · ${money(
+                      analytics?.receivables.overdue,
+                    )}`
+                  : `${analytics?.receivables.count ?? 0} comprobantes pendientes`
+              }
+              tone="amber"
+              href="/cobranzas"
             />
           </section>
 
@@ -154,7 +166,7 @@ export default function DashboardPage() {
               subtitle="Áreas registradas con mayor facturación"
               icon="zone"
             />
-            <MarginChart data={periodSeries} subtitle={marginSubtitle} />
+            <MarginChart data={profitSeries} subtitle={marginSubtitle} />
           </section>
         </>
       ) : null}
@@ -168,19 +180,29 @@ function DashboardKpi({
   value,
   detail,
   tone,
+  href,
 }: {
   icon: React.ReactNode;
   label: string;
   value: React.ReactNode;
   detail: string;
   tone: string;
+  href?: string;
 }) {
-  return (
-    <article className={`dashboard-kpi dashboard-kpi-${tone}`}>
+  const content = (
+    <>
       <div>{icon}</div>
       <span>{label}</span>
       <strong>{value}</strong>
       <small>{detail}</small>
-    </article>
+    </>
+  );
+  const className = `dashboard-kpi dashboard-kpi-${tone}`;
+  return href ? (
+    <Link className={`${className} dashboard-kpi-link`} href={href}>
+      {content}
+    </Link>
+  ) : (
+    <article className={className}>{content}</article>
   );
 }

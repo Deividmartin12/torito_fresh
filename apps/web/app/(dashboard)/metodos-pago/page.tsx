@@ -1,7 +1,8 @@
 'use client';
 
-import { Banknote, Check, CreditCard, Pencil, Plus, Search, Smartphone, X } from 'lucide-react';
+import { Banknote, CreditCard, Pencil, Plus, Search, Smartphone, X } from 'lucide-react';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import {
   createPaymentMethod,
   getPaymentMethods,
@@ -34,17 +35,15 @@ export default function MetodosPagoPage() {
   const [form, setForm] = useState<PaymentMethodPayload>(emptyForm);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
-    setError('');
     try {
       setMethods(await getPaymentMethods());
     } catch (cause) {
-      setError(
+      toast.error(
         cause instanceof Error ? cause.message : 'No se pudieron cargar los métodos de pago',
+        { action: { label: 'Reintentar', onClick: () => void load() } },
       );
     } finally {
       setLoading(false);
@@ -64,7 +63,6 @@ export default function MetodosPagoPage() {
     setForm(emptyForm());
   }
   function openForm(method?: PaymentMethod) {
-    setError('');
     setEditing(method ?? null);
     setForm(
       method
@@ -80,7 +78,6 @@ export default function MetodosPagoPage() {
   async function save(event: FormEvent) {
     event.preventDefault();
     setSaving(true);
-    setError('');
     try {
       const saved = editing
         ? await updatePaymentMethod(editing.id, form)
@@ -90,10 +87,13 @@ export default function MetodosPagoPage() {
           ? current.map((item) => (item.id === saved.id ? saved : item))
           : [...current, saved].sort((a, b) => a.nombre.localeCompare(b.nombre)),
       );
-      setMessage(editing ? 'Método de pago actualizado.' : 'Método de pago registrado.');
+      toast.success(editing ? 'Método de pago actualizado.' : 'Método de pago registrado.');
       close();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo guardar el método de pago');
+      toast.error(
+        cause instanceof Error ? cause.message : 'No se pudo guardar el método de pago',
+        { action: { label: 'Reintentar', onClick: () => void load() } },
+      );
     } finally {
       setSaving(false);
     }
@@ -116,22 +116,6 @@ export default function MetodosPagoPage() {
           <Plus size={20} />
         </button>
       </div>
-      {message ? (
-        <div className="notice-success" role="status">
-          <Check size={17} /> {message}
-          <button type="button" onClick={() => setMessage('')} aria-label="Cerrar mensaje">
-            ×
-          </button>
-        </div>
-      ) : null}
-      {error ? (
-        <div className="notice-error" role="alert">
-          {error}
-          <button type="button" onClick={() => void load()}>
-            Reintentar
-          </button>
-        </div>
-      ) : null}
       <div className="module-tools">
         <label className="pill-search">
           <Search size={17} />

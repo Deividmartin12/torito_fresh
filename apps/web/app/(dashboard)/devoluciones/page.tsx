@@ -1,7 +1,10 @@
 'use client';
 
-import { Check, Eye, Plus, Search, X } from 'lucide-react';
+import { Eye, Plus, Search, X } from 'lucide-react';
+import Link from 'next/link';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
+import { money } from '../../../lib/format';
 import {
   createOperationalReturn,
   getOperationCatalogs,
@@ -43,11 +46,8 @@ export default function DevolucionesPage() {
   const [lines, setLines] = useState<LineDraft[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
 
   const load = useCallback(async () => {
-    setError('');
     try {
       const [returnsData, saleData, purchaseData, catalogData] = await Promise.all([
         getOperationalReturns(),
@@ -60,7 +60,10 @@ export default function DevolucionesPage() {
       setPurchases(purchaseData);
       setCatalogs(catalogData);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudieron cargar las devoluciones');
+      toast.error(
+        cause instanceof Error ? cause.message : 'No se pudieron cargar las devoluciones',
+        { action: { label: 'Reintentar', onClick: () => void load() } },
+      );
     } finally {
       setLoading(false);
     }
@@ -109,7 +112,6 @@ export default function DevolucionesPage() {
     setKind(initialKind);
     setReason('');
     setNotes('');
-    setError('');
     setDetail(null);
     setModal(true);
     const first = (initialKind === 'VENTA' ? sales : purchases).find(
@@ -123,11 +125,10 @@ export default function DevolucionesPage() {
     event.preventDefault();
     const selected = lines.filter((line) => line.cantidad > 0);
     if (!operationId || !reason.trim() || !selected.length) {
-      setError('Selecciona la operación, indica el motivo y agrega al menos una cantidad.');
+      toast.error('Selecciona la operación, indica el motivo y agrega al menos una cantidad.');
       return;
     }
     setSaving(true);
-    setError('');
     try {
       await createOperationalReturn(kind.toLowerCase() as 'venta' | 'compra', {
         operacionId: Number(operationId),
@@ -141,12 +142,12 @@ export default function DevolucionesPage() {
         })),
       });
       setModal(false);
-      setMessage(
+      toast.success(
         'Devolución confirmada. Se actualizaron el saldo y el inventario correspondiente.',
       );
       await load();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo registrar la devolución');
+      toast.error(cause instanceof Error ? cause.message : 'No se pudo registrar la devolución');
     } finally {
       setSaving(false);
     }
@@ -199,20 +200,6 @@ export default function DevolucionesPage() {
           </strong>
         </div>
       </div>
-      {message ? (
-        <div className="notice-success">
-          <Check size={17} /> {message}
-          <button onClick={() => setMessage('')} aria-label="Cerrar">
-            ×
-          </button>
-        </div>
-      ) : null}
-      {error && !modal ? (
-        <div className="notice-error">
-          {error}
-          <button onClick={() => void load()}>Reintentar</button>
-        </div>
-      ) : null}
       <div className="return-tabs">
         <button
           className={tab === 'devoluciones' ? 'active' : ''}
@@ -279,17 +266,22 @@ export default function DevolucionesPage() {
                         <td>{item.tercero}</td>
                         <td>{item.motivo}</td>
                         <td>
-                          <strong>S/ {item.total.toFixed(2)}</strong>
+                          <strong>{money(item.total)}</strong>
                         </td>
                         <td>
                           {item.saldoFavor > 0 ? (
                             <span className="status status-amber">
-                              Saldo S/ {item.saldoFavor.toFixed(2)}
+                              Saldo {money(item.saldoFavor)}
                             </span>
                           ) : item.kardexId ? (
-                            <span className="status status-green">Kardex #{item.kardexId}</span>
+                            <Link
+                              className="kardex-link"
+                              href={`/movimientos?ref=${encodeURIComponent(item.kardexRef ?? '')}`}
+                            >
+                              {item.kardexRef ?? 'Ver kardex'}
+                            </Link>
                           ) : (
-                            'Solo financiero'
+                            <small>Solo ajuste financiero</small>
                           )}
                         </td>
                         <td>
@@ -534,7 +526,6 @@ export default function DevolucionesPage() {
                   placeholder="Información adicional opcional"
                 />
               </label>
-              {error ? <div className="notice-error field-wide">{error}</div> : null}
               <div className="modal-actions field-wide">
                 <button className="btn-secondary" type="button" onClick={() => setModal(false)}>
                   Cancelar

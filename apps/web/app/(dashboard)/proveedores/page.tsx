@@ -2,6 +2,7 @@
 
 import { Pencil, Plus, Search, UserCheck, UserX, X } from 'lucide-react';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { Pagination } from '../../../components/Pagination';
 import { api } from '../../../lib/api';
 
@@ -46,18 +47,17 @@ export default function ProveedoresPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [processingId, setProcessingId] = useState<string | null>(null);
-  const [error, setError] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
-    setError('');
     try {
       setProveedores(await api<Proveedor[]>('/proveedores'));
     } catch (requestError) {
-      setError(
+      toast.error(
         requestError instanceof Error
           ? requestError.message
           : 'No se pudieron cargar los proveedores',
+        { action: { label: 'Reintentar', onClick: () => void load() } },
       );
     } finally {
       setLoading(false);
@@ -100,7 +100,6 @@ export default function ProveedoresPage() {
         : emptyForm,
     );
     setFieldErrors({});
-    setError('');
     setModal(true);
   }
 
@@ -123,7 +122,6 @@ export default function ProveedoresPage() {
     event.preventDefault();
     if (!validate()) return;
     setSaving(true);
-    setError('');
     const payload = Object.fromEntries(
       Object.entries(form).map(([key, value]) => [key, value.trim()]),
     );
@@ -143,7 +141,7 @@ export default function ProveedoresPage() {
       );
       setModal(false);
     } catch (requestError) {
-      setError(
+      toast.error(
         requestError instanceof Error ? requestError.message : 'No se pudo guardar el proveedor',
       );
     } finally {
@@ -154,7 +152,6 @@ export default function ProveedoresPage() {
   async function cambiarEstado(item: Proveedor) {
     if (item.estado && !window.confirm(`¿Desactivar a ${item.razonSocial}?`)) return;
     setProcessingId(item.id);
-    setError('');
     try {
       const updated = await api<Proveedor>(`/proveedores/${item.id}`, {
         method: 'PATCH',
@@ -162,10 +159,11 @@ export default function ProveedoresPage() {
       });
       setProveedores((current) => current.map((row) => (row.id === updated.id ? updated : row)));
     } catch (requestError) {
-      setError(
+      toast.error(
         requestError instanceof Error
           ? requestError.message
           : 'No se pudo cambiar el estado del proveedor',
+        { action: { label: 'Reintentar', onClick: () => void load() } },
       );
     } finally {
       setProcessingId(null);
@@ -216,14 +214,6 @@ export default function ProveedoresPage() {
           <option>Inactivos</option>
         </select>
       </div>
-      {error && !modal ? (
-        <div className="notice-error" role="alert">
-          {error}
-          <button type="button" onClick={() => void load()}>
-            Reintentar
-          </button>
-        </div>
-      ) : null}
       {loading ? (
         <div className="table-loading" role="status">
           <span className="loading-spinner" /> Cargando proveedores...
@@ -413,11 +403,6 @@ export default function ProveedoresPage() {
                   maxLength={250}
                 />
               </label>
-              {error ? (
-                <div className="notice-error field-wide" role="alert">
-                  {error}
-                </div>
-              ) : null}
               <div className="modal-actions">
                 <button
                   className="btn-secondary"

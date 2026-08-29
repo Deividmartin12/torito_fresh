@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { getPurchases, Purchase } from '../../lib/operations';
 import { money } from '../../lib/format';
 import { PeriodFilter } from '../PeriodFilter';
@@ -11,32 +12,29 @@ export function PurchaseReport() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
   const changePeriod = useCallback((start: string, end: string) => {
     setFrom(start);
     setTo(end);
   }, []);
 
   useEffect(() => {
+    if (!from || !to) return;
     setLoading(true);
-    setError('');
-    getPurchases()
+    getPurchases(from, to)
       .then(setPurchases)
       .catch((cause) =>
-        setError(cause instanceof Error ? cause.message : 'No se pudieron cargar las compras'),
+        toast.error(cause instanceof Error ? cause.message : 'No se pudieron cargar las compras'),
       )
       .finally(() => setLoading(false));
-  }, []);
+  }, [from, to]);
 
-  const visible = useMemo(
-    () =>
-      purchases.filter((item) => {
-        const date = item.fecha.slice(0, 10);
-        return (!from || date >= from) && (!to || date <= to);
-      }),
-    [from, purchases, to],
+  // The date window is applied server-side (getPurchases(from, to)); the report covers
+  // confirmed purchases, so both the table and the metrics use that set.
+  const confirmed = useMemo(
+    () => purchases.filter((item) => item.estado === 'CONFIRMADA'),
+    [purchases],
   );
-  const confirmed = visible.filter((item) => item.estado === 'CONFIRMADA');
+  const visible = confirmed;
   const total = confirmed.reduce((sum, item) => sum + item.totalNeto, 0);
   const paid = confirmed.reduce((sum, item) => sum + item.pagado, 0);
   const pending = confirmed.reduce((sum, item) => sum + item.saldo, 0);
@@ -59,11 +57,6 @@ export function PurchaseReport() {
         <ReportMetric label="Pagado" value={money(paid)} detail="Monto abonado" />
         <ReportMetric label="Pendiente" value={money(pending)} detail="Saldo por pagar" />
       </section>
-      {error ? (
-        <div className="notice-error" role="alert">
-          {error}
-        </div>
-      ) : null}
       {loading ? (
         <div className="table-loading">
           <span className="loading-spinner" /> Cargando compras...

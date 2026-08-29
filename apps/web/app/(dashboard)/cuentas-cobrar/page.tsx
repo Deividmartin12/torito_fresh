@@ -1,5 +1,6 @@
-import { AccountsTablePage } from '../../../components/AccountsTablePage';
+import { redirect } from 'next/navigation';
 
+/** La gestión de cuentas por cobrar vive ahora en "Cobranzas". */
 export default function CuentasCobrarPage() {
-  return <AccountsTablePage tipo="cobrar" />;
+  redirect('/cobranzas');
 }
