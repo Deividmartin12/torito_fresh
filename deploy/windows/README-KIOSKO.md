@@ -10,7 +10,7 @@ Todo corre en esta misma PC: PostgreSQL (ya instalado, usuario `postgres` / clav
 
 - El repo copiado en `C:\torito_fresh` (esta carpeta es `C:\torito_fresh\deploy\windows`).
 - PostgreSQL corriendo.
-- Google Chrome instalado.
+- **Mozilla Firefox** instalado (si no está, se usa Chrome como respaldo).
 - Conexión a internet la **primera vez** (para instalar Node, `npm install` y los motores de
   Prisma).
 - Node.js 20+: si no está, `setup.ps1` lo instala con `winget`.
@@ -37,14 +37,14 @@ Luego, prueba sin reiniciar:
 .\start-kiosk.ps1
 ```
 
-Debe abrir Chrome a pantalla completa con la pantalla de inicio de sesión. Entra con:
+Debe abrir Firefox a pantalla completa con la pantalla de inicio de sesión. Entra con:
 
 | Usuario | Clave |
 |---|---|
 | `admin` | `admin` |
 | `01` / `02` (reparto) | `01` / `02` |
 
-Para salir de Chrome kiosko: **Alt + F4**.
+Para salir del navegador kiosko: **Alt + F4** (en Firefox, `F11` alterna pantalla completa).
 
 ## Autoarranque al iniciar sesión
 

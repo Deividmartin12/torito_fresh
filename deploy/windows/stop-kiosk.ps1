@@ -3,8 +3,8 @@
   kiosko y los procesos node de los puertos 3070 / 4070.
 #>
 
-# Chrome del perfil kiosko
-Get-CimInstance Win32_Process -Filter "Name = 'chrome.exe'" -ErrorAction SilentlyContinue |
+# Navegador del perfil kiosko (Firefox o Chrome)
+Get-CimInstance Win32_Process -Filter "Name = 'firefox.exe' OR Name = 'chrome.exe'" -ErrorAction SilentlyContinue |
   Where-Object { $_.CommandLine -match 'ToritoKiosk' } |
   ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 

@@ -50,15 +50,29 @@ for ($i = 0; $i -lt 90; $i++) {
 }
 if ($ready) { Log "Servicios arriba." } else { Log "AVISO: no confirme salud en 90s; abro Chrome igual." }
 
-# 5) Chrome kiosko ---------------------------------------------------------
+# 5) Navegador en modo kiosko --------------------------------------------
+# Preferimos Firefox; si no esta, usamos Chrome.
+$firefox = @(
+  "$env:ProgramFiles\Mozilla Firefox\firefox.exe"
+  "${env:ProgramFiles(x86)}\Mozilla Firefox\firefox.exe"
+) | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+if ($firefox) {
+  $ffProfile = Join-Path $env:LOCALAPPDATA 'ToritoKioskFirefox'
+  New-Item -ItemType Directory -Force -Path $ffProfile | Out-Null
+  Log "Abriendo Firefox kiosko: $firefox"
+  & $firefox -kiosk -no-remote -new-instance -profile $ffProfile $Url
+  return
+}
+
 $chrome = @(
   "$env:ProgramFiles\Google\Chrome\Application\chrome.exe"
   "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe"
   "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe"
 ) | Where-Object { Test-Path $_ } | Select-Object -First 1
 
-if (-not $chrome) { Log "No encuentro chrome.exe."; exit 1 }
-Log "Abriendo Chrome kiosko: $chrome"
+if (-not $chrome) { Log "No encuentro Firefox ni Chrome. Instala Firefox y reintenta."; exit 1 }
+Log "Firefox no encontrado; abriendo Chrome kiosko: $chrome"
 & $chrome `
   --kiosk `
   --app=$Url `
