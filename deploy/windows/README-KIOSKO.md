@@ -18,7 +18,15 @@ Todo corre en esta misma PC: PostgreSQL (ya instalado, usuario `postgres` / clav
 
 ## Instalación (una sola vez)
 
-Abre **PowerShell como Administrador** y:
+**Paso 1 — llevar el código a la PC.** Clónalo o copia la carpeta a `C:\torito_fresh`. Si la
+copias a mano, **no copies** `node_modules`, `.next`, `dist` ni `.env`: se generan solos y
+copiarlos de otra máquina trae rutas y claves que no corresponden.
+
+**Paso 2 — la clave de PostgreSQL.** `setup.ps1` asume que el usuario `postgres` de esa PC
+tiene la clave `123456789` (línea 16 del script, variable `$PgPassword`). Si en esa PC es otra,
+edita esa línea antes de seguir; si no, el script falla al conectarse a la base.
+
+**Paso 3 — instalar.** Abre **PowerShell como Administrador** y:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass -Force
@@ -88,3 +96,9 @@ Para quitar el autoarranque:
 - Endurecimiento opcional a futuro: correr el backend y el frontend como servicios de Windows
   (con NSSM) en vez de la tarea programada, para que sigan vivos aunque nadie tenga sesión
   abierta.
+- Las claves del seed (`admin`/`admin`, `01`/`01`, `02`/`02`) son de arranque. Cámbialas desde
+  la app apenas entres por primera vez.
+- Esto queda armado para usarse **solo desde esa PC** (`localhost`). Si más adelante quieres
+  entrar desde otras máquinas de la red, hay que poner la IP de la PC servidora en
+  `NEXT_PUBLIC_API_URL` y `WEB_ORIGIN` (en `.env` y en `apps\web\.env.local`), recompilar con
+  `npm run build` y abrir los puertos 3070 y 4070 en el Firewall de Windows.
