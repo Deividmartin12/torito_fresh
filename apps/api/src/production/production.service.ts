@@ -1,7 +1,7 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { CompleteProductionOrderDto, CreateProductionOrderDto } from './production.dto';
+import { CreateProductionOrderDto } from './production.dto';
 
 type Transaction = Omit<
   PrismaClient,
@@ -52,77 +52,66 @@ export class ProductionService {
   }
 
   async create(dto: CreateProductionOrderDto) {
-    const inputs = dto.insumos ?? [];
-    const destination =
-      (dto.almacenProductoTerminadoId
-        ? await this.prisma.almacen.findUnique({
-            where: { id: BigInt(dto.almacenProductoTerminadoId) },
-          })
-        : null) ??
-      (await this.prisma.almacen.findFirst({ where: { estado: true }, orderBy: { id: 'asc' } }));
-    if (!destination)
-      throw new BadRequestException('Registre un almacén antes de crear producción');
-    const source =
-      (await this.prisma.almacen.findFirst({
-        where: { estado: true, id: { not: destination.id } },
-        orderBy: { id: 'asc' },
-      })) ?? destination;
-    const repeated = new Set(inputs.map((item) => item.productoId));
-    if (repeated.size !== inputs.length)
-      throw new BadRequestException('Cada insumo debe aparecer una sola vez');
-    const worker =
-      (await this.prisma.trabajador.findFirst({
-        where: { estado: true },
-        orderBy: { id: 'asc' },
-      })) ??
-      (await this.prisma.trabajador.upsert({
-        where: { numeroDocumento: 'SISTEMA' },
-        update: { estado: true },
-        create: {
-          tipoDocumento: 'SISTEMA',
-          numeroDocumento: 'SISTEMA',
-          nombres: 'Operador',
-          apellidos: 'Sistema',
-          cargo: 'Operación automática',
-        },
-      }));
-    const order = await this.prisma.ordenProduccion.create({
-      data: {
-        codigo: await this.nextOrderCode(),
-        productoId: BigInt(dto.productoId),
-        almacenInsumosId: source.id,
-        almacenProductoTerminadoId: destination.id,
-        trabajadorId: worker.id,
-        cantidadPlanificada: dto.cantidadPlanificada,
-        fechaPlanificada: new Date(dto.fechaPlanificada),
-        fechaVencimiento: dto.fechaVencimiento ? new Date(dto.fechaVencimiento) : null,
-        consumos: inputs.length
-          ? {
-              create: inputs.map((item) => ({
-                productoId: BigInt(item.productoId),
-                cantidadPlanificada: item.cantidad,
-              })),
-            }
-          : undefined,
-      },
-      include: this.include(),
-    });
-    return this.view(order);
-  }
-
-  async complete(id: string, dto: CompleteProductionOrderDto) {
+    // Registrar producción es un solo paso: la orden nace ya completada (crea el lote,
+    // consume insumos y actualiza el stock) en la misma transacción, sin un estado
+    // intermedio "BORRADOR" que requiera una confirmación aparte.
     return this.prisma.$transaction(
       async (tx) => {
-        const order = await tx.ordenProduccion.findUnique({
-          where: { id: BigInt(id) },
+        const inputs = dto.insumos ?? [];
+        const destination =
+          (dto.almacenProductoTerminadoId
+            ? await tx.almacen.findUnique({
+                where: { id: BigInt(dto.almacenProductoTerminadoId) },
+              })
+            : null) ?? (await tx.almacen.findFirst({ where: { estado: true }, orderBy: { id: 'asc' } }));
+        if (!destination)
+          throw new BadRequestException('Registre un almacén antes de crear producción');
+        const source =
+          (await tx.almacen.findFirst({
+            where: { estado: true, id: { not: destination.id } },
+            orderBy: { id: 'asc' },
+          })) ?? destination;
+        const repeated = new Set(inputs.map((item) => item.productoId));
+        if (repeated.size !== inputs.length)
+          throw new BadRequestException('Cada insumo debe aparecer una sola vez');
+        const worker =
+          (await tx.trabajador.findFirst({
+            where: { estado: true },
+            orderBy: { id: 'asc' },
+          })) ??
+          (await tx.trabajador.upsert({
+            where: { numeroDocumento: 'SISTEMA' },
+            update: { estado: true },
+            create: {
+              tipoDocumento: 'SISTEMA',
+              numeroDocumento: 'SISTEMA',
+              nombres: 'Operador',
+              apellidos: 'Sistema',
+              cargo: 'Operación automática',
+            },
+          }));
+        const cantidadProducida = dto.cantidadPlanificada;
+        const order = await tx.ordenProduccion.create({
+          data: {
+            codigo: await this.nextOrderCode(tx),
+            productoId: BigInt(dto.productoId),
+            almacenInsumosId: source.id,
+            almacenProductoTerminadoId: destination.id,
+            trabajadorId: worker.id,
+            cantidadPlanificada: dto.cantidadPlanificada,
+            fechaPlanificada: new Date(dto.fechaPlanificada),
+            fechaVencimiento: dto.fechaVencimiento ? new Date(dto.fechaVencimiento) : null,
+            consumos: inputs.length
+              ? {
+                  create: inputs.map((item) => ({
+                    productoId: BigInt(item.productoId),
+                    cantidadPlanificada: item.cantidad,
+                  })),
+                }
+              : undefined,
+          },
           include: this.include(),
         });
-        if (!order) throw new NotFoundException('Orden de producción no encontrada');
-        if (order.estado !== 'BORRADOR') throw new BadRequestException('La orden ya fue procesada');
-        if (dto.cantidadProducida + (dto.merma ?? 0) > Number(order.cantidadPlanificada))
-          throw new BadRequestException(
-            'La producción y la merma no pueden superar la cantidad planificada',
-          );
 
         // Algunas instalaciones antiguas no tienen cargado el catálogo inicial.
         // La producción siempre genera producto terminado disponible, por lo que
@@ -203,7 +192,7 @@ export class ProductionService {
           });
         }
 
-        const unitCost = totalCost / dto.cantidadProducida;
+        const unitCost = totalCost / cantidadProducida;
         const lotCode = order.codigoLote || `LOT-${order.id.toString().padStart(6, '0')}`;
         const lot = await tx.lote.create({
           data: {
@@ -224,13 +213,13 @@ export class ProductionService {
           },
         });
         const previousOutput = Number(outputStock?.cantidad ?? 0);
-        const nextOutput = previousOutput + dto.cantidadProducida;
+        const nextOutput = previousOutput + cantidadProducida;
         const previousCost = Number(outputStock?.costoPromedio ?? 0);
         // Cada producción crea un lote nuevo, así que `previousOutput` normalmente es 0; se
         // promedia igual por si el código de lote se reutiliza, para no pisar el costo.
         const costoPromedio =
           nextOutput > 0
-            ? (previousOutput * previousCost + dto.cantidadProducida * unitCost) / nextOutput
+            ? (previousOutput * previousCost + cantidadProducida * unitCost) / nextOutput
             : unitCost;
         if (outputStock)
           await tx.stockAlmacen.update({
@@ -244,7 +233,7 @@ export class ProductionService {
               almacenId: order.almacenProductoTerminadoId,
               loteId: lot.id,
               estadoInventarioId: available.id,
-              cantidad: dto.cantidadProducida,
+              cantidad: cantidadProducida,
               costoPromedio: unitCost,
             },
           });
@@ -256,7 +245,7 @@ export class ProductionService {
             loteId: lot.id,
             estadoInventarioId: available.id,
             direccion: 'ENTRADA',
-            cantidad: dto.cantidadProducida,
+            cantidad: cantidadProducida,
             costoUnitario: unitCost,
             costoTotal: totalCost,
             saldoAnterior: previousOutput,
@@ -267,8 +256,7 @@ export class ProductionService {
           where: { id: order.id },
           data: {
             estado: 'COMPLETADA',
-            cantidadProducida: dto.cantidadProducida,
-            merma: dto.merma ?? 0,
+            cantidadProducida,
             costoTotal: totalCost,
             loteId: lot.id,
             fechaInicio: new Date(),
@@ -297,8 +285,14 @@ export class ProductionService {
     } as const;
   }
 
-  private async nextOrderCode() {
-    const date = new Intl.DateTimeFormat('en-CA', {
+  /**
+   * Código de la orden del día: "OP-20260904-001", "OP-20260904-002"...
+   *
+   * Busca el último código de hoy con UNA consulta y le suma 1. Antes probaba uno por uno
+   * (hasta 999 consultas seguidas) y encima dentro de una transacción que bloquea la tabla.
+   */
+  private async nextOrderCode(tx: Transaction) {
+    const fecha = new Intl.DateTimeFormat('en-CA', {
       timeZone: 'America/Lima',
       year: 'numeric',
       month: '2-digit',
@@ -306,15 +300,17 @@ export class ProductionService {
     })
       .format(new Date())
       .replaceAll('-', '');
-    for (let sequence = 1; sequence <= 999; sequence += 1) {
-      const code = `OP-${date}-${String(sequence).padStart(3, '0')}`;
-      const existing = await this.prisma.ordenProduccion.findUnique({
-        where: { codigo: code },
-        select: { id: true },
-      });
-      if (!existing) return code;
-    }
-    throw new BadRequestException('No se pudo generar el código de producción del día');
+    const prefijoDelDia = `OP-${fecha}-`;
+    const ultima = await tx.ordenProduccion.findFirst({
+      where: { codigo: { startsWith: prefijoDelDia } },
+      orderBy: { codigo: 'desc' },
+      select: { codigo: true },
+    });
+    const ultimoNumero = ultima ? Number(ultima.codigo.slice(prefijoDelDia.length)) : 0;
+    const siguiente = (Number.isFinite(ultimoNumero) ? ultimoNumero : 0) + 1;
+    if (siguiente > 999)
+      throw new BadRequestException('No se pudo generar el código de producción del día');
+    return `${prefijoDelDia}${String(siguiente).padStart(3, '0')}`;
   }
 
   private view(row: any) {
@@ -327,7 +323,6 @@ export class ProductionService {
       almacenProductoTerminado: row.almacenProductoTerminado.nombre,
       cantidadPlanificada: Number(row.cantidadPlanificada),
       cantidadProducida: Number(row.cantidadProducida),
-      merma: Number(row.merma),
       costoTotal: Number(row.costoTotal),
       fechaPlanificada: row.fechaPlanificada,
       fechaFin: row.fechaFin,

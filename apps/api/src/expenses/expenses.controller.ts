@@ -5,6 +5,7 @@ import {
   CreateExpenseCategoryDto,
   CreateExpenseDto,
   UpdateExpenseCategoryDto,
+  UpdateExpenseDto,
 } from './expenses.dto';
 import { ExpensesService } from './expenses.service';
 
@@ -41,5 +42,10 @@ export class ExpensesController {
   @Post()
   create(@Body() dto: CreateExpenseDto) {
     return this.expenses.create(dto);
+  }
+
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() dto: UpdateExpenseDto) {
+    return this.expenses.update(id, dto);
   }
 }

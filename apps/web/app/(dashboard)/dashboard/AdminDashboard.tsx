@@ -11,7 +11,7 @@ import {
 } from '../../../components/charts/AnalyticsCharts';
 import { fillDailySeries, fillMonthlySeries, groupPeriodsByYear } from '../../../lib/analytics';
 import { BusinessDashboard, getBusinessDashboard } from '../../../lib/dashboard';
-import { money } from '../../../lib/format';
+import { moneda } from '../../../lib/format';
 import { DashboardKpi } from './DashboardKpi';
 
 type Granularity = 'day' | 'month' | 'year';
@@ -22,7 +22,7 @@ const granularityLabel: Record<Granularity, string> = {
   year: 'por año',
 };
 
-/** Day/week fit within a month → daily bars; beyond a month → monthly; beyond a year → yearly. */
+/** Día/semana entran en un mes → barras diarias; más de un mes → mensuales; más de un año → anuales. */
 function pickGranularity(spanDays: number): Granularity {
   if (spanDays > 366) return 'year';
   if (spanDays > 31) return 'month';
@@ -58,8 +58,8 @@ export function AdminDashboard() {
     }
   }, [from, to]);
   useEffect(() => {
-    // Wait for PeriodFilter to publish its range so the dashboard fetches once with the
-    // real window instead of also firing a request with the backend's 12-month default.
+    // Se espera a que PeriodFilter publique su rango para que el panel pida los datos una sola
+    // vez con la ventana real, en vez de disparar además un pedido con el defecto de 12 meses.
     if (from && to) void load();
   }, [from, load, to]);
 
@@ -113,31 +113,31 @@ export function AdminDashboard() {
             <DashboardKpi
               icon={<CircleDollarSign size={21} />}
               label="Ventas"
-              value={money(analytics?.summary.sales)}
+              value={moneda(analytics?.summary.sales)}
               detail={`${analytics?.summary.orders ?? 0} operaciones del período`}
               tone="blue"
             />
             <DashboardKpi
               icon={<Truck size={21} />}
               label="Gastos"
-              value={money(analytics?.summary.expenses)}
+              value={moneda(analytics?.summary.expenses)}
               detail="Egresos registrados"
               tone="amber"
             />
             <DashboardKpi
               icon={<PackageCheck size={21} />}
               label="Margen"
-              value={money(analytics?.summary.profit)}
+              value={moneda(analytics?.summary.profit)}
               detail={`${(analytics?.summary.profitRate ?? 0).toFixed(1)}% sobre ventas`}
               tone="green"
             />
             <DashboardKpi
               icon={<HandCoins size={21} />}
               label="Por cobrar"
-              value={money(analytics?.receivables.total)}
+              value={moneda(analytics?.receivables.total)}
               detail={
                 (analytics?.receivables.overdueCount ?? 0) > 0
-                  ? `${analytics?.receivables.overdueCount} vencidas · ${money(
+                  ? `${analytics?.receivables.overdueCount} vencidas · ${moneda(
                       analytics?.receivables.overdue,
                     )}`
                   : `${analytics?.receivables.count ?? 0} comprobantes pendientes`

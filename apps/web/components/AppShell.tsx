@@ -2,7 +2,9 @@
 
 import {
   ArrowLeftRight,
+  BarChart3,
   Boxes,
+  CalendarClock,
   ChevronRight,
   CreditCard,
   Factory,
@@ -10,6 +12,7 @@ import {
   LogOut,
   Menu,
   Package,
+  PackageX,
   PanelLeftClose,
   PanelLeftOpen,
   ReceiptText,
@@ -26,12 +29,13 @@ import {
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { ReactNode, useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import {
-  clearSession,
-  getSessionExpiresAt,
-  getStoredUser,
-  getToken,
-  SessionUser,
+  limpiarSesion,
+  obtenerVencimientoSesion,
+  obtenerUsuarioGuardado,
+  obtenerToken,
+  UsuarioSesion,
 } from '../lib/api';
 import { aliasRuta, puedeVer } from '../lib/permissions';
 import { ThemeToggle } from './ThemeToggle';
@@ -64,13 +68,17 @@ const groups = [
     links: [
       { href: '/clientes', label: 'Clientes', icon: Users },
       { href: '/ventas', label: 'Ventas', icon: ReceiptText },
+      { href: '/recargas', label: 'Frecuencia de recarga', icon: CalendarClock },
       { href: '/devoluciones', label: 'Devoluciones comerciales', icon: ReceiptText },
     ],
   },
   {
     label: 'Distribución',
     icon: Route,
-    links: [{ href: '/envases', label: 'Retorno de envases', icon: Recycle }],
+    links: [
+      { href: '/envases', label: 'Retorno de envases', icon: Recycle },
+      { href: '/bidones-rotos', label: 'Bidones rotos', icon: PackageX },
+    ],
   },
   {
     label: 'Inventario',
@@ -86,7 +94,6 @@ const groups = [
     icon: WalletCards,
     links: [
       { href: '/cobranzas', label: 'Cobranzas', icon: WalletCards },
-      { href: '/cuentas-pagar', label: 'Cuentas por pagar', icon: CreditCard },
       { href: '/metodos-pago', label: 'Métodos de pago', icon: CreditCard },
     ],
   },
@@ -94,8 +101,8 @@ const groups = [
     label: 'Reportes',
     icon: ReceiptText,
     links: [
+      { href: '/reportes/resumen', label: 'Resumen diario', icon: BarChart3 },
       { href: '/reportes/ventas', label: 'Reporte de ventas', icon: ReceiptText },
-      { href: '/reportes/compras', label: 'Reporte de compras', icon: Truck },
       { href: '/reportes/gastos', label: 'Reporte de gastos', icon: Truck },
       { href: '/reportes/stock', label: 'Stock actual', icon: Boxes },
     ],
@@ -110,26 +117,31 @@ const groups = [
 export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const [user, setUser] = useState<SessionUser | null>(null);
+  const [user, setUser] = useState<UsuarioSesion | null>(null);
   const [ready, setReady] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   // Con el sidebar compactado el submenú se abre al pasar el cursor. Al hacer clic en una
   // opción lo ocultamos hasta que el cursor salga del sidebar y vuelva a entrar.
   const [flyoutSuppressed, setFlyoutSuppressed] = useState(false);
-  const [expandedGroups, setExpandedGroups] = useState<string[]>(() => {
+  // Acordeón real: un solo grupo abierto a la vez. Abrir uno cierra el anterior.
+  const [expandedGroup, setExpandedGroup] = useState<string | null>(() => {
     const activeGroup = groups.find((group) =>
       group.links.some(({ href }) => pathname === href || pathname.startsWith(`${href}/`)),
     );
-    return activeGroup ? [activeGroup.label] : [groups[0].label];
+    return activeGroup?.label ?? groups[0].label;
   });
 
   useEffect(() => {
-    if (!getToken()) {
+    // Hace falta el token Y los datos del usuario. Si falta cualquiera de los dos la sesión
+    // está a medias: se limpia y se manda al login, en vez de quedarse en "Cargando...".
+    const almacenado = obtenerUsuarioGuardado();
+    if (!obtenerToken() || !almacenado) {
+      limpiarSesion();
       router.replace('/login');
       return;
     }
-    setUser(getStoredUser());
+    setUser(almacenado);
     setReady(true);
     setSidebarCollapsed(window.localStorage.getItem('torito-sidebar-collapsed') === 'true');
   }, [router]);
@@ -157,17 +169,19 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (user && !puedeVer(user.role, pathname)) router.replace('/dashboard');
   }, [user, pathname, router]);
 
+  // Cierra la sesión sola cuando vence el token, avisando por qué.
   useEffect(() => {
-    const expiresAt = getSessionExpiresAt();
-    const endSession = () => {
-      clearSession();
+    const venceEn = obtenerVencimientoSesion();
+    const cerrarSesion = () => {
+      limpiarSesion();
+      toast.info('Tu sesión expiró. Vuelve a iniciar sesión.');
       router.replace('/login');
     };
-    if (!expiresAt || expiresAt <= Date.now()) {
-      endSession();
+    if (!venceEn || venceEn <= Date.now()) {
+      cerrarSesion();
       return;
     }
-    const timeout = window.setTimeout(endSession, expiresAt - Date.now());
+    const timeout = window.setTimeout(cerrarSesion, venceEn - Date.now());
     return () => window.clearTimeout(timeout);
   }, [router]);
 
@@ -184,16 +198,11 @@ export function AppShell({ children }: { children: ReactNode }) {
     const activeGroup = groups.find((group) =>
       group.links.some(({ href }) => pathname === href || pathname.startsWith(`${href}/`)),
     );
-    if (activeGroup)
-      setExpandedGroups((current) =>
-        current.includes(activeGroup.label) ? current : [...current, activeGroup.label],
-      );
+    if (activeGroup) setExpandedGroup(activeGroup.label);
   }, [pathname]);
 
   const toggleGroup = (label: string) => {
-    setExpandedGroups((current) =>
-      current.includes(label) ? current.filter((item) => item !== label) : [...current, label],
-    );
+    setExpandedGroup((current) => (current === label ? null : label));
   };
 
   useEffect(() => {
@@ -209,6 +218,21 @@ export function AppShell({ children }: { children: ReactNode }) {
       document.removeEventListener('keydown', closeOnEscape);
     };
   }, [menuOpen]);
+
+  // Mientras no se confirme la sesión no se montan las pantallas de adentro. Si se montaran,
+  // cada una lanzaría sus consultas al API sin token, el API respondería 401 y el usuario
+  // vería el panel parpadear, una recarga y varios mensajes de error sobre el login.
+  if (!ready) {
+    return (
+      <div className="app-shell">
+        <main className="app-main" id="main-content" tabIndex={-1}>
+          <div className="table-loading" role="status">
+            <span className="loading-spinner" /> Cargando...
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className={sidebarCollapsed ? 'app-shell sidebar-is-collapsed' : 'app-shell'}>
@@ -227,11 +251,11 @@ export function AppShell({ children }: { children: ReactNode }) {
           </span>
         </div>
         <nav className="sidebar-nav" aria-label="Navegacion lateral">
-          {(ready ? visibleGroups : []).map((group) => {
+          {visibleGroups.map((group) => {
             const groupActive = group.links.some(
               ({ href }) => pathname === href || pathname.startsWith(`${href}/`),
             );
-            const expanded = expandedGroups.includes(group.label);
+            const expanded = expandedGroup === group.label;
             const GroupIcon = group.icon;
             return (
               <section
@@ -307,7 +331,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             type="button"
             className="admin-logout"
             onClick={() => {
-              clearSession();
+              limpiarSesion();
               router.replace('/login');
             }}
             title="Cerrar sesión"

@@ -10,7 +10,7 @@ export type SalesPeriodRow = {
 };
 export type TopProductRow = {
   product?: { id: string; name: string };
-  quantity: number;
+  cantidad: number;
   total: number;
 };
 

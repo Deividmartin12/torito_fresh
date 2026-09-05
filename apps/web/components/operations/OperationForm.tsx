@@ -4,8 +4,6 @@ import {
   AlertCircle,
   CalendarClock,
   Check,
-  PackageCheck,
-  PackagePlus,
   PiggyBank,
   Plus,
   ReceiptText,
@@ -19,28 +17,26 @@ import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Cliente } from '../../lib/clients';
 import { formaPagoLabel, formaPagoOpciones, resumenVencimiento } from '../../lib/credit';
-import { money } from '../../lib/format';
+import { moneda } from '../../lib/format';
 import {
-  createPurchase,
   createSale,
   emptyCatalogs,
   emptyLine,
   getOperationCatalogs,
   getOperationStock,
   getOperationalPaymentMethods,
-  OperationKind,
+  getSale,
   OperationLine,
   OperationalPaymentMethod,
   PaymentType,
-  ReceiptType,
+  Sale,
   StockRow,
+  updateSale,
 } from '../../lib/operations';
 import { ClienteFormModal } from '../ClienteFormModal';
 import { SearchableSelect } from '../SearchableSelect';
 
-type FieldErrors = Partial<
-  Record<'entity' | 'warehouse' | 'series' | 'number' | 'items' | 'payment' | 'dueDate', string>
->;
+type FieldErrors = Partial<Record<'entity' | 'items' | 'payment' | 'dueDate', string>>;
 
 const iconoFormaPago = { CONTADO: Wallet, CREDITO: CalendarClock, MIXTO: PiggyBank } as const;
 
@@ -55,19 +51,15 @@ const localTodayPlus = (days: number) => {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
 };
 
-export function OperationForm({ kind }: { kind: OperationKind }) {
-  const sale = kind === 'sale';
+/** Formulario de venta. Con `saleId` precarga una venta existente y edita en vez de crear. */
+export function OperationForm({ saleId }: { saleId?: string } = {}) {
+  const editing = Boolean(saleId);
   const router = useRouter();
-  const backHref = sale ? '/ventas' : '/compras';
   const [catalogs, setCatalogs] = useState(emptyCatalogs);
   const [stock, setStock] = useState<StockRow[]>([]);
   const [entityId, setEntityId] = useState('');
   const [clienteModal, setClienteModal] = useState(false);
   const [warehouseId, setWarehouseId] = useState('');
-  // Comprobante (tipo/serie/número) aplica solo a compras; la venta se identifica por su código.
-  const [receiptType, setReceiptType] = useState<ReceiptType>('FACTURA');
-  const [series, setSeries] = useState('F001');
-  const [number, setNumber] = useState('');
   const [paymentType, setPaymentType] = useState<PaymentType>('CONTADO');
   const [paymentMethods, setPaymentMethods] = useState<OperationalPaymentMethod[]>([]);
   const [paymentMethodId, setPaymentMethodId] = useState('');
@@ -75,27 +67,45 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
   const [dueDate, setDueDate] = useState('');
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState<OperationLine[]>([emptyLine()]);
+  // Solo al editar: la venta tal como estaba guardada. Sirve para calcular bien el stock
+  // disponible, porque lo que esta venta ya descontó vuelve al almacén al guardar los cambios.
+  const [ventaOriginal, setVentaOriginal] = useState<Sale | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
 
   useEffect(() => {
-    const requests = sale
-      ? Promise.all([getOperationCatalogs(), getOperationStock(), getOperationalPaymentMethods()])
-      : Promise.all([
-          getOperationCatalogs(),
-          Promise.resolve([] as StockRow[]),
-          getOperationalPaymentMethods(),
-        ]);
-    requests
-      .then(([catalogData, stockData, methods]) => {
+    Promise.all([getOperationCatalogs(), getOperationStock(), getOperationalPaymentMethods()])
+      .then(async ([catalogData, stockData, methods]) => {
         setCatalogs(catalogData);
         setStock(stockData);
         setPaymentMethods(methods);
-        setPaymentMethodId(methods.find((method) => !method.requiereOperacion)?.id ?? '');
-        setEntityId(sale ? '' : (catalogData.proveedores[0]?.id ?? ''));
-        setWarehouseId(catalogData.almacenes[0]?.id ?? '');
+        if (saleId) {
+          const sale = await getSale(saleId);
+          setEntityId(sale.clienteId);
+          setWarehouseId(sale.almacenId);
+          setPaymentType(sale.pago as PaymentType);
+          setNotes(sale.observaciones ?? '');
+          // Se precarga TODO lo de la venta (incluidos crédito y descuentos). Si no, al
+          // guardar se perdía el descuento —y el total subía solo— y una venta a crédito
+          // pedía una fecha de vencimiento nueva cada vez que se editaba.
+          setInitialAmount(sale.montoInicial);
+          setDueDate(sale.fechaVencimiento ? sale.fechaVencimiento.slice(0, 10) : '');
+          setPaymentMethodId(methods.find((method) => !method.requiereOperacion)?.id ?? '');
+          setItems(
+            sale.items.map((item) => ({
+              productoId: item.productoId,
+              cantidad: item.cantidad,
+              precioUnitario: item.precio,
+              descuento: item.descuento,
+            })),
+          );
+          setVentaOriginal(sale);
+        } else {
+          setPaymentMethodId(methods.find((method) => !method.requiereOperacion)?.id ?? '');
+          setWarehouseId(catalogData.almacenes[0]?.id ?? '');
+        }
       })
       .catch((cause) =>
         toast.error(
@@ -105,9 +115,8 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
         ),
       )
       .finally(() => setLoading(false));
-  }, [sale]);
+  }, [saleId]);
 
-  const entities = sale ? catalogs.clientes : catalogs.proveedores;
   const subtotal = useMemo(
     () =>
       items.reduce(
@@ -116,9 +125,8 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
       ),
     [items],
   );
-  const igv = sale ? 0 : subtotal * 0.18;
-  const total = subtotal + igv;
-  const selectedClient = sale ? entities.find((item) => item.id === entityId) : undefined;
+  const total = subtotal;
+  const selectedClient = catalogs.clientes.find((item) => item.id === entityId);
   const creditAmount = paymentType === 'MIXTO' ? Math.max(total - initialAmount, 0) : total;
 
   // Cliente creado desde el formulario de venta: lo agregamos al catálogo y lo dejamos elegido.
@@ -139,11 +147,6 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
     setEntityId(cliente.id);
     setFieldErrors((current) => ({ ...current, entity: undefined }));
     setClienteModal(false);
-  }
-
-  function changeReceiptType(nextType: ReceiptType) {
-    setReceiptType(nextType);
-    setFieldErrors((current) => ({ ...current, series: undefined }));
   }
 
   useEffect(() => {
@@ -168,28 +171,42 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
   }
   function selectProduct(index: number, productoId: string) {
     const product = catalogs.productos.find((item) => item.id === productoId);
-    updateLine(index, {
-      productoId,
-      precioUnitario: sale ? (product?.precioVenta ?? 0) : (product?.costoReferencia ?? 0),
-    });
+    updateLine(index, { productoId, precioUnitario: product?.precioVenta ?? 0 });
   }
+  /**
+   * Stock disponible por producto en el almacén elegido, calculado UNA vez (antes se recorría
+   * toda la lista de stock dos veces por línea en cada tecla que escribías).
+   *
+   * Al editar se suma de vuelta lo que esta misma venta ya tenía descontado: si no, el
+   * formulario creía que no había stock y no dejaba guardar, aunque el servidor sí puede
+   * (primero revierte la salida vieja y después aplica la nueva).
+   */
+  const disponiblePorProducto = useMemo(() => {
+    const almacen = catalogs.almacenes.find((item) => item.id === warehouseId);
+    const porCodigo = new Map<string, number>();
+    for (const fila of stock) {
+      if (!fila.vendible || fila.almacen !== almacen?.nombre) continue;
+      const libre = Math.max(fila.cantidad - fila.reservada, 0);
+      porCodigo.set(fila.codigo, (porCodigo.get(fila.codigo) ?? 0) + libre);
+    }
+
+    const porProducto = new Map<string, number>();
+    for (const producto of catalogs.productos) {
+      porProducto.set(producto.id, porCodigo.get(producto.codigo ?? '') ?? 0);
+    }
+    for (const linea of ventaOriginal?.items ?? []) {
+      porProducto.set(linea.productoId, (porProducto.get(linea.productoId) ?? 0) + linea.cantidad);
+    }
+    return porProducto;
+  }, [catalogs.almacenes, catalogs.productos, stock, warehouseId, ventaOriginal]);
+
   function available(productoId: string) {
-    if (!sale || !productoId) return 0;
-    const product = catalogs.productos.find((item) => item.id === productoId);
-    const warehouse = catalogs.almacenes.find((item) => item.id === warehouseId);
-    return stock
-      .filter(
-        (item) =>
-          item.codigo === product?.codigo && item.almacen === warehouse?.nombre && item.vendible,
-      )
-      .reduce((sum, item) => sum + Math.max(item.cantidad - item.reservada, 0), 0);
+    if (!productoId) return 0;
+    return disponiblePorProducto.get(productoId) ?? 0;
   }
   function validate() {
     const next: FieldErrors = {};
-    if (!entityId) next.entity = sale ? 'Selecciona un cliente.' : 'Selecciona un proveedor.';
-    if (!sale && !warehouseId) next.warehouse = 'Selecciona un almacen.';
-    if (!sale && !series.trim()) next.series = 'Ingresa la serie del comprobante.';
-    if (!sale && !number.trim()) next.number = 'Ingresa el numero del comprobante.';
+    if (!entityId) next.entity = 'Selecciona un cliente.';
     if (paymentType === 'MIXTO' && (initialAmount <= 0 || initialAmount >= total))
       next.payment = 'En pago mixto, el abono inicial debe ser mayor a cero y menor que el total.';
     if ((paymentType === 'CONTADO' || paymentType === 'MIXTO') && !paymentMethodId)
@@ -204,19 +221,21 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
       )
     )
       next.items = 'Selecciona cada producto e ingresa una cantidad entera mayor a cero.';
-    else if (sale && items.some((item) => item.cantidad > available(item.productoId)))
-      next.items = 'Una cantidad supera el stock disponible del almacen seleccionado.';
+    else if (items.some((item) => item.cantidad > available(item.productoId)))
+      next.items = 'Una cantidad supera el stock disponible del almacén seleccionado.';
     setFieldErrors(next);
     return Object.keys(next).length === 0;
   }
   function openReview() {
     if (validate()) setReviewOpen(true);
   }
-  async function save(confirm: boolean) {
+  async function save() {
     if (!validate()) return;
     setSaving(true);
     try {
       const payload = {
+        clienteId: entityId,
+        almacenId: warehouseId || undefined,
         tipoPago: paymentType,
         observaciones: notes,
         items,
@@ -225,30 +244,13 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
           paymentType === 'CONTADO' ? total : paymentType === 'MIXTO' ? initialAmount : 0,
         fechaVencimiento: paymentType === 'CONTADO' ? undefined : dueDate || undefined,
       };
-      if (sale) await createSale({ ...payload, clienteId: entityId }, confirm);
-      else
-        await createPurchase(
-          {
-            ...payload,
-            tipoComprobante: receiptType,
-            serie: series,
-            numero: number,
-            proveedorId: entityId,
-            almacenId: warehouseId,
-          },
-          confirm,
-        );
-      toast.success(
-        `${sale ? 'Venta' : 'Compra'} ${confirm ? 'confirmada' : 'guardada como borrador'}`,
-      );
-      router.push(backHref);
+      if (editing && saleId) await updateSale(saleId, payload);
+      else await createSale(payload);
+      toast.success(editing ? 'Venta actualizada' : 'Venta registrada');
+      router.push('/ventas');
       router.refresh();
     } catch (cause) {
-      toast.error(
-        cause instanceof Error
-          ? cause.message
-          : `No se pudo guardar la ${sale ? 'venta' : 'compra'}`,
-      );
+      toast.error(cause instanceof Error ? cause.message : 'No se pudo guardar la venta');
     } finally {
       setSaving(false);
     }
@@ -290,19 +292,13 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
       <div className="operation-workspace">
         <section
           className="operation-section operation-products-section"
-          aria-labelledby={`${kind}-items-title`}
+          aria-labelledby="sale-items-title"
         >
           <div className="operation-section-head">
             <span>1</span>
             <div>
-              <h2 id={`${kind}-items-title`}>
-                {sale ? 'Productos vendidos' : 'Productos recibidos'}
-              </h2>
-              <p>
-                {sale
-                  ? 'Busca productos y registra las cantidades. El stock se valida según el almacén.'
-                  : 'Busca productos y registra las cantidades y costos de ingreso.'}
-              </p>
+              <h2 id="sale-items-title">Productos vendidos</h2>
+              <p>Busca productos y registra las cantidades. El stock se valida según el almacén.</p>
             </div>
             <button
               type="button"
@@ -315,7 +311,7 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
           <div className="operation-line-head" aria-hidden="true">
             <span>Producto</span>
             <span>Cantidad</span>
-            <span>{sale ? 'Precio unitario' : 'Costo unitario'}</span>
+            <span>Precio unitario</span>
             <span>Importe</span>
             <span />
           </div>
@@ -330,19 +326,14 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
                     options={catalogs.productos.map((product) => ({
                       value: product.id,
                       label: `${product.codigo ?? ''} · ${product.nombre}`,
+                      hint: `Disponible: ${available(product.id)}`,
                     }))}
                     placeholder="Buscar por código o nombre"
                     required
                   />
-                  {sale ? (
-                    <small
-                      className={
-                        item.productoId && available(item.productoId) < item.cantidad
-                          ? 'stock-warning'
-                          : 'stock-hint'
-                      }
-                    >
-                      Disponible: {available(item.productoId)}
+                  {item.productoId && available(item.productoId) < item.cantidad ? (
+                    <small className="stock-warning">
+                      Solo hay <b>{available(item.productoId)}</b> disponibles en este almacén.
                     </small>
                   ) : null}
                 </label>
@@ -364,7 +355,7 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
                   />
                 </label>
                 <label>
-                  <span>{sale ? 'Precio unitario' : 'Costo unitario'}</span>
+                  <span>Precio unitario</span>
                   <input
                     type="number"
                     min="0"
@@ -400,87 +391,43 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
 
         <aside
           className="operation-section operation-general-section"
-          aria-labelledby={`${kind}-general-title`}
+          aria-labelledby="sale-general-title"
         >
           <div className="operation-section-head">
             <span>2</span>
             <div>
-              <h2 id={`${kind}-general-title`}>Datos generales</h2>
-              <p>
-                {sale
-                  ? 'Información de la operación.'
-                  : 'Información de la operación y comprobante.'}
-              </p>
+              <h2 id="sale-general-title">Datos generales</h2>
+              <p>Información de la operación.</p>
             </div>
           </div>
           <div className="step-fields operation-fields">
             <label>
-              <span>{sale ? 'Cliente' : 'Proveedor'}</span>
+              <span>Cliente</span>
               <SearchableSelect
                 value={entityId}
                 onChange={(value) => {
                   setEntityId(value);
                   setFieldErrors((current) => ({ ...current, entity: undefined }));
                 }}
-                options={entities.map((item) => ({
+                options={catalogs.clientes.map((item) => ({
                   value: item.id,
                   label: item.documento ? `${item.nombre} · ${item.documento}` : item.nombre,
                 }))}
-                placeholder={`Buscar ${sale ? 'cliente' : 'proveedor'}`}
+                placeholder="Buscar cliente"
                 required
-                actionLabel={sale ? '+ Agregar cliente' : undefined}
-                onAction={sale ? () => setClienteModal(true) : undefined}
+                actionLabel="+ Agregar cliente"
+                onAction={() => setClienteModal(true)}
               />
               {fieldErrors.entity ? (
                 <small className="field-error">{fieldErrors.entity}</small>
               ) : selectedClient && (selectedClient.deudaActual ?? 0) > 0 ? (
                 <small className="client-debt-hint">
-                  Deuda actual: {money(selectedClient.deudaActual)} ·{' '}
+                  Deuda actual: {moneda(selectedClient.deudaActual)} ·{' '}
                   {selectedClient.comprobantesPendientes}{' '}
                   {selectedClient.comprobantesPendientes === 1 ? 'comprobante' : 'comprobantes'}
                 </small>
               ) : null}
             </label>
-            {!sale ? (
-              <label>
-                <span>Almacén que recibe</span>
-                <SearchableSelect
-                  value={warehouseId}
-                  onChange={(value) => {
-                    setWarehouseId(value);
-                    setFieldErrors((current) => ({
-                      ...current,
-                      warehouse: undefined,
-                      items: undefined,
-                    }));
-                  }}
-                  options={catalogs.almacenes.map((item) => ({
-                    value: item.id,
-                    label: item.codigo ? `${item.codigo} · ${item.nombre}` : item.nombre,
-                  }))}
-                  placeholder="Buscar almacén"
-                  required
-                />
-                {fieldErrors.warehouse ? (
-                  <small className="field-error">{fieldErrors.warehouse}</small>
-                ) : null}
-              </label>
-            ) : null}
-            {!sale ? (
-              <label>
-                <span>Tipo de comprobante</span>
-                <select
-                  value={receiptType}
-                  onChange={(event) => changeReceiptType(event.target.value as ReceiptType)}
-                >
-                  <option>FACTURA</option>
-                  <option>BOLETA</option>
-                  <option>TICKET</option>
-                  <option>NOTA</option>
-                  <option>OTRO</option>
-                </select>
-              </label>
-            ) : null}
 
             <div className="payment-type-field">
               <span className="label">Forma de pago</span>
@@ -537,7 +484,7 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
                 {paymentType === 'CONTADO' ? (
                   <label>
                     <span>Monto que paga</span>
-                    <input value={money(total)} readOnly />
+                    <input value={moneda(total)} readOnly />
                   </label>
                 ) : (
                   <label>
@@ -561,15 +508,13 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
             {paymentType !== 'CONTADO' ? (
               <div className="credit-panel">
                 <div className="credit-panel-head">
-                  <strong>Esta {sale ? 'venta' : 'compra'} queda a crédito</strong>
+                  <strong>Esta venta queda a crédito</strong>
                   <span>
-                    Quedará pendiente <b>{money(creditAmount)}</b>
+                    Quedará pendiente <b>{moneda(creditAmount)}</b>
                   </span>
                 </div>
                 <label>
-                  <span>
-                    {sale ? '¿Cuándo pagará el cliente?' : '¿Cuándo se paga al proveedor?'}
-                  </span>
+                  <span>¿Cuándo pagará el cliente?</span>
                   <input
                     type="date"
                     min={localToday()}
@@ -607,38 +552,6 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
               </div>
             ) : null}
             {fieldErrors.payment ? <p className="field-error">{fieldErrors.payment}</p> : null}
-            {!sale ? (
-              <div className="operation-field-pair operation-receipt-number">
-                <label>
-                  <span>Serie del comprobante</span>
-                  <input
-                    value={series}
-                    onChange={(event) => {
-                      setSeries(event.target.value.toUpperCase());
-                      setFieldErrors((current) => ({ ...current, series: undefined }));
-                    }}
-                    placeholder="F001"
-                  />
-                  {fieldErrors.series ? (
-                    <small className="field-error">{fieldErrors.series}</small>
-                  ) : null}
-                </label>
-                <label>
-                  <span>Número</span>
-                  <input
-                    value={number}
-                    onChange={(event) => {
-                      setNumber(event.target.value);
-                      setFieldErrors((current) => ({ ...current, number: undefined }));
-                    }}
-                    placeholder="000001"
-                  />
-                  {fieldErrors.number ? (
-                    <small className="field-error">{fieldErrors.number}</small>
-                  ) : null}
-                </label>
-              </div>
-            ) : null}
             <label className="review-notes">
               <span>Observaciones</span>
               <textarea
@@ -652,7 +565,7 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
       </div>
 
       <div className="operation-sticky-actions">
-        <Link href={backHref} className="btn-secondary">
+        <Link href="/ventas" className="btn-secondary">
           Cancelar
         </Link>
         <div className="operation-running-total">
@@ -673,23 +586,19 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
           }}
         >
           <section
-            className="operation-review-modal"
+            className="operation-review-modal sale-receipt"
             role="dialog"
             aria-modal="true"
-            aria-labelledby={`${kind}-review-title`}
+            aria-labelledby="sale-review-title"
           >
-            <div className="operation-review-head">
-              <div className="operation-review-icon">
-                {sale ? <PackageCheck size={24} /> : <PackagePlus size={24} />}
-              </div>
+            <div className="sale-receipt-head">
               <div>
-                <span>Revisión final</span>
-                <h2 id={`${kind}-review-title`}>
-                  Confirma los datos de la {sale ? 'venta' : 'compra'}
-                </h2>
+                <strong id="sale-review-title">AGUA TORITO FRESH</strong>
+                <span>Boleta de venta (vista previa)</span>
               </div>
               <button
                 type="button"
+                className="modal-close"
                 onClick={() => setReviewOpen(false)}
                 disabled={saving}
                 aria-label="Cerrar resumen"
@@ -697,88 +606,73 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
                 <X size={20} />
               </button>
             </div>
-            <div className="operation-review-body">
-              <div className="operation-review-facts">
+            <div className="operation-review-scroll">
+              <div className="sale-receipt-meta">
                 <div>
-                  <small>{sale ? 'Cliente' : 'Proveedor'}</small>
-                  <strong>
-                    {entities.find((item) => item.id === entityId)?.nombre ?? 'Sin seleccionar'}
-                  </strong>
+                  <small>N.° de venta</small>
+                  {editing ? (
+                    <span>Sin cambios de código</span>
+                  ) : (
+                    <span>Se genera al confirmar</span>
+                  )}
                 </div>
-                {!sale ? (
-                  <div>
-                    <small>Almacén</small>
-                    <strong>
-                      {catalogs.almacenes.find((item) => item.id === warehouseId)?.nombre ??
-                        'Sin seleccionar'}
-                    </strong>
-                  </div>
-                ) : null}
-                {!sale ? (
-                  <div>
-                    <small>Comprobante</small>
-                    <strong>{`${receiptType} ${series}-${number}`}</strong>
-                  </div>
-                ) : null}
                 <div>
-                  <small>Pago</small>
-                  <strong>
+                  <small>Fecha</small>
+                  <span>{new Date().toLocaleDateString('es-PE')}</span>
+                </div>
+                <div>
+                  <small>Cliente</small>
+                  <span>{selectedClient?.nombre ?? 'Sin seleccionar'}</span>
+                </div>
+                <div>
+                  <small>Forma de pago</small>
+                  <span>
                     {formaPagoLabel[paymentType] ?? paymentType}
                     {paymentType !== 'CONTADO' && dueDate
-                      ? ` · ${money(creditAmount)} a crédito · ${resumenVencimiento(dueDate, creditAmount).label.toLowerCase()}`
+                      ? ` · ${moneda(creditAmount)} a crédito`
                       : ''}
-                  </strong>
-                </div>
-              </div>
-              <div className="operation-review-products">
-                <div className="operation-review-products-head">
-                  <strong>Productos</strong>
-                  <span>
-                    {items.length} {items.length === 1 ? 'ítem' : 'ítems'}
                   </span>
                 </div>
-                {items.map((item, index) => (
-                  <div className="operation-review-product" key={`${item.productoId}-${index}`}>
-                    <div>
-                      <strong>
+              </div>
+              <table className="sale-receipt-items">
+                <thead>
+                  <tr>
+                    <th>Producto</th>
+                    <th>Cant.</th>
+                    <th>P. unit.</th>
+                    <th>Importe</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((item, index) => (
+                    <tr key={`${item.productoId}-${index}`}>
+                      <td>
                         {catalogs.productos.find((product) => product.id === item.productoId)
                           ?.nombre ?? 'Producto'}
-                      </strong>
-                      <small>
-                        {item.cantidad} × S/ {item.precioUnitario.toFixed(2)}
-                      </small>
-                    </div>
-                    <strong>
-                      S/{' '}
-                      {Math.max(item.cantidad * item.precioUnitario - item.descuento, 0).toFixed(2)}
-                    </strong>
-                  </div>
-                ))}
-              </div>
+                      </td>
+                      <td>{item.cantidad}</td>
+                      <td>S/ {item.precioUnitario.toFixed(2)}</td>
+                      <td>
+                        S/{' '}
+                        {Math.max(item.cantidad * item.precioUnitario - item.descuento, 0).toFixed(
+                          2,
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
               {notes ? (
                 <div className="operation-review-note">
                   <small>Observaciones</small>
                   <p>{notes}</p>
                 </div>
               ) : null}
-              <div className="totals-box operation-review-totals">
-                <span>
-                  {sale ? 'Total de productos' : 'Subtotal'}{' '}
-                  <strong>S/ {subtotal.toFixed(2)}</strong>
-                </span>
-                {!sale ? (
-                  <span>
-                    IGV (18%) <strong>S/ {igv.toFixed(2)}</strong>
-                  </span>
-                ) : null}
+              <div className="sale-receipt-totals">
                 <span className="grand-total">
                   Total <strong>S/ {total.toFixed(2)}</strong>
                 </span>
               </div>
-              <p className="auto-note">
-                <Check size={15} /> Al confirmar se {sale ? 'descontará' : 'ingresará'} el stock y
-                se creará el kardex automáticamente.
-              </p>
             </div>
             <div className="operation-review-actions">
               <button
@@ -787,27 +681,17 @@ export function OperationForm({ kind }: { kind: OperationKind }) {
                 disabled={saving}
                 onClick={() => setReviewOpen(false)}
               >
-                Volver y editar
+                Volver a editar
               </button>
-              <div>
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  disabled={saving}
-                  onClick={() => void save(false)}
-                >
-                  {saving ? 'Guardando...' : 'Guardar borrador'}
-                </button>
-                <button
-                  type="button"
-                  className="btn-primary"
-                  disabled={saving}
-                  onClick={() => void save(true)}
-                >
-                  <Check size={16} />{' '}
-                  {saving ? 'Procesando...' : `Confirmar ${sale ? 'venta' : 'compra'}`}
-                </button>
-              </div>
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={saving}
+                onClick={() => void save()}
+              >
+                <Check size={16} />{' '}
+                {saving ? 'Procesando...' : editing ? 'Guardar cambios' : 'Confirmar venta'}
+              </button>
             </div>
           </section>
         </div>

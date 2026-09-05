@@ -52,7 +52,12 @@ export function ClienteFormModal({ editando, onClose, onSaved }: Props) {
   if (typeof document === 'undefined') return null;
 
   return createPortal(
-    <div className="modal-backdrop">
+    <div
+      className="modal-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !saving) onClose();
+      }}
+    >
       <section
         className="crud-modal"
         role="dialog"

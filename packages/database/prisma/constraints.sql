@@ -8,10 +8,11 @@ ON "stock_almacen" (
 
 -- Se recrean porque versiones anteriores mezclaban devolución con el estado
 -- principal de la operación.
-ALTER TABLE "compra" DROP CONSTRAINT IF EXISTS "compra_estado_valido";
 ALTER TABLE "venta" DROP CONSTRAINT IF EXISTS "venta_estado_valido";
 ALTER TABLE "almacen" DROP CONSTRAINT IF EXISTS "almacen_tipo_valido";
 ALTER TABLE "movimiento_inventario" DROP CONSTRAINT IF EXISTS "movimiento_tipo_valido";
+-- Se recrea porque se eliminó la columna "merma" de la producción.
+ALTER TABLE "orden_produccion" DROP CONSTRAINT IF EXISTS "orden_produccion_cantidades_validas";
 
 DO $$
 BEGIN
@@ -20,44 +21,16 @@ BEGIN
       CHECK ("estado" IN ('ACTIVO', 'VENCIDO', 'AGOTADO', 'BLOQUEADO'));
   END IF;
 
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'compra_tipo_pago_valido') THEN
-    ALTER TABLE "compra" ADD CONSTRAINT "compra_tipo_pago_valido"
-      CHECK ("tipo_pago" IN ('CONTADO', 'CREDITO', 'MIXTO'));
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'compra_comprobante_valido') THEN
-    ALTER TABLE "compra" ADD CONSTRAINT "compra_comprobante_valido"
-      CHECK ("tipo_comprobante" IN ('FACTURA', 'BOLETA', 'TICKET', 'NOTA', 'OTRO'));
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'compra_estado_valido') THEN
-    ALTER TABLE "compra" ADD CONSTRAINT "compra_estado_valido"
-      CHECK ("estado" IN ('BORRADOR', 'CONFIRMADA', 'ANULADA'));
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'compra_estado_pago_valido') THEN
-    ALTER TABLE "compra" ADD CONSTRAINT "compra_estado_pago_valido"
-      CHECK ("estado_pago" IN ('PENDIENTE', 'PARCIAL', 'PAGADA'));
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'compra_estado_devolucion_valido') THEN
-    ALTER TABLE "compra" ADD CONSTRAINT "compra_estado_devolucion_valido"
-      CHECK ("estado_devolucion" IN ('SIN_DEVOLUCION', 'DEVOLUCION_PARCIAL', 'DEVOLUCION_TOTAL'));
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'cuenta_pagar_estado_valido') THEN
-    ALTER TABLE "cuenta_pagar" ADD CONSTRAINT "cuenta_pagar_estado_valido"
-      CHECK ("estado" IN ('PENDIENTE', 'PARCIAL', 'PAGADA', 'VENCIDA', 'ANULADA'));
-  END IF;
-
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'venta_tipo_pago_valido') THEN
     ALTER TABLE "venta" ADD CONSTRAINT "venta_tipo_pago_valido"
       CHECK ("tipo_pago" IN ('CONTADO', 'CREDITO', 'MIXTO'));
   END IF;
 
+  -- Las ventas se registran de un solo paso (nacen CONFIRMADA), ya no existe BORRADOR.
+  -- ANULADA queda reservada para una futura funcionalidad de anulación.
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'venta_estado_valido') THEN
     ALTER TABLE "venta" ADD CONSTRAINT "venta_estado_valido"
-      CHECK ("estado" IN ('BORRADOR', 'CONFIRMADA', 'ANULADA'));
+      CHECK ("estado" IN ('CONFIRMADA', 'ANULADA'));
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'venta_estado_pago_valido') THEN
@@ -75,11 +48,6 @@ BEGIN
       CHECK ("estado" IN ('PENDIENTE', 'PARCIAL', 'PAGADA', 'VENCIDA', 'ANULADA'));
   END IF;
 
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'devolucion_compra_estado_valido') THEN
-    ALTER TABLE "devolucion_compra" ADD CONSTRAINT "devolucion_compra_estado_valido"
-      CHECK ("estado" IN ('BORRADOR', 'CONFIRMADA', 'ANULADA'));
-  END IF;
-
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'devolucion_venta_estado_valido') THEN
     ALTER TABLE "devolucion_venta" ADD CONSTRAINT "devolucion_venta_estado_valido"
       CHECK ("estado" IN ('BORRADOR', 'CONFIRMADA', 'ANULADA'));
@@ -87,11 +55,6 @@ BEGIN
 
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'saldo_favor_cliente_valido') THEN
     ALTER TABLE "saldo_favor_cliente" ADD CONSTRAINT "saldo_favor_cliente_valido"
-      CHECK ("monto_original" > 0 AND "monto_disponible" >= 0 AND "monto_disponible" <= "monto_original" AND "estado" IN ('DISPONIBLE', 'APLICADO', 'REEMBOLSADO', 'ANULADO'));
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'saldo_favor_proveedor_valido') THEN
-    ALTER TABLE "saldo_favor_proveedor" ADD CONSTRAINT "saldo_favor_proveedor_valido"
       CHECK ("monto_original" > 0 AND "monto_disponible" >= 0 AND "monto_disponible" <= "monto_original" AND "estado" IN ('DISPONIBLE', 'APLICADO', 'REEMBOLSADO', 'ANULADO'));
   END IF;
 
@@ -105,6 +68,8 @@ BEGIN
       CHECK ("tipo_movimiento" IN ('ENTRADA', 'SALIDA', 'TRANSFERENCIA', 'AJUSTE', 'CAMBIO_ESTADO', 'PRODUCCION', 'MERMA'));
   END IF;
 
+  -- COMPRA/DEVOLUCION_COMPRA se conservan como valores válidos porque el kardex histórico
+  -- generado por el módulo de Compras (ya eliminado) sigue teniendo filas con esos valores.
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'movimiento_operacion_valida') THEN
     ALTER TABLE "movimiento_inventario" ADD CONSTRAINT "movimiento_operacion_valida"
       CHECK ("tipo_operacion" IN (
@@ -141,7 +106,7 @@ BEGIN
 
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'orden_produccion_cantidades_validas') THEN
     ALTER TABLE "orden_produccion" ADD CONSTRAINT "orden_produccion_cantidades_validas"
-      CHECK ("cantidad_planificada" > 0 AND "cantidad_producida" >= 0 AND "merma" >= 0);
+      CHECK ("cantidad_planificada" > 0 AND "cantidad_producida" >= 0);
   END IF;
 END
 $$;

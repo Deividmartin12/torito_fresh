@@ -55,7 +55,6 @@ export default function AlmacenesPage() {
       await api('/operations/warehouses', {
         method: 'POST',
         body: JSON.stringify({
-          codigo: values.get('codigo'),
           nombre: values.get('nombre'),
           tipo: values.get('tipo'),
           direccion: values.get('direccion'),
@@ -79,8 +78,8 @@ export default function AlmacenesPage() {
         <button
           className="round-add"
           onClick={() => abrir()}
-          title="Agregar almacen"
-          aria-label="Agregar almacen"
+          title="Agregar almacén"
+          aria-label="Agregar almacén"
         >
           <Plus size={20} />
         </button>
@@ -91,7 +90,7 @@ export default function AlmacenesPage() {
           <input
             value={buscar}
             onChange={(event) => setBuscar(event.target.value)}
-            placeholder="Buscar por codigo, nombre o responsable"
+            placeholder="Buscar por código, nombre o responsable"
           />
         </label>
       </div>
@@ -99,9 +98,9 @@ export default function AlmacenesPage() {
         <table>
           <thead>
             <tr>
-              <th>Almacen</th>
+              <th>Almacén</th>
               <th>Tipo</th>
-              <th>Direccion</th>
+              <th>Dirección</th>
               <th>Responsable</th>
               <th>Productos</th>
               <th>Unidades</th>
@@ -129,7 +128,7 @@ export default function AlmacenesPage() {
                     <button
                       className="icon-soft"
                       onClick={() => abrir(item)}
-                      title="Editar almacen"
+                      title="Editar almacén"
                     >
                       <Pencil size={16} />
                     </button>
@@ -144,15 +143,20 @@ export default function AlmacenesPage() {
         </table>
       </div>
       {modal ? (
-        <div className="modal-backdrop">
+        <div
+          className="modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !guardando) setModal(false);
+          }}
+        >
           <section
             className="crud-modal"
             role="dialog"
             aria-modal="true"
-            aria-label={editando ? 'Editar almacen' : 'Agregar almacen'}
+            aria-label={editando ? 'Editar almacén' : 'Agregar almacén'}
           >
             <div className="modal-top">
-              <h2>{editando ? 'Editar almacen' : 'Agregar almacen'}</h2>
+              <h2>{editando ? 'Editar almacén' : 'Agregar almacén'}</h2>
               <button
                 className="modal-close"
                 onClick={() => setModal(false)}
@@ -162,10 +166,12 @@ export default function AlmacenesPage() {
               </button>
             </div>
             <form className="modal-form" onSubmit={guardar}>
-              <label>
-                <span>Codigo</span>
-                <input name="codigo" defaultValue={editando?.codigo} required />
-              </label>
+              {editando ? (
+                <label>
+                  <span>Código</span>
+                  <input value={editando.codigo} disabled />
+                </label>
+              ) : null}
               <label>
                 <span>Nombre</span>
                 <input name="nombre" defaultValue={editando?.nombre} required />
@@ -183,7 +189,7 @@ export default function AlmacenesPage() {
                 </select>
               </label>
               <label className="field-wide">
-                <span>Direccion</span>
+                <span>Dirección</span>
                 <input name="direccion" defaultValue={editando?.direccion} />
               </label>
               <div className="modal-actions">
@@ -195,7 +201,7 @@ export default function AlmacenesPage() {
                     ? 'Registrando...'
                     : editando
                       ? 'Guardar cambios'
-                      : 'Registrar almacen'}
+                      : 'Registrar almacén'}
                 </button>
               </div>
             </form>

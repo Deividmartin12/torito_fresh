@@ -1,59 +1,38 @@
 'use client';
 
-import { CalendarClock, Pencil, Plus, Search, X } from 'lucide-react';
-import { FormEvent, useMemo, useState } from 'react';
+import { CalendarClock, Search } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { Pagination } from '../../../components/Pagination';
+import { api } from '../../../lib/api';
 
 type Lote = {
-  id: number;
+  id: string;
   codigo: string;
   producto: string;
-  produccion: string;
-  vencimiento: string;
+  fechaProduccion: string | null;
+  fechaVencimiento: string | null;
   costo: number;
   disponible: number;
   estado: 'ACTIVO' | 'VENCIDO' | 'AGOTADO' | 'BLOQUEADO';
 };
-const datos: Lote[] = [
-  {
-    id: 1,
-    codigo: 'L-260710',
-    producto: 'Agua purificada 20 L',
-    produccion: '10/07/2026',
-    vencimiento: '10/10/2026',
-    costo: 4.8,
-    disponible: 100,
-    estado: 'ACTIVO',
-  },
-  {
-    id: 2,
-    codigo: 'L-260705',
-    producto: 'Agua purificada 20 L',
-    produccion: '05/07/2026',
-    vencimiento: '05/10/2026',
-    costo: 4.7,
-    disponible: 25,
-    estado: 'ACTIVO',
-  },
-  {
-    id: 3,
-    codigo: 'L-260401',
-    producto: 'Agua purificada 10 L',
-    produccion: '01/04/2026',
-    vencimiento: '01/07/2026',
-    costo: 3.1,
-    disponible: 6,
-    estado: 'VENCIDO',
-  },
-];
+
+const formatDate = (value: string | null) =>
+  value ? new Date(value).toLocaleDateString('es-PE') : '—';
 
 export default function LotesPage() {
+  const [datos, setDatos] = useState<Lote[]>([]);
   const [buscar, setBuscar] = useState('');
   const [estado, setEstado] = useState('Todos');
   const [pagina, setPagina] = useState(1);
   const [pageSize, setPageSize] = useState(10);
-  const [modal, setModal] = useState(false);
-  const [editando, setEditando] = useState<Lote | null>(null);
+  useEffect(() => {
+    api<Lote[]>('/operations/lots')
+      .then(setDatos)
+      .catch((cause) =>
+        toast.error(cause instanceof Error ? cause.message : 'No se pudieron cargar los lotes'),
+      );
+  }, []);
   const lotes = useMemo(
     () =>
       datos.filter(
@@ -61,17 +40,9 @@ export default function LotesPage() {
           (estado === 'Todos' || item.estado === estado) &&
           `${item.codigo} ${item.producto}`.toLowerCase().includes(buscar.toLowerCase()),
       ),
-    [buscar, estado],
+    [buscar, datos, estado],
   );
   const paginados = lotes.slice((pagina - 1) * pageSize, pagina * pageSize);
-  function abrir(item?: Lote) {
-    setEditando(item ?? null);
-    setModal(true);
-  }
-  function guardar(event: FormEvent) {
-    event.preventDefault();
-    setModal(false);
-  }
   return (
     <div className="module-page">
       <div className="module-head">
@@ -79,14 +50,6 @@ export default function LotesPage() {
           <h1>Lotes</h1>
           <span>{datos.length} lotes</span>
         </div>
-        <button
-          className="round-add"
-          onClick={() => abrir()}
-          title="Agregar lote"
-          aria-label="Agregar lote"
-        >
-          <Plus size={20} />
-        </button>
       </div>
       <div className="module-tools">
         <label className="pill-search">
@@ -112,6 +75,7 @@ export default function LotesPage() {
           <option>ACTIVO</option>
           <option>VENCIDO</option>
           <option>AGOTADO</option>
+          <option>BLOQUEADO</option>
         </select>
       </div>
       <div className="glass-table">
@@ -120,46 +84,46 @@ export default function LotesPage() {
             <tr>
               <th>Lote</th>
               <th>Producto</th>
-              <th>Produccion</th>
+              <th>Producción</th>
               <th>Vencimiento</th>
               <th>Costo unitario</th>
               <th>Disponible</th>
               <th>Estado</th>
-              <th>Acciones</th>
             </tr>
           </thead>
           <tbody>
-            {paginados.map((item) => (
-              <tr key={item.id}>
-                <td>
-                  <strong>{item.codigo}</strong>
-                </td>
-                <td>{item.producto}</td>
-                <td>{item.produccion}</td>
-                <td>{item.vencimiento}</td>
-                <td>S/ {item.costo.toFixed(4)}</td>
-                <td>{item.disponible}</td>
-                <td>
-                  <span
-                    className={
-                      item.estado === 'ACTIVO' ? 'status status-green' : 'status status-red'
-                    }
-                  >
-                    {item.estado}
-                  </span>
-                </td>
-                <td>
-                  <div className="row-actions">
-                    <button className="icon-soft" onClick={() => abrir(item)} title="Editar lote">
-                      <Pencil size={16} />
-                    </button>
-                    <button className="icon-soft" title="Ver vencimiento">
-                      <CalendarClock size={16} />
-                    </button>
+            {paginados.length ? (
+              paginados.map((item) => (
+                <tr key={item.id}>
+                  <td>
+                    <strong>{item.codigo}</strong>
+                  </td>
+                  <td>{item.producto}</td>
+                  <td>{formatDate(item.fechaProduccion)}</td>
+                  <td>{formatDate(item.fechaVencimiento)}</td>
+                  <td>S/ {item.costo.toFixed(4)}</td>
+                  <td>{item.disponible}</td>
+                  <td>
+                    <span
+                      className={
+                        item.estado === 'ACTIVO' ? 'status status-green' : 'status status-red'
+                      }
+                    >
+                      {item.estado}
+                    </span>
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={7}>
+                  <div className="table-empty">
+                    <CalendarClock size={22} />
+                    <span>Aún no hay lotes. Se generan automáticamente al registrar producción.</span>
                   </div>
                 </td>
               </tr>
-            ))}
+            )}
           </tbody>
         </table>
       </div>
@@ -174,69 +138,6 @@ export default function LotesPage() {
           setPagina(1);
         }}
       />
-      {modal ? (
-        <div className="modal-backdrop">
-          <section
-            className="crud-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label={editando ? 'Editar lote' : 'Agregar lote'}
-          >
-            <div className="modal-top">
-              <h2>{editando ? 'Editar lote' : 'Agregar lote'}</h2>
-              <button
-                className="modal-close"
-                onClick={() => setModal(false)}
-                aria-label="Cerrar modal"
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <form className="modal-form" onSubmit={guardar}>
-              <label>
-                <span>Producto</span>
-                <select defaultValue={editando?.producto}>
-                  <option>Agua purificada 20 L</option>
-                  <option>Agua purificada 10 L</option>
-                </select>
-              </label>
-              <label>
-                <span>Codigo de lote</span>
-                <input defaultValue={editando?.codigo} required />
-              </label>
-              <label>
-                <span>Fecha de produccion</span>
-                <input type="date" required />
-              </label>
-              <label>
-                <span>Fecha de vencimiento</span>
-                <input type="date" required />
-              </label>
-              <label>
-                <span>Costo unitario</span>
-                <input type="number" step="0.0001" defaultValue={editando?.costo} required />
-              </label>
-              <label>
-                <span>Estado</span>
-                <select defaultValue={editando?.estado ?? 'ACTIVO'}>
-                  <option>ACTIVO</option>
-                  <option>VENCIDO</option>
-                  <option>AGOTADO</option>
-                  <option>BLOQUEADO</option>
-                </select>
-              </label>
-              <div className="modal-actions">
-                <button className="btn-secondary" type="button" onClick={() => setModal(false)}>
-                  Cancelar
-                </button>
-                <button className="btn-primary">
-                  {editando ? 'Guardar cambios' : 'Registrar lote'}
-                </button>
-              </div>
-            </form>
-          </section>
-        </div>
-      ) : null}
     </div>
   );
 }

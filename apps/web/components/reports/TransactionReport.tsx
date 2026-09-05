@@ -8,8 +8,9 @@ import {
   fillDailySeries,
   fillMonthlySeries,
   getBusinessAnalytics,
+  previousPeriodRange,
 } from '../../lib/analytics';
-import { money } from '../../lib/format';
+import { moneda, variacion } from '../../lib/format';
 import { PeriodFilter } from '../PeriodFilter';
 import {
   ComparisonBarChart,
@@ -32,17 +33,27 @@ const csvCell = (value: string | number) => `"${String(value).replaceAll('"', '"
 export function TransactionReport({ kind }: { kind: ReportKind }) {
   const sales = kind === 'sales';
   const [analytics, setAnalytics] = useState<BusinessAnalytics | null>(null);
+  const [previous, setPrevious] = useState<BusinessAnalytics | null>(null);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Wait for PeriodFilter to publish its range before the first request so the report
-    // does not briefly show the backend's 12-month default window.
+    // Se espera a que PeriodFilter publique su rango antes del primer pedido, para que el
+    // reporte no muestre por un instante la ventana por defecto de 12 meses del backend.
     if (!from || !to) return;
     setLoading(true);
-    getBusinessAnalytics(from, to)
-      .then(setAnalytics)
+    // El período comparativo se trae junto al actual para que cada KPI muestre su
+    // variación (regla de la skill: nunca un valor sin contexto).
+    const priorRange = previousPeriodRange(from, to);
+    Promise.all([
+      getBusinessAnalytics(from, to),
+      getBusinessAnalytics(priorRange.from, priorRange.to),
+    ])
+      .then(([current, prior]) => {
+        setAnalytics(current);
+        setPrevious(prior);
+      })
       .catch((cause) =>
         toast.error(
           cause instanceof Error ? cause.message : 'No se pudieron calcular los indicadores',
@@ -52,6 +63,11 @@ export function TransactionReport({ kind }: { kind: ReportKind }) {
   }, [from, to]);
 
   const summary = analytics?.summary;
+  const priorSummary = previous?.summary;
+  // undefined mientras el período comparativo no ha llegado, para que la tarjeta no
+  // muestre una variación calculada con datos a medio cargar.
+  const change = (current?: number, prior?: number) =>
+    summary && priorSummary ? variacion(current ?? 0, prior ?? 0) : undefined;
   const trend = (analytics?.daily ?? []).map((row) => ({
     date: row.key,
     total: sales ? row.sales : row.expenses,
@@ -61,7 +77,7 @@ export function TransactionReport({ kind }: { kind: ReportKind }) {
   }));
   const productRows = (analytics?.topProducts ?? []).map((row) => ({
     product: { id: row.id, name: row.name },
-    quantity: row.quantity,
+    cantidad: row.cantidad,
     total: row.revenue,
   }));
   const spanDays =
@@ -119,27 +135,43 @@ export function TransactionReport({ kind }: { kind: ReportKind }) {
       <section className="report-metrics">
         <ReportMetric
           label={sales ? 'Ventas netas' : 'Gastos registrados'}
-          value={money(sales ? summary?.sales : summary?.expenses)}
+          value={moneda(sales ? summary?.sales : summary?.expenses)}
           detail={sales ? 'Operaciones confirmadas del período' : 'Egresos del período'}
+          change={change(
+            sales ? summary?.sales : summary?.expenses,
+            sales ? priorSummary?.sales : priorSummary?.expenses,
+          )}
         />
         <ReportMetric
           label={sales ? 'Margen bruto' : 'Ventas del período'}
-          value={money(sales ? summary?.margin : summary?.sales)}
+          value={moneda(sales ? summary?.margin : summary?.sales)}
           detail={
             sales
               ? `Ingresos menos costo de inventario · ${(summary?.marginRate ?? 0).toFixed(1)}%`
               : 'Base de comparación'
           }
+          change={change(
+            sales ? summary?.margin : summary?.sales,
+            sales ? priorSummary?.margin : priorSummary?.sales,
+          )}
         />
         <ReportMetric
           label={sales ? 'Pedidos / ventas' : 'Registros de gasto'}
           value={sales ? (summary?.orders ?? 0) : (summary?.expenseCount ?? 0)}
           detail={sales ? 'Operaciones confirmadas' : 'Gastos registrados'}
+          change={change(
+            sales ? summary?.orders : summary?.expenseCount,
+            sales ? priorSummary?.orders : priorSummary?.expenseCount,
+          )}
         />
         <ReportMetric
           label={sales ? 'Ticket promedio' : 'Gasto promedio'}
-          value={money(sales ? summary?.ticket : summary?.averageExpense)}
+          value={moneda(sales ? summary?.ticket : summary?.averageExpense)}
           detail={sales ? 'Venta promedio por operación' : 'Promedio por registro'}
+          change={change(
+            sales ? summary?.ticket : summary?.averageExpense,
+            sales ? priorSummary?.ticket : priorSummary?.averageExpense,
+          )}
         />
       </section>
       <PeriodFilter onChange={changePeriod} />
@@ -190,7 +222,7 @@ export function TransactionReport({ kind }: { kind: ReportKind }) {
                   id: row.id,
                   name: row.name,
                   value: row.margin,
-                  count: Math.round(row.quantity),
+                  count: Math.round(row.cantidad),
                 }))
                 .sort((a, b) => b.value - a.value)}
               title="Margen por producto"

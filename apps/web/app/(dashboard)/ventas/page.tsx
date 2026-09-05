@@ -1,17 +1,16 @@
 'use client';
 
-import { Check, Eye, Plus, Printer, Search, ShoppingCart } from 'lucide-react';
+import { Check, Eye, Pencil, Plus, Printer, Search, ShoppingCart } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { OperationDetailDialog } from '../../../components/operations/OperationDetailDialog';
 import { RegisterCollectionModal } from '../../../components/operations/RegisterCollectionModal';
 import { SaleReceipt } from '../../../components/operations/SaleReceipt';
 import { Pagination } from '../../../components/Pagination';
-import { PeriodFilter } from '../../../components/PeriodFilter';
-import { money } from '../../../lib/format';
+import { moneda } from '../../../lib/format';
 import {
-  confirmSale,
   getOperationalAccounts,
   getOperationalPaymentMethods,
   getSales,
@@ -22,17 +21,22 @@ import {
 import { puedeEditar } from '../../../lib/permissions';
 import { useRole } from '../../../lib/useCurrentUser';
 
+/** Una venta se puede editar solo si no tiene pagos ni devoluciones registradas (ver
+ * `OperationsService.updateSale`, que rechaza la edición en esos casos para no descuadrar
+ * la cuenta por cobrar). */
+function esEditable(venta: Sale) {
+  return venta.pagado === 0 && venta.estadoDevolucion === 'SIN_DEVOLUCION';
+}
+
 export default function VentasPage() {
+  const router = useRouter();
   const [ventas, setVentas] = useState<Sale[]>([]);
   const [buscar, setBuscar] = useState('');
   const [pago, setPago] = useState('Todos');
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
   const [pagina, setPagina] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [detalle, setDetalle] = useState<Sale | null>(null);
   const [boleta, setBoleta] = useState<Sale | null>(null);
-  const [procesandoId, setProcesandoId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [receivables, setReceivables] = useState<OperationalAccount[]>([]);
   const [methods, setMethods] = useState<OperationalPaymentMethod[]>([]);
@@ -64,7 +68,7 @@ export default function VentasPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setVentas(await getSales(from || undefined, to || undefined));
+      setVentas(await getSales());
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : 'No se pudieron cargar las ventas', {
         action: { label: 'Reintentar', onClick: () => void load() },
@@ -72,14 +76,14 @@ export default function VentasPage() {
     } finally {
       setLoading(false);
     }
-  }, [from, to]);
+  }, []);
 
   useEffect(() => {
-    if (from && to) void load();
-  }, [from, load, to]);
+    void load();
+  }, [load]);
 
-  // The date window is applied server-side (getSales(from, to)); here we only refine by
-  // payment type and text search.
+  // Se cargan todas las ventas (más nuevas primero, orden del servidor); aquí solo se
+  // refina por tipo de pago y texto.
   const filtradas = useMemo(
     () =>
       ventas.filter(
@@ -99,25 +103,6 @@ export default function VentasPage() {
     action();
     setPagina(1);
   }
-  const changePeriod = useCallback((start: string, end: string) => {
-    setFrom(start);
-    setTo(end);
-    setPagina(1);
-  }, []);
-  async function confirmar(id: string) {
-    setProcesandoId(id);
-    try {
-      const updated = await confirmSale(id);
-      setVentas((current) => current.map((item) => (item.id === id ? updated : item)));
-      toast.success(`Venta confirmada · ${updated.codigo}`);
-    } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : 'No se pudo confirmar la venta', {
-        action: { label: 'Reintentar', onClick: () => void load() },
-      });
-    } finally {
-      setProcesandoId(null);
-    }
-  }
 
   return (
     <div className="module-page operations-list-page">
@@ -134,16 +119,16 @@ export default function VentasPage() {
       <div className="summary-row">
         <div className="summary-glass">
           <span>Ventas confirmadas</span>
-          <strong>{money(confirmed.reduce((sum, item) => sum + item.totalNeto, 0))}</strong>
+          <strong>{moneda(confirmed.reduce((sum, item) => sum + item.totalNeto, 0))}</strong>
         </div>
         <div className="summary-glass">
           <span>Cobrado</span>
-          <strong>{money(confirmed.reduce((sum, item) => sum + item.pagado, 0))}</strong>
+          <strong>{moneda(confirmed.reduce((sum, item) => sum + item.pagado, 0))}</strong>
         </div>
         {editable ? (
           <Link className="summary-glass summary-glass-link" href="/cobranzas">
             <span>Por cobrar (total)</span>
-            <strong>{money(porCobrarTotal)}</strong>
+            <strong>{moneda(porCobrarTotal)}</strong>
             <small>
               {vencidasCount > 0 ? `${vencidasCount} vencidas · ir a Cobranzas` : 'Ir a Cobranzas'}
             </small>
@@ -161,7 +146,7 @@ export default function VentasPage() {
           <input
             value={buscar}
             onChange={(event) => changeFilters(() => setBuscar(event.target.value))}
-            placeholder="Buscar venta, cliente o almacen"
+            placeholder="Buscar venta, cliente o almacén"
           />
         </label>
         <label className="filter-field">
@@ -178,7 +163,6 @@ export default function VentasPage() {
           </select>
         </label>
       </div>
-      <PeriodFilter onChange={changePeriod} />
 
       {loading ? (
         <div className="table-loading" role="status">
@@ -187,7 +171,7 @@ export default function VentasPage() {
       ) : ventas.length === 0 ? (
         <div className="empty-state">
           <ShoppingCart size={34} />
-          <h2>Aun no hay ventas</h2>
+          <h2>Aún no hay ventas</h2>
           <p>Registra la primera venta para comenzar a controlar tus ventas e inventario.</p>
           <Link className="btn-primary" href="/ventas/nueva">
             <Plus size={17} /> Registrar venta
@@ -229,11 +213,11 @@ export default function VentasPage() {
                         >
                           {item.estadoPago}
                         </span>
-                        <small>Saldo {money(item.saldo)}</small>
+                        <small>Saldo {moneda(item.saldo)}</small>
                       </td>
                       <td>
-                        <strong>{money(item.total)}</strong>
-                        <small>Neto {money(item.totalNeto)}</small>
+                        <strong>{moneda(item.total)}</strong>
+                        <small>Neto {moneda(item.totalNeto)}</small>
                       </td>
                       <td>
                         {item.kardexId ? (
@@ -270,26 +254,24 @@ export default function VentasPage() {
                           >
                             <Eye size={16} />
                           </button>
-                          {item.estado === 'CONFIRMADA' ? (
+                          <button
+                            type="button"
+                            className="icon-soft"
+                            onClick={() => setBoleta(item)}
+                            title="Imprimir venta"
+                            aria-label={`Imprimir ${item.codigo}`}
+                          >
+                            <Printer size={16} />
+                          </button>
+                          {editable && esEditable(item) ? (
                             <button
                               type="button"
                               className="icon-soft"
-                              onClick={() => setBoleta(item)}
-                              title="Imprimir venta"
-                              aria-label={`Imprimir ${item.codigo}`}
+                              onClick={() => router.push(`/ventas/${item.id}/editar`)}
+                              title="Editar venta"
+                              aria-label={`Editar ${item.codigo}`}
                             >
-                              <Printer size={16} />
-                            </button>
-                          ) : null}
-                          {editable && item.estado === 'BORRADOR' ? (
-                            <button
-                              type="button"
-                              className="confirm-soft"
-                              disabled={procesandoId === item.id}
-                              onClick={() => void confirmar(item.id)}
-                            >
-                              <Check size={15} />{' '}
-                              {procesandoId === item.id ? 'Confirmando...' : 'Confirmar'}
+                              <Pencil size={16} />
                             </button>
                           ) : null}
                         </div>
@@ -337,7 +319,7 @@ export default function VentasPage() {
           title={detalle.codigo}
           partyLabel="Cliente"
           party={detalle.cliente}
-          warehouseLabel="Almacen origen"
+          warehouseLabel="Almacén origen"
           warehouse={detalle.almacen}
           status={detalle.estado}
           total={detalle.total}
@@ -351,6 +333,11 @@ export default function VentasPage() {
           kardexRef={detalle.kardexRef}
           items={detalle.items}
           onClose={() => setDetalle(null)}
+          onEdit={
+            editable && esEditable(detalle)
+              ? () => router.push(`/ventas/${detalle.id}/editar`)
+              : undefined
+          }
           onRegisterCollection={
             editable && detalle.saldo > 0 && detalle.cuentaCobrarId
               ? () => {

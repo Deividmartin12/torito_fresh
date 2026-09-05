@@ -1,12 +1,11 @@
 'use client';
 
-import { Check, Factory, Plus, Search, Trash2, X } from 'lucide-react';
+import { Factory, Plus, Search, Trash2, X } from 'lucide-react';
 import Link from 'next/link';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { SearchableSelect } from '../../../components/SearchableSelect';
 import {
-  completeProductionOrder,
   createProductionOrder,
   getProductionCatalogs,
   getProductionOrders,
@@ -16,28 +15,26 @@ import {
 
 const emptyCatalogs: ProductionCatalogs = { productosTerminados: [], insumos: [], almacenes: [] };
 const today = () => new Date().toISOString().slice(0, 10);
-const quantity = (value: number) =>
+const cantidad = (value: number) =>
   new Intl.NumberFormat('es-PE', { maximumFractionDigits: 3 }).format(value);
-const money = (value: number) =>
+const moneda = (value: number) =>
   new Intl.NumberFormat('es-PE', { style: 'currency', currency: 'PEN' }).format(value);
+const emptyForm = () => ({
+  productoId: '',
+  almacenProductoTerminadoId: '',
+  cantidadPlanificada: '',
+  fechaPlanificada: today(),
+  fechaVencimiento: '',
+});
 
 export default function ProductionPage() {
   const [catalogs, setCatalogs] = useState(emptyCatalogs);
   const [orders, setOrders] = useState<ProductionOrder[]>([]);
   const [formOpen, setFormOpen] = useState(false);
-  const [completeOrder, setCompleteOrder] = useState<ProductionOrder | null>(null);
-  const [actual, setActual] = useState(0);
-  const [waste, setWaste] = useState(0);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
-  const [form, setForm] = useState({
-    productoId: '',
-    almacenProductoTerminadoId: '',
-    cantidadPlanificada: 0,
-    fechaPlanificada: today(),
-    fechaVencimiento: '',
-  });
+  const [form, setForm] = useState(emptyForm);
   const [inputs, setInputs] = useState<{ productoId: string; cantidad: number }[]>([]);
 
   async function load() {
@@ -72,14 +69,11 @@ export default function ProductionPage() {
       ),
     [orders, search],
   );
-  const completed = orders.filter((item) => item.estado === 'COMPLETADA');
-  const plannedUnits = orders
-    .filter((item) => item.estado === 'BORRADOR')
-    .reduce((sum, item) => sum + item.cantidadPlanificada, 0);
-  const producedUnits = completed.reduce((sum, item) => sum + item.cantidadProducida, 0);
-  const totalWaste = completed.reduce((sum, item) => sum + item.merma, 0);
+  const producedUnits = orders.reduce((sum, item) => sum + item.cantidadProducida, 0);
+  const totalCost = orders.reduce((sum, item) => sum + item.costoTotal, 0);
   function closeForm() {
     setFormOpen(false);
+    setForm(emptyForm());
     setInputs([]);
   }
   function updateInput(index: number, patch: Partial<{ productoId: string; cantidad: number }>) {
@@ -95,30 +89,17 @@ export default function ProductionPage() {
     }
     setSaving(true);
     try {
-      await createProductionOrder({
+      const done = await createProductionOrder({
         ...form,
+        cantidadPlanificada: Number(form.cantidadPlanificada),
         fechaVencimiento: form.fechaVencimiento || undefined,
         insumos: inputs,
       });
       closeForm();
-      toast.success('Producción registrada.');
+      toast.success(`Producción registrada${done.lote ? ` · Lote ${done.lote}` : ''}`);
       await load();
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : 'No se pudo registrar la producción');
-    } finally {
-      setSaving(false);
-    }
-  }
-  async function complete() {
-    if (!completeOrder) return;
-    setSaving(true);
-    try {
-      const done = await completeProductionOrder(completeOrder.id, actual, waste);
-      setCompleteOrder(null);
-      toast.success(`Producción completada${done.lote ? ` · Lote ${done.lote}` : ''}`);
-      await load();
-    } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : 'No se pudo completar la producción');
     } finally {
       setSaving(false);
     }
@@ -148,23 +129,17 @@ export default function ProductionPage() {
       </div>
       <div className="summary-row">
         <div className="summary-glass">
-          <span>Registros pendientes</span>
-          <strong>{orders.filter((item) => item.estado === 'BORRADOR').length}</strong>
-          <small>{quantity(plannedUnits)} unidades por completar</small>
+          <span>Órdenes registradas</span>
+          <strong>{orders.length}</strong>
         </div>
         <div className="summary-glass">
           <span>Producido</span>
-          <strong>{quantity(producedUnits)}</strong>
+          <strong>{cantidad(producedUnits)}</strong>
           <small>Unidades terminadas</small>
         </div>
         <div className="summary-glass">
-          <span>Merma registrada</span>
-          <strong>{quantity(totalWaste)}</strong>
-          <small>Unidades no aprovechadas</small>
-        </div>
-        <div className="summary-glass">
           <span>Costo producido</span>
-          <strong>{money(completed.reduce((sum, item) => sum + item.costoTotal, 0))}</strong>
+          <strong>{moneda(totalCost)}</strong>
           <small>Consumo valorizado</small>
         </div>
       </div>
@@ -184,12 +159,10 @@ export default function ProductionPage() {
             <tr>
               <th>Fecha</th>
               <th>Producto terminado</th>
-              <th>Plan</th>
-              <th>Resultado</th>
+              <th>Cantidad producida</th>
               <th>Insumos</th>
               <th>Almacén destino</th>
-              <th>Estado</th>
-              <th>Acciones</th>
+              <th>Kardex</th>
             </tr>
           </thead>
           <tbody>
@@ -199,15 +172,9 @@ export default function ProductionPage() {
                   <td>{new Date(item.fechaPlanificada).toLocaleDateString('es-PE')}</td>
                   <td>
                     <strong>{item.producto}</strong>
-                    <small>
-                      {item.lote ? `Lote ${item.lote}` : 'Lote automático al completar'}
-                    </small>
+                    <small>{item.lote ? `Lote ${item.lote}` : 'Sin lote'}</small>
                   </td>
-                  <td>{quantity(item.cantidadPlanificada)} un.</td>
-                  <td>
-                    <strong>{quantity(item.cantidadProducida)} producidas</strong>
-                    <small>{quantity(item.merma)} de merma</small>
-                  </td>
+                  <td>{cantidad(item.cantidadProducida)} un.</td>
                   <td>
                     <strong>{item.insumos.length} insumos</strong>
                     <small>
@@ -218,40 +185,22 @@ export default function ProductionPage() {
                   </td>
                   <td>{item.almacenProductoTerminado}</td>
                   <td>
-                    <span
-                      className={
-                        item.estado === 'COMPLETADA' ? 'status status-green' : 'status status-amber'
-                      }
-                    >
-                      {item.estado}
-                    </span>
-                  </td>
-                  <td>
-                    {item.estado === 'BORRADOR' ? (
-                      <button
-                        className="confirm-soft"
-                        onClick={() => {
-                          setCompleteOrder(item);
-                          setActual(item.cantidadPlanificada);
-                          setWaste(0);
-                        }}
-                      >
-                        <Check size={15} /> Completar
-                      </button>
-                    ) : item.kardexId ? (
+                    {item.kardexId ? (
                       <Link
                         className="kardex-link"
                         href={`/movimientos?ref=${encodeURIComponent(item.kardexRef ?? '')}`}
                       >
                         {item.kardexRef ?? 'Ver kardex'}
                       </Link>
-                    ) : null}
+                    ) : (
+                      '—'
+                    )}
                   </td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={8}>
+                <td colSpan={6}>
                   <div className="table-empty">No hay producciones registradas.</div>
                 </td>
               </tr>
@@ -261,7 +210,12 @@ export default function ProductionPage() {
       </div>
 
       {formOpen ? (
-        <div className="modal-backdrop">
+        <div
+          className="modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !saving) closeForm();
+          }}
+        >
           <section
             className="crud-modal production-order-modal"
             role="dialog"
@@ -303,7 +257,7 @@ export default function ProductionPage() {
                   step="0.001"
                   value={form.cantidadPlanificada}
                   onChange={(event) =>
-                    setForm({ ...form, cantidadPlanificada: Number(event.target.value) })
+                    setForm({ ...form, cantidadPlanificada: event.target.value })
                   }
                   required
                 />
@@ -363,7 +317,7 @@ export default function ProductionPage() {
                       onClick={() =>
                         setInputs((current) => [
                           ...current,
-                          { productoId: '', cantidad: form.cantidadPlanificada },
+                          { productoId: '', cantidad: Number(form.cantidadPlanificada) || 0 },
                         ])
                       }
                     >
@@ -426,63 +380,6 @@ export default function ProductionPage() {
                 </button>
               </div>
             </form>
-          </section>
-        </div>
-      ) : null}
-      {completeOrder ? (
-        <div className="modal-backdrop">
-          <section className="crud-modal production-complete-modal" role="dialog" aria-modal="true">
-            <div className="modal-top">
-              <div>
-                <h2>Completar producción</h2>
-                <small>Confirma la cantidad real y la merma.</small>
-              </div>
-              <button
-                className="modal-close"
-                onClick={() => setCompleteOrder(null)}
-                aria-label="Cerrar"
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <div className="modal-form">
-              <label>
-                <span>Cantidad producida</span>
-                <input
-                  type="number"
-                  min="0.001"
-                  max={completeOrder.cantidadPlanificada}
-                  step="0.001"
-                  value={actual}
-                  onChange={(event) => setActual(Number(event.target.value))}
-                />
-              </label>
-              <label>
-                <span>Merma</span>
-                <input
-                  type="number"
-                  min="0"
-                  max={completeOrder.cantidadPlanificada}
-                  step="0.001"
-                  value={waste}
-                  onChange={(event) => setWaste(Number(event.target.value))}
-                />
-              </label>
-              <div className="production-complete-note field-wide">
-                <strong>Al confirmar:</strong>
-                <span>
-                  se crearán {quantity(actual)} unidades terminadas y se registrará el Kardex.
-                </span>
-              </div>
-              <div className="modal-actions">
-                <button className="btn-secondary" onClick={() => setCompleteOrder(null)}>
-                  Cancelar
-                </button>
-                <button className="btn-primary" onClick={() => void complete()} disabled={saving}>
-                  <Check size={16} /> {saving ? 'Procesando...' : 'Confirmar producción'}
-                </button>
-              </div>
-            </div>
           </section>
         </div>
       ) : null}

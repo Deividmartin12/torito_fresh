@@ -15,7 +15,7 @@ export default function NuevaVentaPage() {
           <ArrowLeft size={16} /> Volver a ventas
         </Link>
       </div>
-      <OperationForm kind="sale" />
+      <OperationForm />
     </div>
   );
 }

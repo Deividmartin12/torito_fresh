@@ -1,4 +1,4 @@
-import { PrismaClient, Prisma, RoleName } from '@prisma/client';
+import { PrismaClient, RoleName } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
@@ -15,14 +15,6 @@ async function main() {
   );
 
   const roleByName = Object.fromEntries(roles.map((role) => [role.name, role]));
-
-  await Promise.all(
-    ['Servicios', 'Transporte', 'Alquiler', 'Personal', 'Mantenimiento', 'Otros'].map((nombre) =>
-      prisma.$executeRaw(
-        Prisma.sql`INSERT INTO categoria_gasto (nombre, created_at, updated_at) VALUES (${nombre}, NOW(), NOW()) ON CONFLICT (nombre) DO NOTHING`,
-      ),
-    ),
-  );
 
   // Usuarios de acceso. Se puede iniciar sesión con el nombre de usuario o con el correo.
   const usuarios = [
@@ -98,51 +90,6 @@ async function main() {
       },
     });
   }
-
-  await Promise.all(
-    ['Agua', 'Bidon', 'Dispensador', 'Accesorio', 'Insumo'].map((nombre) =>
-      prisma.tipoProducto.upsert({
-        where: { nombre },
-        update: { estado: true },
-        create: { nombre },
-      }),
-    ),
-  );
-
-  await Promise.all(
-    [
-      { nombre: 'EFECTIVO', requiereOperacion: false },
-      { nombre: 'YAPE', requiereOperacion: true },
-      { nombre: 'PLIN', requiereOperacion: true },
-      { nombre: 'TRANSFERENCIA', requiereOperacion: true },
-      { nombre: 'TARJETA', requiereOperacion: true },
-      { nombre: 'DEPOSITO', requiereOperacion: true },
-    ].map((metodo) =>
-      prisma.metodoPago.upsert({
-        where: { nombre: metodo.nombre },
-        update: { requiereOperacion: metodo.requiereOperacion, estado: true },
-        create: metodo,
-      }),
-    ),
-  );
-
-  await Promise.all(
-    [
-      { codigo: 'DISPONIBLE', nombre: 'Disponible', permiteVenta: true },
-      { codigo: 'RESERVADO', nombre: 'Reservado', permiteVenta: false },
-      { codigo: 'DANADO', nombre: 'Danado', permiteVenta: false },
-      { codigo: 'CUARENTENA', nombre: 'Cuarentena', permiteVenta: false },
-      { codigo: 'VENCIDO', nombre: 'Vencido', permiteVenta: false },
-      { codigo: 'VACIO', nombre: 'Vacio', permiteVenta: false },
-      { codigo: 'LLENO', nombre: 'Lleno', permiteVenta: true },
-    ].map((estado) =>
-      prisma.estadoInventario.upsert({
-        where: { codigo: estado.codigo },
-        update: { nombre: estado.nombre, permiteVenta: estado.permiteVenta, estado: true },
-        create: estado,
-      }),
-    ),
-  );
 }
 
 main()

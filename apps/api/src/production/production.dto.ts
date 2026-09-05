@@ -51,16 +51,3 @@ export class CreateProductionOrderDto {
   @Type(() => ProductionInputDto)
   insumos?: ProductionInputDto[];
 }
-
-export class CompleteProductionOrderDto {
-  @Type(() => Number)
-  @IsNumber()
-  @Min(0.001)
-  cantidadProducida: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  @Min(0)
-  merma?: number;
-}

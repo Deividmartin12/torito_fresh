@@ -111,7 +111,7 @@ export class TrabajadoresService {
 
   private handlePrismaError(error: unknown): never {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-      throw new ConflictException('Ya existe un trabajador con ese numero de documento');
+      throw new ConflictException('Ya existe un trabajador con ese número de documento');
     }
     throw error;
   }

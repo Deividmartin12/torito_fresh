@@ -1,7 +1,7 @@
 import { BarChart3, TrendingUp } from 'lucide-react';
 import { useId } from 'react';
 import { SalesPeriodRow, TopProductRow } from '../../lib/dashboard';
-import { money, shortDate } from '../../lib/format';
+import { moneda, fechaCorta } from '../../lib/format';
 
 export function SalesTrendChart({
   data,
@@ -106,7 +106,7 @@ export function SalesTrendChart({
                   r="4"
                 >
                   <title>
-                    {shortDate(row.date)}: {primaryLabel.toLowerCase()} {money(row.total)}
+                    {fechaCorta(row.date)}: {primaryLabel.toLowerCase()} {moneda(row.total)}
                   </title>
                 </circle>
                 {showSecondary ? (
@@ -117,7 +117,7 @@ export function SalesTrendChart({
                     r="3"
                   >
                     <title>
-                      {shortDate(row.date)}: {secondaryLabel.toLowerCase()} {money(row.paid)}
+                      {fechaCorta(row.date)}: {secondaryLabel.toLowerCase()} {moneda(row.paid)}
                     </title>
                   </circle>
                 ) : null}
@@ -136,7 +136,7 @@ export function SalesTrendChart({
           </svg>
         </div>
       ) : (
-        <ChartEmpty text="Aun no hay ventas suficientes para mostrar una tendencia." />
+        <ChartEmpty text="Aún no hay ventas suficientes para mostrar una tendencia." />
       )}
     </section>
   );
@@ -156,7 +156,7 @@ export function ProductRankingChart({
   unitLabel?: string;
 }) {
   const rows = data.slice(0, compact ? 5 : 8);
-  const max = Math.max(1, ...rows.map((row) => Number(row.quantity)));
+  const max = Math.max(1, ...rows.map((row) => Number(row.cantidad)));
   return (
     <section
       className="business-chart-card product-chart"
@@ -180,21 +180,21 @@ export function ProductRankingChart({
               <div className="ranking-meta">
                 <span>{row.product?.name ?? 'Sin nombre'}</span>
                 <strong>
-                  {row.quantity} {unitLabel}
+                  {row.cantidad} {unitLabel}
                 </strong>
               </div>
               <div
                 className="ranking-track"
-                aria-label={`${row.product?.name}: ${row.quantity} ${unitLabel}`}
+                aria-label={`${row.product?.name}: ${row.cantidad} ${unitLabel}`}
               >
-                <span style={{ width: `${Math.max(3, (Number(row.quantity) / max) * 100)}%` }} />
+                <span style={{ width: `${Math.max(3, (Number(row.cantidad) / max) * 100)}%` }} />
               </div>
-              {compact ? null : <small>{money(row.total)}</small>}
+              {compact ? null : <small>{moneda(row.total)}</small>}
             </div>
           ))}
         </div>
       ) : (
-        <ChartEmpty text="Aun no hay datos suficientes para construir el ranking." />
+        <ChartEmpty text="Aún no hay datos suficientes para construir el ranking." />
       )}
     </section>
   );

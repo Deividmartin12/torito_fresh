@@ -4,7 +4,7 @@ import { AlertTriangle, Download } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { TopProductRow } from '../../lib/dashboard';
-import { money, quantity } from '../../lib/format';
+import { moneda, cantidad } from '../../lib/format';
 import { getOperationStock, StockRow } from '../../lib/operations';
 import { ProductRankingChart } from '../charts/BusinessCharts';
 import { ReportHeader, ReportMetric } from './ReportNav';
@@ -26,8 +26,9 @@ export function StockReport() {
       .finally(() => setLoading(false));
   }, []);
 
-  const warehouses = [...new Set(stock.map((row) => row.almacen))];
-  const states = [...new Set(stock.map((row) => row.estado))];
+  // Las listas de los selectores solo cambian cuando llega stock nuevo, no en cada render.
+  const warehouses = useMemo(() => [...new Set(stock.map((row) => row.almacen))], [stock]);
+  const states = useMemo(() => [...new Set(stock.map((row) => row.estado))], [stock]);
   const filtered = useMemo(
     () =>
       stock.filter(
@@ -49,14 +50,14 @@ export function StockReport() {
       [...new Set(filtered.map((row) => row.almacen))]
         .map((name) => ({
           product: { id: name, name },
-          quantity: filtered
+          cantidad: filtered
             .filter((row) => row.almacen === name)
             .reduce((sum, row) => sum + Math.max(row.cantidad - row.reservada, 0), 0),
           total: filtered
             .filter((row) => row.almacen === name)
             .reduce((sum, row) => sum + row.cantidad * row.costo, 0),
         }))
-        .sort((a, b) => b.quantity - a.quantity),
+        .sort((a, b) => b.cantidad - a.cantidad),
     [filtered],
   );
 
@@ -101,23 +102,23 @@ export function StockReport() {
       <ReportHeader
         eyebrow="Reportes"
         title="Reporte de stock actual"
-        description="Consulta disponibilidad, reservas, mínimos y valorización por almacen."
+        description="Consulta disponibilidad, reservas, mínimos y valorización por almacén."
       />
       <section className="report-metrics">
         <ReportMetric
           label="Disponible real"
-          value={quantity(available)}
+          value={cantidad(available)}
           detail={`${filtered.length} posiciones`}
         />
-        <ReportMetric label="Reservado" value={quantity(reserved)} detail="Unidades comprometidas" />
+        <ReportMetric label="Reservado" value={cantidad(reserved)} detail="Unidades comprometidas" />
         <ReportMetric
-          label="Bajo minimo"
+          label="Bajo mínimo"
           value={low.length}
           detail="Posiciones que requieren atención"
         />
         <ReportMetric
           label="Valorización"
-          value={money(valuation)}
+          value={moneda(valuation)}
           detail="Cantidad por costo promedio"
         />
       </section>
@@ -172,7 +173,7 @@ export function StockReport() {
           <div className="report-single-chart">
             <ProductRankingChart
               data={warehouseChart}
-              title="Disponibilidad por almacen"
+              title="Disponibilidad por almacén"
               subtitle="Unidades disponibles y valorización actual"
               unitLabel="un."
             />

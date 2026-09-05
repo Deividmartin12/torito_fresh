@@ -9,7 +9,7 @@ export class ReportsService {
   async business(from?: string, to?: string) {
     const dateRange = this.dateRange(from, to);
     const expenseRange = this.expenseDateRange(from, to);
-    const [sales, expenses, stocks, firstSales] = await Promise.all([
+    const [sales, expenses, productionOrders, stocks, firstSales] = await Promise.all([
       this.prisma.venta.findMany({
         where: { estado: 'CONFIRMADA', fecha: dateRange },
         orderBy: { fecha: 'asc' },
@@ -40,6 +40,10 @@ export class ReportsService {
         where: { fecha: expenseRange },
         orderBy: { fecha: 'asc' },
       }),
+      this.prisma.ordenProduccion.findMany({
+        where: { estado: 'COMPLETADA', fechaFin: dateRange },
+        select: { fechaFin: true, cantidadProducida: true },
+      }),
       this.prisma.producto.findMany({
         where: { estado: true },
         include: { stocks: { where: { estadoInventario: { codigo: 'DISPONIBLE' } } } },
@@ -59,12 +63,13 @@ export class ReportsService {
       cost: number;
       margin: number;
       orders: number;
+      production: number;
     };
     type Ranking = { id: string; name: string; value: number; count: number };
     type ProductRanking = {
       id: string;
       name: string;
-      quantity: number;
+      cantidad: number;
       revenue: number;
       cost: number;
       margin: number;
@@ -98,15 +103,18 @@ export class ReportsService {
       orderCount += counts;
       const detalleSubtotal = sale.detalles.reduce((sum, item) => sum + Number(item.subtotal), 0);
       const movementDetails = sale.movimientosInventario.flatMap((movement) => movement.detalles);
-      // Kardex cost and sold quantity aggregated per product so multi-lot / null-lot
-      // fulfilment and split lines are handled without falling back to costoReferencia.
+      // Costo real de lo que salió del almacén por esta venta, sumado por producto (así se
+      // maneja bien que una línea salga de varios lotes sin caer al costo de referencia).
+      //
+      // Importante: si la venta se editó, el kardex tiene la salida original, la ENTRADA que
+      // la revierte y la salida nueva. Por eso las salidas SUMAN y las entradas RESTAN: el
+      // resultado es el costo que quedó vigente, no la suma de todos los intentos.
       const kardexCostByProduct = new Map<string, number>();
       for (const movement of movementDetails) {
         const key = movement.productoId.toString();
-        kardexCostByProduct.set(
-          key,
-          (kardexCostByProduct.get(key) ?? 0) + Number(movement.costoTotal),
-        );
+        const costo = Number(movement.costoTotal);
+        const costoConSigno = movement.direccion === 'SALIDA' ? costo : -costo;
+        kardexCostByProduct.set(key, (kardexCostByProduct.get(key) ?? 0) + costoConSigno);
       }
       const soldQtyByProduct = new Map<string, number>();
       for (const detail of sale.detalles) {
@@ -133,12 +141,12 @@ export class ReportsService {
         const current = products.get(productKey) ?? {
           id: productKey,
           name: detail.producto.nombre,
-          quantity: 0,
+          cantidad: 0,
           revenue: 0,
           cost: 0,
           margin: 0,
         };
-        current.quantity += netQuantity;
+        current.cantidad += netQuantity;
         current.revenue += lineRevenue;
         current.cost += lineCost;
         current.margin = current.revenue - current.cost;
@@ -191,8 +199,8 @@ export class ReportsService {
     for (const expense of expenses) {
       const amount = Number(expense.monto);
       totalExpenses += amount;
-      // `Gasto.fecha` is a date-only column (stored at UTC midnight); bucket it by its
-      // calendar date in UTC so it is not shifted to the previous day like Lima would.
+      // `Gasto.fecha` es una columna de solo fecha (guardada a medianoche UTC); se agrupa por
+      // su fecha de calendario en UTC para que no se corra al día anterior, como pasaría en Lima.
       this.addPeriod(days, this.utcDayKey(expense.fecha), this.utcDayLabel(expense.fecha), {
         expenses: amount,
       });
@@ -200,6 +208,19 @@ export class ReportsService {
         expenses: amount,
       });
       this.addRanking(expenseCategories, expense.categoria, expense.categoria, amount);
+    }
+
+    for (const order of productionOrders) {
+      if (!order.fechaFin) continue;
+      const produced = Number(order.cantidadProducida);
+      // `fechaFin` es un timestamp real (no una columna date-only como `Gasto.fecha`), así
+      // que se agrupa con las mismas claves en zona horaria de Lima que usan las ventas.
+      this.addPeriod(days, this.dayKey(order.fechaFin), this.dayLabel(order.fechaFin), {
+        production: produced,
+      });
+      this.addPeriod(months, this.monthKey(order.fechaFin), this.monthLabel(order.fechaFin), {
+        production: produced,
+      });
     }
 
     const lowStockByProduct = new Map<
@@ -261,7 +282,7 @@ export class ReportsService {
       },
       daily: [...days.values()].sort((a, b) => a.key.localeCompare(b.key)),
       monthly: [...months.values()].sort((a, b) => a.key.localeCompare(b.key)),
-      topProducts: [...products.values()].sort((a, b) => b.quantity - a.quantity).slice(0, 10),
+      topProducts: [...products.values()].sort((a, b) => b.cantidad - a.cantidad).slice(0, 10),
       zones: [...zones.values()].sort((a, b) => b.value - a.value).slice(0, 10),
       topClients: [...clients.values()].sort((a, b) => b.value - a.value).slice(0, 10),
       expenseCategories: [...expenseCategories.values()]
@@ -323,7 +344,7 @@ export class ReportsService {
     return { gte, lt };
   }
 
-  /** First day of the month `monthsBack` months before "today" in America/Lima. */
+  /** Primer día del mes que está `monthsBack` meses antes de "hoy" en America/Lima. */
   private defaultRangeStart(monthsBack: number) {
     const parts = new Intl.DateTimeFormat('en-CA', {
       timeZone: 'America/Lima',
@@ -346,8 +367,8 @@ export class ReportsService {
   }
 
   /**
-   * Range for `Gasto.fecha`, a date-only column Postgres returns at UTC midnight.
-   * Boundaries are UTC midnight so an expense dated exactly on `from` is included.
+   * Rango para `Gasto.fecha`, una columna de solo fecha que Postgres devuelve a medianoche UTC.
+   * Los límites van a medianoche UTC para que un gasto fechado justo en `from` quede incluido.
    */
   private expenseDateRange(from?: string, to?: string) {
     const defaultStart = this.defaultRangeStart(11);
@@ -372,6 +393,7 @@ export class ReportsService {
       cost: number;
       margin: number;
       orders: number;
+      production: number;
     }>,
   ) {
     const row = target.get(key) ?? {
@@ -382,6 +404,7 @@ export class ReportsService {
       cost: 0,
       margin: 0,
       orders: 0,
+      production: 0,
     };
     for (const [field, value] of Object.entries(values)) row[field] += value ?? 0;
     target.set(key, row);

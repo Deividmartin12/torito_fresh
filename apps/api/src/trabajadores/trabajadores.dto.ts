@@ -8,7 +8,7 @@ export class CreateTrabajadorDto {
   tipoDocumento: string;
 
   @IsString()
-  @Matches(/\S/, { message: 'El numero de documento es obligatorio' })
+  @Matches(/\S/, { message: 'El número de documento es obligatorio' })
   @MaxLength(20)
   numeroDocumento: string;
 
@@ -45,7 +45,7 @@ export class UpdateTrabajadorDto {
 
   @IsOptional()
   @IsString()
-  @Matches(/\S/, { message: 'El numero de documento es obligatorio' })
+  @Matches(/\S/, { message: 'El número de documento es obligatorio' })
   @MaxLength(20)
   numeroDocumento?: string;
 

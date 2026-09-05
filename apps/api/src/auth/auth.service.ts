@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
@@ -19,13 +19,15 @@ export class AuthService {
       include: { role: true },
     });
 
+    // El mismo mensaje para "no existe", "está inactivo" y "contraseña mala": así nadie puede
+    // averiguar qué usuarios existen probando correos.
     if (!user || !user.active) {
-      throw new UnauthorizedException('Credenciales invalidas');
+      throw new UnauthorizedException('Credenciales inválidas');
     }
 
     const validPassword = await bcrypt.compare(dto.password, user.passwordHash);
     if (!validPassword) {
-      throw new UnauthorizedException('Credenciales invalidas');
+      throw new UnauthorizedException('Credenciales inválidas');
     }
 
     const accessToken = await this.jwt.signAsync({
@@ -47,7 +49,7 @@ export class AuthService {
   }
 
   async me(userId: string) {
-    return this.prisma.user.findUnique({
+    const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
         id: true,
@@ -58,6 +60,10 @@ export class AuthService {
         role: { select: { name: true } },
       },
     });
+    // Si el usuario ya no existe, respondemos 401 en vez de un `null` con estado 200: así el
+    // cliente sabe que debe volver a iniciar sesión en lugar de romperse leyendo `user.role`.
+    if (!user) throw new UnauthorizedException('La sesión ya no es válida');
+    return user;
   }
 
   async changePassword(userId: string, dto: ChangePasswordDto) {
@@ -68,7 +74,9 @@ export class AuthService {
 
     const validPassword = await bcrypt.compare(dto.currentPassword, user.passwordHash);
     if (!validPassword) {
-      throw new UnauthorizedException('Contrasena actual incorrecta');
+      // A propósito NO es un 401: la web interpreta cualquier 401 como "sesión vencida" y
+      // te manda al login. Equivocarse al escribir la contraseña actual no debe sacarte.
+      throw new BadRequestException('La contraseña actual es incorrecta');
     }
 
     const passwordHash = await bcrypt.hash(dto.newPassword, 10);
@@ -77,6 +85,6 @@ export class AuthService {
       data: { passwordHash },
     });
 
-    return { message: 'Contrasena actualizada' };
+    return { message: 'Contraseña actualizada' };
   }
 }

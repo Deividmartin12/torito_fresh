@@ -4,7 +4,7 @@ import { Droplets } from 'lucide-react';
 import { FormEvent, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '../../../lib/api';
-import { dateTime } from '../../../lib/format';
+import { fechaHora } from '../../../lib/format';
 import { SearchableSelect } from '../../../components/SearchableSelect';
 
 export default function ContainersPage() {
@@ -14,7 +14,7 @@ export default function ContainersPage() {
   const [form, setForm] = useState({
     clientId: '',
     movementType: 'RETORNO',
-    quantity: 1,
+    cantidad: 1,
     notes: '',
   });
   async function load() {
@@ -38,13 +38,13 @@ export default function ContainersPage() {
     try {
       const signedQuantity =
         form.movementType === 'RETORNO'
-          ? -Math.abs(Number(form.quantity))
-          : Math.abs(Number(form.quantity));
+          ? -Math.abs(Number(form.cantidad))
+          : Math.abs(Number(form.cantidad));
       await api('/containers/adjust', {
         method: 'POST',
         body: JSON.stringify({
           clientId: form.clientId,
-          quantity: signedQuantity,
+          cantidad: signedQuantity,
           notes:
             form.notes ||
             (form.movementType === 'RETORNO'
@@ -57,7 +57,7 @@ export default function ContainersPage() {
           ? 'Retorno de envases registrado sin afectar la venta'
           : 'Entrega de envases registrada',
       );
-      setForm({ clientId: clients[0]?.id || '', movementType: 'RETORNO', quantity: 1, notes: '' });
+      setForm({ clientId: clients[0]?.id || '', movementType: 'RETORNO', cantidad: 1, notes: '' });
       await load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'No se pudo ajustar envases');
@@ -102,8 +102,8 @@ export default function ContainersPage() {
             className="control mt-1"
             type="number"
             min="1"
-            value={form.quantity}
-            onChange={(e) => setForm({ ...form, quantity: Number(e.target.value) })}
+            value={form.cantidad}
+            onChange={(e) => setForm({ ...form, cantidad: Number(e.target.value) })}
           />
         </label>
         <label>
@@ -131,8 +131,8 @@ export default function ContainersPage() {
             <thead>
               <tr>
                 <th>Cliente</th>
-                <th>Telefono</th>
-                <th>Direccion</th>
+                <th>Teléfono</th>
+                <th>Dirección</th>
                 <th>Envases pendientes</th>
               </tr>
             </thead>
@@ -175,7 +175,7 @@ export default function ContainersPage() {
               {movements.map((movement) => (
                 <tr key={movement.id}>
                   <td className="font-semibold">{movement.client?.name}</td>
-                  <td>{dateTime(movement.movedAt)}</td>
+                  <td>{fechaHora(movement.movedAt)}</td>
                   <td>
                     {movement.type === 'IN_EMPTY'
                       ? 'RETORNO VACÍO'
@@ -183,7 +183,7 @@ export default function ContainersPage() {
                         ? 'ENTREGA'
                         : 'AJUSTE'}
                   </td>
-                  <td>{movement.quantity}</td>
+                  <td>{movement.cantidad}</td>
                   <td>{movement.balanceAfter}</td>
                   <td>{movement.notes ?? '-'}</td>
                 </tr>

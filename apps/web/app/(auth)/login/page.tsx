@@ -4,7 +4,7 @@ import { LogIn } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { FormEvent, useState } from 'react';
 import { toast } from 'sonner';
-import { api, saveSession } from '../../../lib/api';
+import { api, guardarSesion } from '../../../lib/api';
 import { ThemeToggle } from '../../../components/ThemeToggle';
 
 export default function LoginPage() {
@@ -21,10 +21,10 @@ export default function LoginPage() {
         method: 'POST',
         body: JSON.stringify({ email: identificador, password }),
       });
-      saveSession(result.accessToken, result.user);
+      guardarSesion(result.accessToken, result.user);
       router.replace('/dashboard');
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'No se pudo iniciar sesion');
+      toast.error(err instanceof Error ? err.message : 'No se pudo iniciar sesión');
     } finally {
       setLoading(false);
     }
@@ -58,7 +58,7 @@ export default function LoginPage() {
             />
           </label>
           <label className="block">
-            <span className="label">Contrasena</span>
+            <span className="label">Contraseña</span>
             <input
               className="control mt-1"
               type="password"

@@ -1,4 +1,4 @@
-' Lanza start-kiosk.ps1 sin mostrar ninguna ventana de consola.
+' Lanza start-kiosk.ps1 (levanta API + web) sin mostrar ninguna ventana de consola.
 Dim shell, here, ps1
 Set shell = CreateObject("WScript.Shell")
 here = CreateObject("Scripting.FileSystemObject").GetParentFolderName(WScript.ScriptFullName)

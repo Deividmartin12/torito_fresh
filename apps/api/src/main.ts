@@ -8,11 +8,13 @@ async function bootstrap() {
   const config = app.get(ConfigService);
 
   app.setGlobalPrefix('api');
-  const configuredOrigin = config.get<string>('WEB_ORIGIN') ?? 'http://localhost:3070';
-  app.enableCors({
-    origin: [configuredOrigin, 'http://localhost:3001', 'http://127.0.0.1:3001'],
-    credentials: true,
-  });
+  // Desde qué dirección se puede abrir la web. Si la abres desde otra PC de la red, pon esa
+  // dirección en WEB_ORIGIN (en el .env), separando por comas si hay más de una.
+  const origenesWeb = (config.get<string>('WEB_ORIGIN') ?? 'http://localhost:3070')
+    .split(',')
+    .map((origen) => origen.trim())
+    .filter(Boolean);
+  app.enableCors({ origin: origenesWeb });
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

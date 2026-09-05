@@ -1,5 +1,5 @@
 <#
-  Torito Fresh - instalacion unica en modo kiosko (Windows).
+  Torito Fresh - instalacion unica en Windows.
   Correr en PowerShell COMO ADMINISTRADOR:
 
       Set-ExecutionPolicy -Scope Process Bypass -Force
@@ -76,8 +76,20 @@ if (Test-Path $envPath) {
   @(
     'DATABASE_URL="' + $dbUrl + '"'
     'JWT_SECRET="' + $jwt + '"'
+    'NEXT_PUBLIC_API_URL="http://localhost:4070"'
+    'WEB_ORIGIN="http://localhost:3070"'
   ) | Set-Content -Path $envPath -Encoding ascii
   Write-Host "Creado $envPath"
+}
+
+# Next.js solo lee los .env que estan dentro de apps/web, por eso ademas del .env de la
+# raiz hay que crear este. Sin el, la web queda apuntando fijo a localhost:4070.
+$webEnvPath = Join-Path $Root 'apps\web\.env.local'
+if (Test-Path $webEnvPath) {
+  Write-Host "apps\web\.env.local ya existe, no lo toco."
+} else {
+  'NEXT_PUBLIC_API_URL="http://localhost:4070"' | Set-Content -Path $webEnvPath -Encoding ascii
+  Write-Host "Creado $webEnvPath"
 }
 
 # 5) Dependencias + build + base --------------------------------------------
@@ -113,4 +125,5 @@ if (-not (Test-Path $webNext)) { Fail "Falta apps\web\.next tras el build." }
 
 Write-Host "`nLISTO." -ForegroundColor Green
 Write-Host "Prueba ahora:      .\start-kiosk.ps1"
+Write-Host "Luego entra a:     http://localhost:3070"
 Write-Host "Autoarranque:      .\install-autostart.ps1"

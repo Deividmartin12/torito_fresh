@@ -3,7 +3,7 @@
 import { Download, PackageSearch } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { money, quantity } from '../../lib/format';
+import { moneda, cantidad } from '../../lib/format';
 import {
   CatalogItem,
   KardexLedger,
@@ -87,14 +87,14 @@ export function ProductLedger({
     if (!ledger) return;
     const rows: (string | number)[][] = [
       ['Fecha', 'Documento', 'Movimiento', 'Entrada', 'Salida', 'Saldo', 'Costo unitario'],
-      ['', 'Saldo inicial', '', '', '', quantity(ledger.saldoInicial), ''],
+      ['', 'Saldo inicial', '', '', '', cantidad(ledger.saldoInicial), ''],
       ...ledger.movimientos.map((row) => [
         new Date(row.fecha).toLocaleDateString('es-PE'),
         row.documento,
         row.operacionLabel,
-        row.entrada ? quantity(row.entrada) : '',
-        row.salida ? quantity(row.salida) : '',
-        quantity(row.saldo),
+        row.entrada ? cantidad(row.entrada) : '',
+        row.salida ? cantidad(row.salida) : '',
+        cantidad(row.saldo),
         row.costoUnitario.toFixed(4),
       ]),
     ];
@@ -169,7 +169,7 @@ export function ProductLedger({
                 <tr className="kardex-ledger-opening">
                   <td colSpan={5}>Saldo inicial del período</td>
                   <td className="num">
-                    <strong>{quantity(ledger.saldoInicial)}</strong>
+                    <strong>{cantidad(ledger.saldoInicial)}</strong>
                   </td>
                   <td className="num" />
                 </tr>
@@ -191,12 +191,12 @@ export function ProductLedger({
                           {row.lote} · {row.estadoInventario}
                         </small>
                       </td>
-                      <td className="num">{row.entrada ? `+ ${quantity(row.entrada)}` : '—'}</td>
-                      <td className="num">{row.salida ? `− ${quantity(row.salida)}` : '—'}</td>
+                      <td className="num">{row.entrada ? `+ ${cantidad(row.entrada)}` : '—'}</td>
+                      <td className="num">{row.salida ? `− ${cantidad(row.salida)}` : '—'}</td>
                       <td className="num">
-                        <strong>{quantity(row.saldo)}</strong>
+                        <strong>{cantidad(row.saldo)}</strong>
                       </td>
-                      <td className="num">{money(row.costoUnitario)}</td>
+                      <td className="num">{moneda(row.costoUnitario)}</td>
                     </tr>
                   ))
                 ) : (
@@ -211,7 +211,7 @@ export function ProductLedger({
                 <tr className="kardex-ledger-closing">
                   <td colSpan={5}>Saldo final</td>
                   <td className="num">
-                    <strong>{quantity(ledger.saldoFinal)}</strong>
+                    <strong>{cantidad(ledger.saldoFinal)}</strong>
                   </td>
                   <td className="num" />
                 </tr>

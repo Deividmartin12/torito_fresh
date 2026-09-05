@@ -24,7 +24,6 @@ export type ProductionOrder = {
   almacenProductoTerminado: string;
   cantidadPlanificada: number;
   cantidadProducida: number;
-  merma: number;
   costoTotal: number;
   fechaPlanificada: string;
   fechaFin: string | null;
@@ -46,10 +45,7 @@ export type ProductionPayload = {
 
 export const getProductionCatalogs = () => api<ProductionCatalogs>('/production/catalogs');
 export const getProductionOrders = () => api<ProductionOrder[]>('/production/orders');
+// Registrar producción es un solo paso: la orden queda completada de inmediato, sin un
+// segundo paso de confirmación.
 export const createProductionOrder = (payload: ProductionPayload) =>
   api<ProductionOrder>('/production/orders', { method: 'POST', body: JSON.stringify(payload) });
-export const completeProductionOrder = (id: string, cantidadProducida: number, merma: number) =>
-  api<ProductionOrder>(`/production/orders/${id}/complete`, {
-    method: 'POST',
-    body: JSON.stringify({ cantidadProducida, merma }),
-  });

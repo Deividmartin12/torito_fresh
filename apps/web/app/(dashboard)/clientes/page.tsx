@@ -8,7 +8,7 @@ import { ClienteFormModal } from '../../../components/ClienteFormModal';
 import { Pagination } from '../../../components/Pagination';
 import { api } from '../../../lib/api';
 import { Cliente } from '../../../lib/clients';
-import { money } from '../../../lib/format';
+import { moneda } from '../../../lib/format';
 import { puedeEditar } from '../../../lib/permissions';
 import { useRole } from '../../../lib/useCurrentUser';
 
@@ -139,10 +139,10 @@ export default function ClientesPage() {
                             className="client-debt-link"
                             href={`/cobranzas?cliente=${cliente.id}`}
                           >
-                            <strong>{money(cliente.debtBalance)}</strong>
+                            <strong>{moneda(cliente.debtBalance)}</strong>
                             {cliente.overdueCount > 0 ? (
                               <small className="client-debt-overdue">
-                                {cliente.overdueCount} vencidas · {money(cliente.overdueBalance)}
+                                {cliente.overdueCount} vencidas · {moneda(cliente.overdueBalance)}
                               </small>
                             ) : (
                               <small>

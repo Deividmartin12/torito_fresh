@@ -3,7 +3,13 @@
 import { Search, X } from 'lucide-react';
 import { KeyboardEvent, useEffect, useId, useRef, useState } from 'react';
 
-export type SearchableOption = { value: string; label: string };
+export type SearchableOption = {
+  value: string;
+  label: string;
+  /** Dato extra que se muestra a la derecha de la opción (p. ej. "Disponible: 12").
+   *  No entra en la búsqueda ni se ve en el campo una vez elegida la opción. */
+  hint?: string;
+};
 
 type Props = {
   value: string;
@@ -140,7 +146,10 @@ export function SearchableSelect({
                 onMouseEnter={() => setActiveIndex(index)}
                 onClick={() => selectOption(option)}
               >
-                {option.label}
+                <span>{option.label}</span>
+                {option.hint ? (
+                  <small className="searchable-select-hint">{option.hint}</small>
+                ) : null}
               </button>
             ))
           ) : (

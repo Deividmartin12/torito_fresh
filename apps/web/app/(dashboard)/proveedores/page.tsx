@@ -15,8 +15,6 @@ type Proveedor = {
   correo: string;
   direccion: string;
   estado: boolean;
-  compras: number;
-  saldoPendiente: number;
 };
 
 type ProveedorForm = Pick<
@@ -111,7 +109,7 @@ export default function ProveedoresPage() {
   function validate() {
     const next: FormErrors = {};
     if (!/^\d{11}$/.test(form.ruc.trim())) next.ruc = 'Ingresa un RUC de 11 digitos.';
-    if (!form.razonSocial.trim()) next.razonSocial = 'Ingresa la razon social.';
+    if (!form.razonSocial.trim()) next.razonSocial = 'Ingresa la razón social.';
     if (form.correo.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.correo.trim()))
       next.correo = 'Ingresa un correo valido.';
     setFieldErrors(next);
@@ -226,8 +224,6 @@ export default function ProveedoresPage() {
                 <tr>
                   <th>Proveedor</th>
                   <th>Contacto</th>
-                  <th>Compras</th>
-                  <th>Saldo pendiente</th>
                   <th>Estado</th>
                   <th>Acciones</th>
                 </tr>
@@ -244,11 +240,9 @@ export default function ProveedoresPage() {
                         </small>
                       </td>
                       <td>
-                        {item.telefono || 'Sin telefono'}
+                        {item.telefono || 'Sin teléfono'}
                         <small>{item.correo || item.direccion || 'Sin datos adicionales'}</small>
                       </td>
-                      <td>{item.compras}</td>
-                      <td>S/ {item.saldoPendiente.toFixed(2)}</td>
                       <td>
                         <span className={item.estado ? 'status status-green' : 'status status-red'}>
                           {item.estado ? 'Activo' : 'Inactivo'}
@@ -281,7 +275,7 @@ export default function ProveedoresPage() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={6}>
+                    <td colSpan={4}>
                       <div className="table-empty">
                         <Search size={22} />
                         <span>No hay proveedores que coincidan con los filtros.</span>
@@ -317,7 +311,12 @@ export default function ProveedoresPage() {
         </>
       )}
       {modal ? (
-        <div className="modal-backdrop">
+        <div
+          className="modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !saving) setModal(false);
+          }}
+        >
           <section
             className="crud-modal"
             role="dialog"
@@ -375,7 +374,7 @@ export default function ProveedoresPage() {
                 />
               </label>
               <label>
-                <span>Telefono</span>
+                <span>Teléfono</span>
                 <input
                   value={form.telefono}
                   onChange={(event) => updateField('telefono', event.target.value)}
@@ -396,7 +395,7 @@ export default function ProveedoresPage() {
                 ) : null}
               </label>
               <label>
-                <span>Direccion</span>
+                <span>Dirección</span>
                 <input
                   value={form.direccion}
                   onChange={(event) => updateField('direccion', event.target.value)}

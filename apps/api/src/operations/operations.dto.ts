@@ -19,12 +19,6 @@ class OperationItemDto {
   @Min(1)
   productoId: number;
 
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  loteId?: number;
-
   @Type(() => Number)
   @IsInt()
   @Min(1)
@@ -85,27 +79,6 @@ class BaseOperationDto {
   items: OperationItemDto[];
 }
 
-export class CreatePurchaseDto extends BaseOperationDto {
-  @IsIn(['FACTURA', 'BOLETA', 'TICKET', 'NOTA', 'OTRO'])
-  tipoComprobante: string;
-
-  @IsString()
-  serie: string;
-
-  @IsString()
-  numero: string;
-
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  almacenId: number;
-
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  proveedorId: number;
-}
-
 export class CreateOperationalSaleDto extends BaseOperationDto {
   @Type(() => Number)
   @IsInt()
@@ -113,10 +86,58 @@ export class CreateOperationalSaleDto extends BaseOperationDto {
   clienteId: number;
 }
 
-export class CreateOperationalProductDto {
-  @IsString()
-  codigo: string;
+// Mismos campos que CreateOperationalSaleDto, escritos a mano (el proyecto no usa
+// @nestjs/mapped-types/PartialType en ningún otro lado, no se introduce esa dependencia
+// nueva solo para esto).
+export class UpdateOperationalSaleDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  clienteId: number;
 
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  almacenId: number;
+
+  @IsIn(['CONTADO', 'CREDITO', 'MIXTO'])
+  tipoPago: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  metodoPagoId?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  montoInicial?: number;
+
+  @IsOptional()
+  @IsDateString()
+  fechaVencimiento?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  descuento?: number;
+
+  @IsOptional()
+  @IsString()
+  observaciones?: string;
+
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => OperationItemDto)
+  items: OperationItemDto[];
+}
+
+export class CreateOperationalProductDto {
   @IsString()
   nombre: string;
 
@@ -150,9 +171,6 @@ export class CreateOperationalProductDto {
 }
 
 export class CreateOperationalWarehouseDto {
-  @IsString()
-  codigo: string;
-
   @IsString()
   nombre: string;
 

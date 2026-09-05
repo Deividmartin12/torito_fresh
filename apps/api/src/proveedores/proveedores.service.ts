@@ -1,13 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, Proveedor } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateProveedorDto, UpdateProveedorDto } from './proveedores.dto';
-
-const proveedorRelations = {
-  compras: { select: { cuentaPagar: { select: { saldoPendiente: true } } } },
-} satisfies Prisma.ProveedorInclude;
-
-type ProveedorWithRelations = Prisma.ProveedorGetPayload<{ include: typeof proveedorRelations }>;
 
 @Injectable()
 export class ProveedoresService {
@@ -29,7 +23,6 @@ export class ProveedoresService {
         ...(active === 'true' ? { estado: true } : active === 'false' ? { estado: false } : {}),
       },
       orderBy: { razonSocial: 'asc' },
-      include: proveedorRelations,
     });
 
     return rows.map((row) => this.view(row));
@@ -42,10 +35,7 @@ export class ProveedoresService {
 
   async create(dto: CreateProveedorDto) {
     try {
-      const created = await this.prisma.proveedor.create({
-        data: this.createData(dto),
-        include: proveedorRelations,
-      });
+      const created = await this.prisma.proveedor.create({ data: this.createData(dto) });
       return this.view(created);
     } catch (error) {
       this.handlePrismaError(error);
@@ -58,7 +48,6 @@ export class ProveedoresService {
       const updated = await this.prisma.proveedor.update({
         where: { id: BigInt(id) },
         data: this.updateData(dto),
-        include: proveedorRelations,
       });
       return this.view(updated);
     } catch (error) {
@@ -73,10 +62,7 @@ export class ProveedoresService {
     } catch {
       throw new NotFoundException('Proveedor no encontrado');
     }
-    const row = await this.prisma.proveedor.findUnique({
-      where: { id: proveedorId },
-      include: proveedorRelations,
-    });
+    const row = await this.prisma.proveedor.findUnique({ where: { id: proveedorId } });
     if (!row) throw new NotFoundException('Proveedor no encontrado');
     return row;
   }
@@ -112,7 +98,7 @@ export class ProveedoresService {
     return value === undefined ? undefined : value.trim() || null;
   }
 
-  private view(row: ProveedorWithRelations) {
+  private view(row: Proveedor) {
     return {
       id: row.id.toString(),
       ruc: row.ruc,
@@ -122,11 +108,6 @@ export class ProveedoresService {
       correo: row.correo ?? '',
       direccion: row.direccion ?? '',
       estado: row.estado,
-      compras: row.compras.length,
-      saldoPendiente: row.compras.reduce(
-        (sum, compra) => sum + Number(compra.cuentaPagar?.saldoPendiente ?? 0),
-        0,
-      ),
     };
   }
 

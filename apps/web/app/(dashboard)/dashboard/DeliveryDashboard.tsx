@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { DeliverySummary, getDeliverySummary } from '../../../lib/dashboard';
 import { estadoPagoLabel } from '../../../lib/credit';
-import { money } from '../../../lib/format';
+import { moneda } from '../../../lib/format';
 import { DashboardKpi } from './DashboardKpi';
 
 export function DeliveryDashboard() {
@@ -69,14 +69,14 @@ export function DeliveryDashboard() {
             <DashboardKpi
               icon={<PackageCheck size={21} />}
               label="Monto vendido"
-              value={money(totales?.monto)}
+              value={moneda(totales?.monto)}
               detail="Total del día"
               tone="green"
             />
             <DashboardKpi
               icon={<HandCoins size={21} />}
               label="Cobrado"
-              value={money(totales?.cobrado)}
+              value={moneda(totales?.cobrado)}
               detail="Pagado al momento de la venta"
               tone="amber"
             />
@@ -101,7 +101,7 @@ export function DeliveryDashboard() {
                         <strong>{item.codigo}</strong>
                       </td>
                       <td>{item.cliente}</td>
-                      <td>{money(item.total)}</td>
+                      <td>{moneda(item.total)}</td>
                       <td>{estadoPagoLabel[item.estadoPago] ?? item.estadoPago}</td>
                       <td>
                         <span

@@ -3,7 +3,7 @@
 import { BarChart3, CalendarClock, MapPinned, TrendingUp } from 'lucide-react';
 import { useId, useMemo } from 'react';
 import { AnalyticsPeriod, AnalyticsRanking, HeatmapPoint } from '../../lib/analytics';
-import { money } from '../../lib/format';
+import { moneda } from '../../lib/format';
 
 export function ComparisonBarChart({
   data,
@@ -43,14 +43,14 @@ export function ComparisonBarChart({
                 <span
                   className="comparison-sales"
                   style={{ height: `${Math.max(row.sales ? 4 : 0, (row.sales / max) * 100)}%` }}
-                  title={`Ventas: ${money(row.sales)}`}
+                  title={`Ventas: ${moneda(row.sales)}`}
                 />
                 <span
                   className="comparison-purchases"
                   style={{
                     height: `${Math.max(row.expenses ? 4 : 0, (row.expenses / max) * 100)}%`,
                   }}
-                  title={`Gastos: ${money(row.expenses)}`}
+                  title={`Gastos: ${moneda(row.expenses)}`}
                 />
               </div>
               <small>{row.label}</small>
@@ -68,14 +68,14 @@ export function RankingBarChart({
   rows,
   title,
   subtitle,
-  valueKind = 'money',
+  valueKind = 'moneda',
   icon = 'ranking',
   detail,
 }: {
   rows: AnalyticsRanking[];
   title: string;
   subtitle: string;
-  valueKind?: 'money' | 'count';
+  valueKind?: 'moneda' | 'count';
   icon?: 'ranking' | 'zone';
   detail?: (row: AnalyticsRanking) => string;
 }) {
@@ -93,7 +93,7 @@ export function RankingBarChart({
             <div key={`${row.id}-${row.name}`}>
               <div>
                 <span title={row.name}>{row.name}</span>
-                <strong>{valueKind === 'money' ? money(row.value) : row.value}</strong>
+                <strong>{valueKind === 'moneda' ? moneda(row.value) : row.value}</strong>
               </div>
               <div className="analytics-track">
                 <span style={{ width: `${Math.max(3, (row.value / max) * 100)}%` }} />
@@ -203,7 +203,7 @@ export function MarginChart({
                   cy={y(row.margin)}
                   r="4"
                 >
-                  <title>{`${row.label}: ${money(row.margin)}`}</title>
+                  <title>{`${row.label}: ${moneda(row.margin)}`}</title>
                 </circle>
                 {index % labelEvery === 0 || index === rows.length - 1 ? (
                   <text
@@ -296,7 +296,7 @@ function HeatmapRow({
           <i
             key={hour}
             style={{ '--heat': intensity } as React.CSSProperties}
-            title={`${day} ${hour}:00 · ${point?.orders ?? 0} ventas · ${money(point?.sales ?? 0)}`}
+            title={`${day} ${hour}:00 · ${point?.orders ?? 0} ventas · ${moneda(point?.sales ?? 0)}`}
           >
             {point?.orders || ''}
           </i>
@@ -335,8 +335,8 @@ export function MixAndPaymentsChart({
           <i style={{ width: `${totalMix ? (customerMix.recurring / totalMix) * 100 : 0}%` }} />
         </div>
         <div className="mix-legend">
-          <span>Nuevos {money(customerMix.new)}</span>
-          <span>Recurrentes {money(customerMix.recurring)}</span>
+          <span>Nuevos {moneda(customerMix.new)}</span>
+          <span>Recurrentes {moneda(customerMix.recurring)}</span>
         </div>
       </div>
       <div className="payment-bars">
@@ -346,7 +346,7 @@ export function MixAndPaymentsChart({
             <div>
               <i style={{ width: `${paymentTotal ? (item.value / paymentTotal) * 100 : 0}%` }} />
             </div>
-            <strong>{money(item.value)}</strong>
+            <strong>{moneda(item.value)}</strong>
           </div>
         ))}
       </div>

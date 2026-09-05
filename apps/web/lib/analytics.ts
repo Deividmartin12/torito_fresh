@@ -8,12 +8,13 @@ export type AnalyticsPeriod = {
   cost: number;
   margin: number;
   orders: number;
+  production: number;
 };
 export type AnalyticsRanking = { id: string; name: string; value: number; count: number };
 export type AnalyticsProduct = {
   id: string;
   name: string;
-  quantity: number;
+  cantidad: number;
   revenue: number;
   cost: number;
   margin: number;
@@ -68,8 +69,8 @@ export function getBusinessAnalytics(from?: string, to?: string) {
   return api<BusinessAnalytics>(`/reports/business${query.size ? `?${query}` : ''}`);
 }
 
-// Keys are built in UTC so they match the backend's America/Lima calendar-day keys
-// regardless of the viewer's browser timezone.
+// Las claves se arman en UTC para que coincidan con las claves de día calendario
+// (America/Lima) que manda el backend, sin importar la zona horaria del navegador.
 const dayLabelFormatter = new Intl.DateTimeFormat('es-PE', {
   timeZone: 'UTC',
   day: '2-digit',
@@ -82,10 +83,10 @@ const monthLabelFormatter = new Intl.DateTimeFormat('es-PE', {
 });
 
 function emptyPeriod(key: string, label: string): AnalyticsPeriod {
-  return { key, label, sales: 0, expenses: 0, cost: 0, margin: 0, orders: 0 };
+  return { key, label, sales: 0, expenses: 0, cost: 0, margin: 0, orders: 0, production: 0 };
 }
 
-/** Parses a `YYYY-MM-DD` string to a UTC-midnight Date without browser-timezone drift. */
+/** Convierte un texto `YYYY-MM-DD` en una fecha a medianoche UTC, sin desfase por zona horaria. */
 function parseUtcDay(value: string): Date | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (!match) return null;
@@ -93,7 +94,7 @@ function parseUtcDay(value: string): Date | null {
   return new Date(Date.UTC(Number(y), Number(m) - 1, Number(d)));
 }
 
-/** Fills gaps so every calendar day in [from, to] gets a bar, even without sales/expenses that day. */
+/** Rellena los huecos para que cada día de [from, to] tenga barra, aunque ese día no haya movimiento. */
 export function fillDailySeries(
   rows: AnalyticsPeriod[],
   from: string,
@@ -111,7 +112,7 @@ export function fillDailySeries(
   return filled;
 }
 
-/** Fills gaps so every calendar month in [from, to] gets a bar, even without sales/expenses that month. */
+/** Rellena los huecos para que cada mes de [from, to] tenga barra, aunque ese mes no haya movimiento. */
 export function fillMonthlySeries(
   rows: AnalyticsPeriod[],
   from: string,
@@ -134,26 +135,62 @@ export function fillMonthlySeries(
   return filled;
 }
 
-/** Aggregates monthly buckets (key "YYYY-MM") into yearly totals for long custom ranges. */
+/** Agrupa los meses (clave "YYYY-MM") en totales por año, para rangos personalizados largos. */
 export function groupPeriodsByYear(rows: AnalyticsPeriod[]): AnalyticsPeriod[] {
   const years = new Map<string, AnalyticsPeriod>();
   for (const row of rows) {
     const year = row.key.slice(0, 4);
-    const current = years.get(year) ?? {
-      key: year,
-      label: year,
-      sales: 0,
-      expenses: 0,
-      cost: 0,
-      margin: 0,
-      orders: 0,
-    };
+    const current = years.get(year) ?? emptyPeriod(year, year);
     current.sales += row.sales;
     current.expenses += row.expenses;
     current.cost += row.cost;
     current.margin += row.margin;
     current.orders += row.orders;
+    current.production += row.production;
     years.set(year, current);
   }
   return [...years.values()].sort((a, b) => a.key.localeCompare(b.key));
+}
+
+/**
+ * Agrupa filas diarias (ya rellenadas con `fillDailySeries`) en semanas de lunes a domingo.
+ * La clave de cada semana es el lunes correspondiente (`YYYY-MM-DD`), y la etiqueta muestra
+ * ese lunes como referencia de la semana.
+ */
+export function groupPeriodsByWeek(rows: AnalyticsPeriod[]): AnalyticsPeriod[] {
+  const weeks = new Map<string, AnalyticsPeriod>();
+  for (const row of rows) {
+    const date = parseUtcDay(row.key);
+    if (!date) continue;
+    // getUTCDay(): 0=domingo..6=sabado. Retrocede hasta el lunes de esa semana.
+    const isoWeekday = (date.getUTCDay() + 6) % 7; // 0=lunes..6=domingo
+    const monday = new Date(date);
+    monday.setUTCDate(date.getUTCDate() - isoWeekday);
+    const key = monday.toISOString().slice(0, 10);
+    const current = weeks.get(key) ?? emptyPeriod(key, `Sem. ${dayLabelFormatter.format(monday)}`);
+    current.sales += row.sales;
+    current.expenses += row.expenses;
+    current.cost += row.cost;
+    current.margin += row.margin;
+    current.orders += row.orders;
+    current.production += row.production;
+    weeks.set(key, current);
+  }
+  return [...weeks.values()].sort((a, b) => a.key.localeCompare(b.key));
+}
+
+/**
+ * Rango de igual duración inmediatamente anterior a [from, to], para comparar KPIs contra
+ * el período comparativo (ver skill reportes-comerciales: nunca mostrar un valor sin contexto).
+ */
+export function previousPeriodRange(from: string, to: string): { from: string; to: string } {
+  const start = parseUtcDay(from);
+  const end = parseUtcDay(to);
+  if (!start || !end || start > end) return { from, to };
+  const spanDays = Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
+  const previousEnd = new Date(start);
+  previousEnd.setUTCDate(previousEnd.getUTCDate() - 1);
+  const previousStart = new Date(previousEnd);
+  previousStart.setUTCDate(previousStart.getUTCDate() - (spanDays - 1));
+  return { from: previousStart.toISOString().slice(0, 10), to: previousEnd.toISOString().slice(0, 10) };
 }

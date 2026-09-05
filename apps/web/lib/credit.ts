@@ -13,10 +13,7 @@ export const formaPagoLabel: Record<string, string> = {
   MIXTO: 'Pago parcial + crédito',
 };
 
-/**
- * Opciones para el selector de forma de pago. El texto sirve tanto para ventas
- * (cobrar al cliente) como para compras (pagar al proveedor).
- */
+/** Opciones para el selector de forma de pago de una venta. */
 export const formaPagoOpciones: { value: FormaPago; label: string }[] = [
   { value: 'CONTADO', label: 'Completo' },
   { value: 'CREDITO', label: 'Crédito' },

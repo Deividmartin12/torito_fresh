@@ -18,7 +18,7 @@ import { Pagination } from '../../../components/Pagination';
 import { PeriodFilter } from '../../../components/PeriodFilter';
 import { SearchableSelect } from '../../../components/SearchableSelect';
 import { ProductLedger } from '../../../components/kardex/ProductLedger';
-import { dateTime, money, quantity } from '../../../lib/format';
+import { fechaHora, moneda, cantidad } from '../../../lib/format';
 import { MOVEMENT_TYPE_OPTIONS, directionLabel, movementStyle } from '../../../lib/kardex';
 import {
   CatalogItem,
@@ -98,7 +98,7 @@ function MovimientosView() {
     if (tab === 'movimientos') void load();
   }, [load, tab]);
 
-  // Reset to page 1 whenever a filter changes.
+  // Vuelve a la página 1 cada vez que cambia un filtro.
   const resetPage = useCallback(() => setPage(1), []);
   const changePeriod = useCallback(
     (start: string, end: string) => {
@@ -262,7 +262,7 @@ function MovimientosView() {
                       <tr key={item.id}>
                         <td>
                           <strong>{item.referencia}</strong>
-                          <small>{dateTime(item.fecha)}</small>
+                          <small>{fechaHora(item.fecha)}</small>
                         </td>
                         <td>
                           <span className={`status status-${style.tone}`}>
@@ -283,7 +283,7 @@ function MovimientosView() {
                             {item.detalles.length}{' '}
                             {item.detalles.length === 1 ? 'producto' : 'productos'}
                           </strong>
-                          <small>{quantity(item.unidades)} unidades en total</small>
+                          <small>{cantidad(item.unidades)} unidades en total</small>
                         </td>
                         <td>
                           <span
@@ -353,7 +353,7 @@ function MovementDetail({ movement, onClose }: { movement: Movement; onClose: ()
           <div>
             <h2 id="kardex-detail-title">{movement.referencia}</h2>
             <small>
-              {movement.operacionLabel} · {movement.comprobante} · {dateTime(movement.fecha)}
+              {movement.operacionLabel} · {movement.comprobante} · {fechaHora(movement.fecha)}
             </small>
           </div>
           <button className="modal-close" onClick={onClose} aria-label="Cerrar">
@@ -374,7 +374,7 @@ function MovementDetail({ movement, onClose }: { movement: Movement; onClose: ()
               <Boxes size={17} />
               <span>
                 Movimiento<strong>{style.label}</strong>
-                <small>{quantity(movement.unidades)} unidades</small>
+                <small>{cantidad(movement.unidades)} unidades</small>
               </span>
             </div>
             <div>
@@ -436,20 +436,20 @@ function MovementDetail({ movement, onClose }: { movement: Movement; onClose: ()
                     </div>
                     <span className={`status ${entry ? 'status-green' : 'status-blue'}`}>
                       {entry ? '+' : '−'}
-                      {quantity(item.cantidad)} · {directionLabel(item.direccion)}
+                      {cantidad(item.cantidad)} · {directionLabel(item.direccion)}
                     </span>
                   </div>
                   <div className="kardex-balance-equation">
                     <div>
                       <small>Saldo anterior</small>
-                      <strong>{quantity(item.saldoAnterior)}</strong>
+                      <strong>{cantidad(item.saldoAnterior)}</strong>
                     </div>
                     <span className={entry ? 'entry' : 'exit'}>
-                      {entry ? '+' : '−'} {quantity(item.cantidad)}
+                      {entry ? '+' : '−'} {cantidad(item.cantidad)}
                     </span>
                     <div>
                       <small>Saldo posterior</small>
-                      <strong>{quantity(item.saldoPosterior)}</strong>
+                      <strong>{cantidad(item.saldoPosterior)}</strong>
                     </div>
                   </div>
                   <div className="kardex-product-meta">
@@ -457,10 +457,10 @@ function MovementDetail({ movement, onClose }: { movement: Movement; onClose: ()
                       Estado: <strong>{item.estadoInventario}</strong>
                     </span>
                     <span>
-                      Costo unitario: <strong>{money(item.costoUnitario)}</strong>
+                      Costo unitario: <strong>{moneda(item.costoUnitario)}</strong>
                     </span>
                     <span>
-                      Valor movido: <strong>{money(item.costoTotal)}</strong>
+                      Valor movido: <strong>{moneda(item.costoTotal)}</strong>
                     </span>
                   </div>
                 </article>

@@ -1,12 +1,13 @@
 'use client';
 
-import { Boxes, ShoppingCart, Truck } from 'lucide-react';
+import { BarChart3, Boxes, Minus, ShoppingCart, TrendingDown, TrendingUp, Truck } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { Variacion } from '../../lib/format';
 
 const reports = [
+  { href: '/reportes/resumen', label: 'Resumen', icon: BarChart3 },
   { href: '/reportes/ventas', label: 'Ventas', icon: ShoppingCart },
-  { href: '/reportes/compras', label: 'Compras', icon: Truck },
   { href: '/reportes/gastos', label: 'Gastos', icon: Truck },
   { href: '/reportes/stock', label: 'Stock actual', icon: Boxes },
 ];
@@ -47,20 +48,32 @@ export function ReportHeader({
   );
 }
 
+const changeIcon = { up: TrendingUp, down: TrendingDown, flat: Minus, na: Minus };
+
 export function ReportMetric({
   label,
   value,
   detail,
+  change,
 }: {
   label: string;
   value: React.ReactNode;
   detail: string;
+  /** Variación vs. el período comparativo. Se omite mientras el dato aún no llega. */
+  change?: Variacion;
 }) {
+  const ChangeIcon = change ? changeIcon[change.direccion] : null;
   return (
     <article className="report-metric">
       <span>{label}</span>
       <strong>{value}</strong>
       <small>{detail}</small>
+      {change ? (
+        <small className={`report-metric-change report-metric-change-${change.direccion}`}>
+          {ChangeIcon ? <ChangeIcon size={13} /> : null}
+          {change.texto} vs. período anterior
+        </small>
+      ) : null}
     </article>
   );
 }

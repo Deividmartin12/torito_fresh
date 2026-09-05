@@ -3,32 +3,88 @@
 @tailwind utilities;
 
 :root {
-  --ui-radius: 10px;
+  /* Radios: lo interactivo es pill, los contenedores redondeados amplios. */
+  --ui-radius: 16px;
+  --radius-container-lg: 20px;
+  --radius-control: 9999px;
+
+  /* Superficies: gris azulado (slate), planas. */
   --page-bg: #ffffff;
   --surface: #ffffff;
-  --surface-soft: #f5f9ff;
-  --surface-hover: #edf4ff;
-  --border: #cfe0ff;
-  --border-strong: #9fc0ff;
-  --text: #123b78;
-  --text-muted: #416da9;
+  --surface-soft: #f8fafc;
+  --surface-hover: #f1f5f9;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+
+  --text: #0f172a;
+  --text-muted: #64748b;
+
   --accent: #2563eb;
   --accent-hover: #1d4ed8;
-  --shadow: 0 12px 34px rgba(37, 99, 235, 0.1);
+  --accent-soft: #eff6ff;
+  --accent-soft-text: #1d4ed8;
+
+  /* Sombras: ausentes por defecto; solo en popovers que flotan sin scrim. */
+  --shadow: none;
+  --shadow-flyout: 0 8px 24px rgba(15, 23, 42, 0.12);
+
+  /* Fondo oscurecido detras de modales/drawers. */
+  --scrim: rgba(15, 23, 42, 0.45);
+
+  /* Estado: fondo pastel + texto oscuro del mismo color (el punto usa currentColor). */
+  --status-green-bg: #ecfdf5;
+  --status-green-text: #047857;
+  --status-amber-bg: #fffbeb;
+  --status-amber-text: #b45309;
+  --status-red-bg: #fef2f2;
+  --status-red-text: #b91c1c;
+  --status-blue-bg: #eff6ff;
+  --status-blue-text: #1d4ed8;
+  --status-gray-bg: #f1f5f9;
+  --status-gray-text: #334155;
+
+  /* Gráficos hechos a mano: acento + verde + gris + violeta. */
+  --chart-1: #2563eb;
+  --chart-2: #16a34a;
+  --chart-3: #94a3b8;
+  --chart-4: #7c3aed;
 }
 
 html[data-theme='dark'] {
-  --page-bg: #07101d;
-  --surface: #101f34;
-  --surface-soft: #172b47;
-  --surface-hover: #203b60;
-  --border: rgba(137, 170, 211, 0.12);
-  --border-strong: rgba(137, 170, 211, 0.28);
-  --text: #f3f7ff;
-  --text-muted: #b8cbe5;
-  --accent: #70b7ff;
-  --accent-hover: #a5d2ff;
-  --shadow: 0 16px 42px rgba(0, 0, 0, 0.42);
+  --page-bg: #0b1120;
+  --surface: #0f172a;
+  --surface-soft: #1e293b;
+  --surface-hover: #1e293b;
+  --border: #1e293b;
+  --border-strong: #334155;
+
+  --text: #e2e8f0;
+  --text-muted: #94a3b8;
+
+  --accent: #3b82f6;
+  --accent-hover: #60a5fa;
+  --accent-soft: rgba(59, 130, 246, 0.16);
+  --accent-soft-text: #93c5fd;
+
+  --shadow: none;
+  --shadow-flyout: 0 10px 30px rgba(0, 0, 0, 0.55);
+  --scrim: rgba(2, 6, 23, 0.6);
+
+  --status-green-bg: #0d2b23;
+  --status-green-text: #6ee7b7;
+  --status-amber-bg: #3b2d12;
+  --status-amber-text: #fcd34d;
+  --status-red-bg: #3f1d1d;
+  --status-red-text: #fca5a5;
+  --status-blue-bg: #17314f;
+  --status-blue-text: #93c5fd;
+  --status-gray-bg: #1e293b;
+  --status-gray-text: #cbd5e1;
+
+  --chart-1: #3b82f6;
+  --chart-2: #22c55e;
+  --chart-3: #94a3b8;
+  --chart-4: #a78bfa;
 }
 
 html,
@@ -43,9 +99,13 @@ body {
     color 0.2s ease;
 }
 
-/* Pesos suaves: la jerarquia depende del tamaño y el color. */
+/* Pesos suaves: la jerarquia depende del tamaño y el color.
+   Los titulos y el boton primario llegan a semibold; el resto queda regular. */
 :where(strong, h1, h2, h3, h4, h5, h6, .font-black, .font-bold, .font-semibold) {
-  font-weight: 500 !important;
+  font-weight: 600 !important;
+}
+:where(.module-title h1, .btn-primary, .sidebar-group-trigger strong) {
+  font-weight: 600 !important;
 }
 
 :where(
@@ -63,7 +123,6 @@ body {
   .glass-table th,
   .table th,
   .status,
-  .btn-primary,
   .btn-secondary,
   .confirm-soft,
   .kardex-link,
@@ -422,6 +481,61 @@ body {
   }
 }
 
+/* Animaciones de entrada de overlays. La salida no se anima: los modales se
+   desmontan con `condicion && <div>` y manejar el estado de salida obligaria a
+   tocar cada pantalla. El bloque prefers-reduced-motion de mas abajo las anula. */
+@keyframes overlay-scrim-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes overlay-panel-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+}
+
+@keyframes overlay-panel-in-mobile {
+  from {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+}
+
+@keyframes flyout-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+
+.modal-backdrop,
+.operation-review-backdrop,
+.app-menu-backdrop,
+.sale-receipt-overlay {
+  animation: overlay-scrim-in 150ms ease-out;
+}
+
+.crud-modal,
+.operation-modal,
+.operation-review-modal,
+.account-history-modal,
+.sale-receipt {
+  animation: overlay-panel-in 200ms ease-out;
+}
+
+.app-menu {
+  animation: flyout-in 150ms ease-out;
+}
+
+@media (max-width: 700px) {
+  .crud-modal {
+    animation: overlay-panel-in-mobile 250ms ease-out;
+  }
+}
+
 .empty-state {
   flex-direction: column;
   padding: 34px 20px;
@@ -465,6 +579,9 @@ body {
   display: grid;
   gap: 16px;
   padding: 0;
+  /* Deja espacio para que la barra fija (.operation-sticky-actions) no tape los últimos
+     campos del formulario. */
+  padding-bottom: 84px;
 }
 
 .operation-section {
@@ -563,20 +680,34 @@ body {
   gap: 2px;
 }
 
+/* Fija abajo a todo el ancho del área de contenido (no solo del formulario centrado), para
+   que quede siempre visible sin depender del scroll. El offset izquierdo coincide con el
+   ancho del sidebar (ver .app-shell y .app-shell.sidebar-is-collapsed más abajo). */
 .operation-sticky-actions {
-  position: sticky;
-  bottom: 10px;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
   z-index: 20;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   border: 1px solid var(--border);
-  border-radius: 15px;
-  background: color-mix(in srgb, var(--surface) 92%, transparent);
-  padding: 12px;
-  box-shadow: 0 12px 35px rgba(20, 48, 88, 0.18);
-  backdrop-filter: blur(14px);
+  border-radius: 15px 15px 0 0;
+  background: var(--surface);
+  padding: 12px 20px;
+  box-shadow: var(--shadow-flyout);
+}
+
+@media (min-width: 1024px) {
+  .operation-sticky-actions {
+    left: 252px;
+  }
+
+  .app-shell.sidebar-is-collapsed .operation-sticky-actions {
+    left: 88px;
+  }
 }
 
 .operation-sticky-actions > div {
@@ -747,12 +878,12 @@ html[data-theme='dark']
   width: 15px;
   height: 3px;
   border-radius: 999px;
-  background: #3b82f6;
+  background: var(--chart-1);
   content: '';
 }
 
 .chart-legend .legend-paid::before {
-  background: #22a06b;
+  background: var(--chart-2);
 }
 
 .line-chart-wrap {
@@ -765,7 +896,7 @@ html[data-theme='dark']
   width: 100%;
   min-width: 500px;
   height: auto;
-  color: #3b82f6;
+  color: var(--chart-1);
 }
 
 .chart-grid-line {
@@ -781,7 +912,7 @@ html[data-theme='dark']
 }
 
 .chart-area {
-  color: #3b82f6;
+  color: var(--chart-1);
 }
 
 .chart-line {
@@ -792,11 +923,11 @@ html[data-theme='dark']
 }
 
 .chart-line-total {
-  stroke: #3b82f6;
+  stroke: var(--chart-1);
 }
 
 .chart-line-paid {
-  stroke: #22a06b;
+  stroke: var(--chart-2);
   stroke-width: 2.5;
 }
 
@@ -806,10 +937,10 @@ html[data-theme='dark']
 }
 
 .chart-dot-total {
-  fill: #3b82f6;
+  fill: var(--chart-1);
 }
 .chart-dot-paid {
-  fill: #22a06b;
+  fill: var(--chart-2);
 }
 
 .ranking-chart {
@@ -857,7 +988,7 @@ html[data-theme='dark']
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #3b82f6, #64b5f6);
+  background: var(--chart-1);
 }
 
 .chart-empty {
@@ -1008,6 +1139,21 @@ html[data-theme='dark']
   font-size: 11px;
 }
 
+.report-metric-change {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted) !important;
+}
+
+.report-metric-change-up {
+  color: var(--status-green-text) !important;
+}
+
+.report-metric-change-down {
+  color: var(--status-red-text) !important;
+}
+
 .report-filters {
   align-items: flex-end !important;
 }
@@ -1097,10 +1243,10 @@ html[data-theme='dark']
   white-space: nowrap;
 }
 .comparison-value-sales {
-  color: #3b82f6;
+  color: var(--chart-1);
 }
 .comparison-value-expenses {
-  color: #a7b1c2;
+  color: var(--chart-3);
 }
 .comparison-bars {
   display: flex;
@@ -1115,10 +1261,10 @@ html[data-theme='dark']
   border-radius: 5px 5px 1px 1px;
 }
 .comparison-sales {
-  background: #3b82f6;
+  background: var(--chart-1);
 }
 .comparison-purchases {
-  background: #a7b1c2;
+  background: var(--chart-3);
 }
 .comparison-column > small {
   color: var(--text-muted);
@@ -1126,10 +1272,10 @@ html[data-theme='dark']
   text-align: center;
 }
 .chart-legend .legend-sales::before {
-  background: #3b82f6;
+  background: var(--chart-1);
 }
 .chart-legend .legend-purchases::before {
-  background: #a7b1c2;
+  background: var(--chart-3);
 }
 .analytics-ranking,
 .payment-bars {
@@ -1175,13 +1321,13 @@ html[data-theme='dark']
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #3b82f6, #64b5f6);
+  background: var(--chart-1);
 }
 .analytics-ranking small {
   grid-column: 2;
 }
 .margin-area-chart {
-  color: #22a06b;
+  color: var(--chart-2);
 }
 .chart-zero-line {
   stroke: var(--border-strong);
@@ -1189,13 +1335,13 @@ html[data-theme='dark']
   stroke-dasharray: 3 4;
 }
 .margin-area-fill {
-  color: #22a06b;
+  color: var(--chart-2);
 }
 .margin-area-line {
-  stroke: #22a06b;
+  stroke: var(--chart-2);
 }
 .margin-area-dot {
-  fill: #22a06b;
+  fill: var(--chart-2);
 }
 .margin-area-dot.negative {
   fill: #c52e49;
@@ -1253,14 +1399,14 @@ html[data-theme='dark']
   background: #60a5fa;
 }
 .mix-stack i {
-  background: #22a06b;
+  background: var(--chart-2);
 }
 .payment-bars > div {
   grid-template-columns: 90px minmax(70px, 1fr) 82px;
   align-items: center;
 }
 .payment-bars i {
-  background: linear-gradient(90deg, #8b5cf6, #b39af8);
+  background: var(--chart-4);
 }
 .chart-card-head select {
   max-width: 190px;
@@ -1753,12 +1899,15 @@ html[data-theme='dark'] .client-debt-link small.client-debt-overdue {
   border-radius: 11px;
   background: var(--surface);
   padding: 5px;
-  box-shadow: 0 15px 35px rgba(20, 48, 88, 0.2);
+  box-shadow: var(--shadow-flyout);
 }
 
 .operation-products-section .searchable-select-menu button,
 .operation-general-section .searchable-select-menu button {
-  display: block;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
   width: 100%;
   border: 0;
   border-radius: 7px;
@@ -1766,6 +1915,19 @@ html[data-theme='dark'] .client-debt-link small.client-debt-overdue {
   padding: 8px 10px;
   color: var(--text);
   text-align: left;
+}
+
+/* Dato extra a la derecha de la opción (en ventas, el stock disponible del producto). */
+.searchable-select-hint {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.searchable-select-menu button:hover .searchable-select-hint,
+.searchable-select-menu button.selected .searchable-select-hint {
+  color: inherit;
 }
 
 .operation-products-section .searchable-select-menu button:hover,
@@ -1843,8 +2005,8 @@ html[data-theme='dark'] .client-debt-link small.client-debt-overdue {
 }
 
 .product-line:focus-within {
-  border-color: var(--border-strong);
-  box-shadow: 0 5px 18px color-mix(in srgb, var(--accent) 10%, transparent);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
 }
 
 .product-line label > span,
@@ -1966,7 +2128,6 @@ html[data-theme='dark'] .client-debt-link small.client-debt-overdue {
   border-radius: 20px;
   background: var(--surface);
   color: var(--text);
-  box-shadow: 0 28px 75px rgba(4, 20, 44, 0.35);
 }
 
 .operation-review-head {
@@ -2027,6 +2188,14 @@ html[data-theme='dark'] .client-debt-link small.client-debt-overdue {
   gap: 15px;
   overflow-y: auto;
   padding: 20px;
+}
+
+/* Modal de revisión de venta con estilo de boleta (reusa las clases .sale-receipt-*): solo
+   esta franja hace scroll si hay muchos productos, para que el encabezado y los botones de
+   "Volver a editar"/"Confirmar venta" queden siempre visibles. */
+.operation-review-scroll {
+  max-height: calc(100vh - 260px);
+  overflow-y: auto;
 }
 
 .operation-review-facts {
@@ -2293,13 +2462,13 @@ html[data-theme='dark'] .client-debt-link small.client-debt-overdue {
   box-shadow: var(--shadow);
 }
 
+/* El icono va suelto, sin caja de color detras: solo se colorea el glifo. */
 .dashboard-kpi > div {
   display: grid;
-  width: 39px;
-  height: 39px;
   grid-row: 1 / 4;
+  align-self: start;
   place-items: center;
-  border-radius: 11px;
+  color: var(--accent);
 }
 
 .dashboard-kpi > span,
@@ -2326,34 +2495,22 @@ html[data-theme='dark'] .client-debt-link small.client-debt-overdue {
 }
 
 .dashboard-kpi-blue > div {
-  background: #e9f2ff;
-  color: #2469c8;
+  color: var(--chart-1);
 }
 .dashboard-kpi-green > div {
-  background: #e9fbf3;
-  color: #14845c;
+  color: var(--chart-2);
 }
 .dashboard-kpi-amber > div {
-  background: #fff6df;
-  color: #a46808;
+  color: var(--status-amber-text);
 }
 .dashboard-kpi-violet > div {
-  background: #f2edff;
-  color: #7251c7;
+  color: var(--chart-4);
 }
 
 html[data-theme='dark']
   :where(.dashboard-loading, .dashboard-kpi, .business-chart-card, .report-chart-section) {
   border-color: var(--border);
   background: var(--surface);
-}
-
-html[data-theme='dark'] .dashboard-kpi-blue > div,
-html[data-theme='dark'] .dashboard-kpi-green > div,
-html[data-theme='dark'] .dashboard-kpi-amber > div,
-html[data-theme='dark'] .dashboard-kpi-violet > div {
-  background: var(--surface-soft);
-  color: var(--accent);
 }
 
 @media (max-width: 1100px) {
@@ -2487,8 +2644,7 @@ html[data-theme='dark'] .field-error {
   padding: 0 13px;
   color: var(--accent);
   font-size: 12px;
-  font-weight: 800;
-  box-shadow: 0 3px 10px rgba(37, 99, 235, 0.08);
+  font-weight: 500;
 }
 
 .theme-toggle:hover {
@@ -2508,7 +2664,7 @@ html[data-theme='dark'] .field-error {
   padding: 0 13px;
   color: var(--text-muted);
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 500;
 }
 
 .admin-logout:hover {
@@ -2541,8 +2697,9 @@ html[data-theme='dark'] .field-error {
 
 .login-card {
   border-color: var(--border) !important;
+  border-radius: var(--radius-container-lg) !important;
   background: var(--surface);
-  box-shadow: var(--shadow);
+  box-shadow: none;
 }
 
 .login-logo {
@@ -2558,7 +2715,6 @@ html[data-theme='light']
     .desktop-sidebar,
     .admin-bar,
     .app-menu,
-    .module-title,
     .pill-search,
     .filter-pill,
     .searchable-select-control,
@@ -2588,43 +2744,24 @@ html[data-theme='light']
     .menu-button
   ) {
   border-color: var(--border);
-  background: #ffffff;
+  background: var(--surface);
 }
 
 html[data-theme='light']
   :where(
     .sidebar-brand strong,
-    .sidebar-brand small,
-    .sidebar-group > p,
     .sidebar-link,
     .admin-bar strong,
-    .admin-bar span,
     .module-title h1,
-    .module-title span,
     .pill-search,
     .pill-search input,
-    .filter-pill,
-    .glass-table th,
     .glass-table td,
     .glass-table strong,
-    .glass-table small,
-    .summary-glass span,
     .summary-glass strong,
-    .table-pagination,
     .modal-top h2,
-    .modal-top small,
-    .modal-form label > span,
-    .step-fields label > span,
-    .product-line label > span,
-    .review-notes > span,
     .detail-line span,
-    .detail-line small,
-    .detail-summary span,
     .detail-summary strong,
-    .inventory-flow span,
     .inventory-flow strong,
-    .label,
-    .table th,
     .table td,
     .control,
     .input-control
@@ -2632,22 +2769,12 @@ html[data-theme='light']
   color: var(--text);
 }
 
-html[data-theme='light'] .desktop-sidebar,
-html[data-theme='light'] .admin-bar,
-html[data-theme='light'] .glass-table,
-html[data-theme='light'] .summary-glass,
-html[data-theme='light'] .panel,
-html[data-theme='light'] .table-wrap {
-  box-shadow: var(--shadow);
-}
-
-/* Tema oscuro: fondo azul noche y superficies con contraste. */
+/* Tema oscuro: superficies planas con contraste por borde. */
 html[data-theme='dark']
   :where(
     .desktop-sidebar,
     .admin-bar,
     .app-menu,
-    .module-title,
     .pill-search,
     .filter-pill,
     .searchable-select-control,
@@ -2682,60 +2809,37 @@ html[data-theme='dark']
   border-color: var(--border);
   background: var(--surface);
   color: var(--text);
-  box-shadow: var(--shadow);
 }
 
 html[data-theme='dark']
   :where(
     .sidebar-brand strong,
-    .sidebar-brand small,
-    .sidebar-group > p,
     .sidebar-link,
     .admin-bar strong,
-    .admin-bar span,
     .module-title h1,
-    .module-title span,
     .pill-search,
     .pill-search input,
-    .filter-pill,
     .searchable-select-control input,
     .searchable-select-menu button,
-    .glass-table th,
     .glass-table td,
     .glass-table strong,
-    .glass-table small,
-    .summary-glass span,
     .summary-glass strong,
-    .table-pagination,
     .modal-top h2,
-    .modal-top small,
-    .modal-form label > span,
-    .step-fields label > span,
-    .product-line label > span,
-    .review-notes > span,
     .detail-line span,
-    .detail-line small,
-    .detail-summary span,
     .detail-summary strong,
-    .inventory-flow span,
     .inventory-flow strong,
-    .label,
-    .table th,
     .table td,
     .control,
     .input-control,
-    .line-total,
-    .totals-box span,
     .totals-box .grand-total,
-    .review-route strong,
-    .kardex-detail-line small
+    .review-route strong
   ) {
   color: var(--text);
 }
 
 html[data-theme='dark'] :where(.glass-table th, .table th) {
-  background: var(--surface-soft);
-  color: #d8e8ff;
+  background: var(--surface);
+  color: var(--text-muted);
 }
 
 html[data-theme='dark']
@@ -2743,21 +2847,14 @@ html[data-theme='dark']
   background: var(--surface-hover);
 }
 
-html[data-theme='dark'] .sidebar-link:hover:not(.active) {
-  border-color: var(--border-strong);
-  background: #1b3658;
-  color: #eef6ff;
-}
-
-html[data-theme='light'] .sidebar-link:hover:not(.active) {
-  border-color: var(--border-strong);
-  background: #e8f1ff;
-  color: #174a91;
+.sidebar-link:hover:not(.active) {
+  background: var(--surface-hover);
+  color: var(--text);
 }
 
 .sidebar-link.active,
 .sidebar-link.active:hover {
-  color: #ffffff !important;
+  color: var(--accent-soft-text) !important;
   font-weight: 400 !important;
 }
 
@@ -2765,68 +2862,20 @@ html[data-theme='dark'] :where(.modal-top, .detail-line, .wizard-actions, .karde
   border-color: var(--border);
 }
 
-html[data-theme='dark'] body {
-  background:
-    radial-gradient(circle at 18% 0%, rgba(39, 92, 151, 0.25), transparent 36%),
-    radial-gradient(circle at 88% 12%, rgba(23, 114, 151, 0.16), transparent 32%), var(--page-bg) !important;
-}
-
 html[data-theme='dark'] :where(.glass-table td, .table td) {
   color: var(--text);
-  border-top: 1px solid rgba(93, 130, 176, 0.2);
+  border-top: 1px solid var(--border);
 }
 
 html[data-theme='dark'] :where(input, select, textarea) {
   border-color: var(--border) !important;
-  background-color: #0b192b !important;
+  background-color: var(--surface-soft) !important;
   color: var(--text) !important;
 }
 
 html[data-theme='dark'] :where(input, textarea)::placeholder {
-  color: #91a8c7;
+  color: var(--text-muted);
   opacity: 1;
-}
-
-html[data-theme='dark'] :where(.btn-primary, .round-add, .sidebar-link.active) {
-  border-color: #7ab9ff;
-  background: #2878d4;
-  color: #ffffff;
-}
-
-html[data-theme='dark'] .status-green {
-  background: #123a32;
-  color: #7ff0c3;
-  box-shadow: inset 0 0 0 1px #297a63;
-}
-
-html[data-theme='dark'] .status-amber {
-  background: #3b2d12;
-  color: #ffd783;
-  box-shadow: inset 0 0 0 1px #8c6827;
-}
-
-html[data-theme='dark'] .status-red {
-  background: #411e2b;
-  color: #ff9db2;
-  box-shadow: inset 0 0 0 1px #91445b;
-}
-
-html[data-theme='dark'] .status-blue {
-  background: #15365d;
-  color: #9bcbff;
-  box-shadow: inset 0 0 0 1px #3c72aa;
-}
-
-html[data-theme='dark']
-  :where(.searchable-select-menu button:hover, .searchable-select-menu button.selected) {
-  background: var(--surface-hover);
-  color: #b9dcff;
-}
-
-html[data-theme='dark'] :where(.stock-warning) {
-  border-color: #91445b;
-  background: #411e2b;
-  color: #ffb4c3;
 }
 
 html[data-theme='dark'] :where(.bg-white, .bg-slate-50, .bg-blue-50) {
@@ -3071,7 +3120,9 @@ body {
 
 .desktop-sidebar.collapsed {
   width: 68px;
-  border-right: 0;
+  border: 0;
+  border-right: 1px solid var(--border);
+  border-radius: 0 18px 18px 0;
 }
 
 .desktop-sidebar.collapsed .sidebar-brand {
@@ -3085,7 +3136,7 @@ body {
 }
 
 .desktop-sidebar.collapsed .sidebar-nav {
-  height: calc(100vh - 77px);
+  height: calc(100vh - 67px);
   overflow: visible;
   padding: 10px 8px 20px;
 }
@@ -3104,9 +3155,8 @@ body {
 }
 
 .desktop-sidebar.collapsed .sidebar-group.active > .sidebar-group-trigger {
-  border-color: var(--border-strong);
-  background: var(--surface-hover);
-  box-shadow: inset 3px 0 0 var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-soft-text);
 }
 
 .desktop-sidebar.collapsed .sidebar-submenu {
@@ -3121,7 +3171,7 @@ body {
   background: var(--surface);
   padding: 8px;
   opacity: 0;
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-flyout);
   pointer-events: none;
   transform: translateX(-5px);
   transition:
@@ -3163,7 +3213,7 @@ body {
 }
 
 .app-shell {
-  padding: 10px 12px 30px;
+  padding: 0px;
 }
 
 .app-main {
@@ -3365,13 +3415,27 @@ html[data-theme='dark'] :where(.auto-table-toolbar, .table-pagination) {
 
 @media (min-width: 1024px) {
   .app-shell {
-    padding: 10px 20px 34px 252px;
+    padding: 0 20px 34px 252px;
     transition: padding-left 0.2s ease;
   }
 
-  /* Alinea el borde superior del panel lateral con la barra superior. */
+  /* Sidebar pegado a los bordes, sin margen flotante. */
   .desktop-sidebar {
-    top: 10px;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    border: 0;
+    border-right: 1px solid var(--border);
+    border-radius: 0 18px 18px 0;
+  }
+
+  /* Header superior plano: sin píldora, solo línea divisoria inferior. */
+  .admin-bar {
+    border: 0;
+    border-bottom: 1px solid var(--border);
+    border-radius: 0;
+    margin: 0 -20px;
+    padding: 0 20px;
   }
 
   .app-shell.sidebar-is-collapsed {
@@ -3398,6 +3462,10 @@ html[data-theme='dark'] :where(.auto-table-toolbar, .table-pagination) {
 
   .admin-bar {
     min-height: 60px;
+    border: 0;
+    border-bottom: 1px solid var(--border);
+    border-radius: 0;
+    margin: 0 -10px;
     padding: 0 10px 0 16px;
   }
 
@@ -3589,27 +3657,17 @@ html[data-theme='dark'] :where(.auto-table-toolbar, .table-pagination) {
 .desktop-sidebar:not(.collapsed) .sidebar-submenu-links .sidebar-link.active,
 .desktop-sidebar:not(.collapsed) .sidebar-submenu-links .sidebar-link.active:hover {
   border: 0 !important;
-  background: color-mix(in srgb, var(--text-muted) 12%, var(--surface)) !important;
-  color: var(--text) !important;
+  background: var(--accent-soft) !important;
+  color: var(--accent-soft-text) !important;
   box-shadow: none !important;
-}
-
-html[data-theme='dark']
-  .desktop-sidebar:not(.collapsed)
-  .sidebar-submenu-links
-  .sidebar-link.active,
-html[data-theme='dark']
-  .desktop-sidebar:not(.collapsed)
-  .sidebar-submenu-links
-  .sidebar-link.active:hover {
-  background: color-mix(in srgb, var(--text-muted) 18%, var(--surface)) !important;
-  color: var(--text) !important;
 }
 
 /* La versión comprimida conserva el mismo lenguaje visual en un rail compacto. */
 .desktop-sidebar.collapsed {
   width: 68px;
-  border-radius: 18px;
+  border: 0;
+  border-right: 1px solid var(--border);
+  border-radius: 0 18px 18px 0;
 }
 
 .desktop-sidebar.collapsed .sidebar-brand {
@@ -3626,7 +3684,7 @@ html[data-theme='dark']
 }
 
 .desktop-sidebar.collapsed .sidebar-nav {
-  height: calc(100vh - 74px);
+  height: calc(100vh - 64px);
   padding: 10px 8px 18px;
 }
 
@@ -3657,19 +3715,9 @@ html[data-theme='dark']
 .desktop-sidebar.collapsed .sidebar-group.active > .sidebar-group-trigger,
 .desktop-sidebar.collapsed .sidebar-group.active > .sidebar-group-trigger:hover {
   border: 0;
-  background: color-mix(in srgb, var(--text-muted) 14%, var(--surface));
-  color: var(--text);
+  background: var(--accent-soft);
+  color: var(--accent-soft-text);
   box-shadow: none;
-}
-
-.desktop-sidebar.collapsed .sidebar-group.active > .sidebar-group-trigger::after {
-  content: '';
-  position: absolute;
-  right: 3px;
-  width: 3px;
-  height: 15px;
-  border-radius: 999px;
-  background: var(--accent);
 }
 
 .desktop-sidebar.collapsed .sidebar-submenu {
@@ -3753,15 +3801,9 @@ html[data-theme='dark']
 .desktop-sidebar.collapsed .sidebar-submenu-links .sidebar-link.active,
 .desktop-sidebar.collapsed .sidebar-submenu-links .sidebar-link.active:hover {
   border: 0 !important;
-  background: color-mix(in srgb, var(--text-muted) 12%, var(--surface)) !important;
-  color: var(--text) !important;
+  background: var(--accent-soft) !important;
+  color: var(--accent-soft-text) !important;
   box-shadow: none !important;
-}
-
-html[data-theme='dark'] .desktop-sidebar.collapsed .sidebar-group.active > .sidebar-group-trigger,
-html[data-theme='dark'] .desktop-sidebar.collapsed .sidebar-submenu-links .sidebar-link.active {
-  background: color-mix(in srgb, var(--text-muted) 18%, var(--surface)) !important;
-  color: var(--text) !important;
 }
 
 html[data-theme='dark'] .sidebar-brand,
@@ -3772,7 +3814,9 @@ html[data-theme='dark'] .operation-page-head {
 
 /* Pulido final del árbol lateral. */
 .desktop-sidebar {
-  border-radius: 22px;
+  border: 0;
+  border-right: 1px solid var(--border);
+  border-radius: 0 18px 18px 0;
 }
 
 .desktop-sidebar:not(.collapsed) .sidebar-group-trigger {
@@ -4273,6 +4317,12 @@ input[type='radio'] {
   opacity: 0 !important;
   visibility: hidden !important;
   pointer-events: none !important;
+}
+
+/* En modo comprimido el flyout muestra solo las subcategorías, sin el título
+   de la categoría. */
+.desktop-sidebar.collapsed .sidebar-submenu-title {
+  display: none !important;
 }
 
 /* Iconos limpios: sin burbujas, círculos ni fondos alrededor. */
@@ -4821,26 +4871,44 @@ input[type='radio'] {
   align-self: end;
 }
 
-.production-complete-modal {
-  width: min(100%, 590px);
+/* Gastos: panel de filtros como drawer anclado a la derecha. */
+.filters-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  justify-content: flex-end;
+  background: var(--scrim);
+  animation: overlay-scrim-in 150ms ease-out;
 }
 
-.production-complete-note {
-  display: grid;
-  gap: 3px;
-  border-left: 4px solid var(--accent);
-  background: var(--surface-soft);
-  padding: 11px 13px;
+/* Fila de tabla que abre un detalle al hacer click (ej. Gastos). El botón de acciones
+   dentro de la fila detiene la propagación para no disparar el click de la fila. */
+.clickable-row {
+  cursor: pointer;
 }
 
-.production-complete-note strong {
-  color: var(--text);
-  font-size: 13px;
+.filters-drawer {
+  width: min(100%, 340px);
+  height: 100%;
+  overflow-y: auto;
+  border-left: 1px solid var(--border);
+  border-radius: 20px 0 0 20px;
+  background: var(--surface);
+  animation: filters-drawer-in 280ms ease-out;
 }
 
-.production-complete-note span {
-  color: var(--text-muted);
-  font-size: 12px;
+@keyframes filters-drawer-in {
+  from {
+    transform: translateX(100%);
+  }
+}
+
+@media (max-width: 700px) {
+  .filters-drawer {
+    width: 100%;
+    border-radius: 0;
+  }
 }
 
 @media (max-width: 700px) {

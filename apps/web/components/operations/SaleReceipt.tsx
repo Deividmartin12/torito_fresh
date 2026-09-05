@@ -2,7 +2,7 @@
 
 import { Printer, X } from 'lucide-react';
 import { formaPagoLabel } from '../../lib/credit';
-import { dateTime, money } from '../../lib/format';
+import { fechaHora, moneda } from '../../lib/format';
 import { Sale } from '../../lib/operations';
 
 /**
@@ -32,7 +32,7 @@ export function SaleReceipt({ sale, onClose }: { sale: Sale; onClose: () => void
           </div>
           <div>
             <small>Fecha</small>
-            <strong>{dateTime(sale.fecha)}</strong>
+            <strong>{fechaHora(sale.fecha)}</strong>
           </div>
           <div>
             <small>Cliente</small>
@@ -58,8 +58,8 @@ export function SaleReceipt({ sale, onClose }: { sale: Sale; onClose: () => void
               <tr key={item.id}>
                 <td>{item.producto}</td>
                 <td className="num">{item.cantidad}</td>
-                <td className="num">{money(item.precio)}</td>
-                <td className="num">{money(item.subtotal)}</td>
+                <td className="num">{moneda(item.precio)}</td>
+                <td className="num">{moneda(item.subtotal)}</td>
               </tr>
             ))}
           </tbody>
@@ -67,20 +67,20 @@ export function SaleReceipt({ sale, onClose }: { sale: Sale; onClose: () => void
 
         <div className="sale-receipt-totals">
           <span>
-            Subtotal <strong>{money(sale.subtotal)}</strong>
+            Subtotal <strong>{moneda(sale.subtotal)}</strong>
           </span>
           {sale.descuento > 0 ? (
             <span>
-              Descuento <strong>- {money(sale.descuento)}</strong>
+              Descuento <strong>- {moneda(sale.descuento)}</strong>
             </span>
           ) : null}
           {sale.igv > 0 ? (
             <span>
-              IGV <strong>{money(sale.igv)}</strong>
+              IGV <strong>{moneda(sale.igv)}</strong>
             </span>
           ) : null}
           <span className="sale-receipt-grand">
-            Total <strong>{money(sale.total)}</strong>
+            Total <strong>{moneda(sale.total)}</strong>
           </span>
         </div>
 
@@ -88,7 +88,7 @@ export function SaleReceipt({ sale, onClose }: { sale: Sale; onClose: () => void
           <span>Forma de pago: {formaPagoLabel[sale.pago] ?? sale.pago}</span>
           {sale.saldo > 0 ? (
             <span>
-              Pagado {money(sale.pagado)} · Saldo {money(sale.saldo)}
+              Pagado {moneda(sale.pagado)} · Saldo {moneda(sale.saldo)}
             </span>
           ) : null}
         </div>

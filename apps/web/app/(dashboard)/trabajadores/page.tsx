@@ -113,7 +113,7 @@ export default function TrabajadoresPage() {
 
   function validate() {
     const next: FormErrors = {};
-    if (!form.numeroDocumento.trim()) next.numeroDocumento = 'Ingresa el numero de documento.';
+    if (!form.numeroDocumento.trim()) next.numeroDocumento = 'Ingresa el número de documento.';
     if (!form.nombres.trim()) next.nombres = 'Ingresa los nombres.';
     if (!form.apellidos.trim()) next.apellidos = 'Ingresa los apellidos.';
     if (form.correo.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.correo.trim()))
@@ -256,7 +256,7 @@ export default function TrabajadoresPage() {
                       </td>
                       <td>{item.cargo}</td>
                       <td>
-                        {item.telefono || 'Sin telefono'}
+                        {item.telefono || 'Sin teléfono'}
                         <small>{item.correo || 'Sin correo'}</small>
                       </td>
                       <td>
@@ -327,7 +327,12 @@ export default function TrabajadoresPage() {
         </>
       )}
       {modal ? (
-        <div className="modal-backdrop">
+        <div
+          className="modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !saving) setModal(false);
+          }}
+        >
           <section
             className="crud-modal"
             role="dialog"
@@ -360,7 +365,7 @@ export default function TrabajadoresPage() {
                 </select>
               </label>
               <label>
-                <span>Numero de documento</span>
+                <span>Número de documento</span>
                 <input
                   value={form.numeroDocumento}
                   onChange={(event) => updateField('numeroDocumento', event.target.value)}
@@ -405,7 +410,7 @@ export default function TrabajadoresPage() {
                 </select>
               </label>
               <label>
-                <span>Telefono</span>
+                <span>Teléfono</span>
                 <input
                   value={form.telefono}
                   onChange={(event) => updateField('telefono', event.target.value)}

@@ -8,15 +8,19 @@ export type Expense = {
   monto: number;
   comprobante: string | null;
   observaciones: string | null;
+  proveedorId: string | null;
+  proveedor: string | null;
   registradoPor: string | null;
 };
 
 export type CreateExpensePayload = Pick<Expense, 'fecha' | 'concepto' | 'categoria' | 'monto'> & {
   comprobante?: string;
   observaciones?: string;
+  proveedorId?: string;
 };
 
 export type ExpenseCategory = { id: string; nombre: string };
+export type ExpenseProveedor = { id: string; razonSocial: string; estado: boolean };
 
 export function getExpenses(from?: string, to?: string) {
   const query = new URLSearchParams();
@@ -26,6 +30,9 @@ export function getExpenses(from?: string, to?: string) {
 }
 export function createExpense(payload: CreateExpensePayload) {
   return api<Expense>('/expenses', { method: 'POST', body: JSON.stringify(payload) });
+}
+export function updateExpense(id: string, payload: CreateExpensePayload) {
+  return api<Expense>(`/expenses/${id}`, { method: 'PATCH', body: JSON.stringify(payload) });
 }
 export function getExpenseCategories() {
   return api<ExpenseCategory[]>('/expenses/categories');
@@ -44,4 +51,7 @@ export function updateExpenseCategory(id: string, categoria: string) {
 }
 export function deleteExpenseCategory(id: string) {
   return api<{ id: string }>(`/expenses/categories/${id}`, { method: 'DELETE' });
+}
+export function getExpenseProveedores() {
+  return api<ExpenseProveedor[]>('/proveedores?active=true');
 }

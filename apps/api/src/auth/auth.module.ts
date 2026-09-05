@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { DURACION_SESION, obtenerClaveJwt } from './jwt-config';
 import { JwtStrategy } from './jwt.strategy';
 
 @Module({
@@ -13,8 +14,8 @@ import { JwtStrategy } from './jwt.strategy';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
-        secret: config.get<string>('JWT_SECRET') ?? 'dev-secret',
-        signOptions: { expiresIn: '6h' },
+        secret: obtenerClaveJwt(config),
+        signOptions: { expiresIn: DURACION_SESION },
       }),
     }),
   ],

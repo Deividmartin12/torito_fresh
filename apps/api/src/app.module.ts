@@ -4,6 +4,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { RolesGuard } from './auth/roles.guard';
+import { BidonesRotosModule } from './bidones-rotos/bidones-rotos.module';
 import { ClientsModule } from './clients/clients.module';
 import { ContainersModule } from './containers/containers.module';
 import { ExpensesModule } from './expenses/expenses.module';
@@ -12,6 +13,7 @@ import { PaymentMethodsModule } from './payment-methods/payment-methods.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProductionModule } from './production/production.module';
 import { ProveedoresModule } from './proveedores/proveedores.module';
+import { RecargasModule } from './recargas/recargas.module';
 import { ReportsModule } from './reports/reports.module';
 import { TrabajadoresModule } from './trabajadores/trabajadores.module';
 
@@ -27,6 +29,8 @@ import { TrabajadoresModule } from './trabajadores/trabajadores.module';
     PaymentMethodsModule,
     ExpensesModule,
     ContainersModule,
+    RecargasModule,
+    BidonesRotosModule,
     ReportsModule,
     TrabajadoresModule,
   ],

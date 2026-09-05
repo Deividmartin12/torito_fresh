@@ -3,7 +3,7 @@
 import { TriangleAlert, X } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { money } from '../../lib/format';
+import { moneda } from '../../lib/format';
 import { resumenVencimiento } from '../../lib/credit';
 import {
   OperationalAccount,
@@ -78,7 +78,7 @@ export function RegisterCollectionModal({
     }
     const amount = Number(monto);
     if (!Number.isFinite(amount) || amount <= 0 || amount > seleccionada.saldo) {
-      toast.error(`El monto debe ser mayor a cero y no superar ${money(seleccionada.saldo)}.`);
+      toast.error(`El monto debe ser mayor a cero y no superar ${moneda(seleccionada.saldo)}.`);
       return;
     }
     if (metodo?.requiereOperacion && !numeroOperacion.trim()) {
@@ -95,7 +95,7 @@ export function RegisterCollectionModal({
         numeroOperacion: numeroOperacion.trim() || undefined,
         observaciones: observaciones.trim() || undefined,
       });
-      toast.success(`${cobrar ? 'Cobro' : 'Pago'} de ${money(amount)} registrado correctamente.`);
+      toast.success(`${cobrar ? 'Cobro' : 'Pago'} de ${moneda(amount)} registrado correctamente.`);
       onDone(updated);
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : 'No se pudo registrar el pago');
@@ -145,7 +145,7 @@ export function RegisterCollectionModal({
               <select value={cuentaId} onChange={(e) => setCuentaId(e.target.value)}>
                 {opciones.map((item) => (
                   <option key={item.id} value={item.id}>
-                    {item.tercero} · {item.comprobante} · {money(item.saldo)}
+                    {item.tercero} · {item.comprobante} · {moneda(item.saldo)}
                   </option>
                 ))}
               </select>
@@ -154,7 +154,7 @@ export function RegisterCollectionModal({
             <div className="field-wide collection-fixed-account">
               <span>{seleccionada.tercero}</span>
               <strong>
-                {seleccionada.comprobante} · saldo {money(seleccionada.saldo)}
+                {seleccionada.comprobante} · saldo {moneda(seleccionada.saldo)}
               </strong>
             </div>
           )}
@@ -229,10 +229,10 @@ export function RegisterCollectionModal({
 
           <div className="payment-balance-preview field-wide">
             <span>
-              Saldo actual <strong>{money(seleccionada.saldo)}</strong>
+              Saldo actual <strong>{moneda(seleccionada.saldo)}</strong>
             </span>
             <span>
-              Saldo después del {cobrar ? 'cobro' : 'pago'} <strong>{money(saldoDespues)}</strong>
+              Saldo después del {cobrar ? 'cobro' : 'pago'} <strong>{moneda(saldoDespues)}</strong>
             </span>
           </div>
 

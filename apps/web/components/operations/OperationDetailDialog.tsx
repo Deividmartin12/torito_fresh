@@ -1,9 +1,8 @@
 'use client';
 
-import { HandCoins, X } from 'lucide-react';
+import { HandCoins, Pencil, X } from 'lucide-react';
 import Link from 'next/link';
 import { resumenVencimiento } from '../../lib/credit';
-import { money } from '../../lib/format';
 import { OperationDetailLine } from '../../lib/operations';
 
 type Props = {
@@ -26,6 +25,8 @@ type Props = {
   onClose: () => void;
   /** Solo ventas con saldo: abre el registro de cobro. */
   onRegisterCollection?: () => void;
+  /** Solo ventas sin pagos ni devoluciones registradas: abre el formulario de edición. */
+  onEdit?: () => void;
 };
 
 export function OperationDetailDialog({
@@ -47,6 +48,7 @@ export function OperationDetailDialog({
   items,
   onClose,
   onRegisterCollection,
+  onEdit,
 }: Props) {
   const due = resumenVencimiento(dueDate ?? null, balance);
   return (
@@ -147,6 +149,11 @@ export function OperationDetailDialog({
               >
                 Ver kardex
               </Link>
+            ) : null}
+            {onEdit ? (
+              <button type="button" className="btn-secondary" onClick={onEdit}>
+                <Pencil size={16} /> Editar
+              </button>
             ) : null}
             {balance > 0 && onRegisterCollection ? (
               <button type="button" className="btn-primary" onClick={onRegisterCollection}>

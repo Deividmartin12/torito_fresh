@@ -1,16 +1,10 @@
 <#
-  Detiene la app de kiosko (para mantenimiento): cierra el Chrome del perfil
-  kiosko y los procesos node de los puertos 3070 / 4070.
+  Detiene la app (para mantenimiento): mata los procesos node que escuchan en
+  los puertos 3070 / 4070. No toca el navegador: eso lo cierra el usuario.
 #>
 
-# Navegador del perfil kiosko (Firefox o Chrome)
-Get-CimInstance Win32_Process -Filter "Name = 'firefox.exe' OR Name = 'chrome.exe'" -ErrorAction SilentlyContinue |
-  Where-Object { $_.CommandLine -match 'ToritoKiosk' } |
-  ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-
-# node de 3070 / 4070
 Get-NetTCPConnection -LocalPort 3070, 4070 -State Listen -ErrorAction SilentlyContinue |
   Select-Object -ExpandProperty OwningProcess -Unique |
   ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
 
-Write-Host "Kiosko detenido." -ForegroundColor Green
+Write-Host "Torito Fresh detenido." -ForegroundColor Green

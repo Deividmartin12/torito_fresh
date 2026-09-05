@@ -1,7 +1,8 @@
-# Torito Fresh — modo kiosko en Windows
+# Torito Fresh — despliegue en Windows
 
 Deja esta PC (`DESKTOP-NJO2TNS`, usuario `user`) para que **al iniciar sesión** levante sola
-la app y abra Google Chrome a **pantalla completa en `http://localhost:3070`**.
+el backend y el frontend. No abre ningún navegador: el usuario entra por su cuenta a
+**`http://localhost:3070`**.
 
 Todo corre en esta misma PC: PostgreSQL (ya instalado, usuario `postgres` / clave
 `123456789`), el backend en el puerto 4070 y el frontend en el 3070.
@@ -10,7 +11,7 @@ Todo corre en esta misma PC: PostgreSQL (ya instalado, usuario `postgres` / clav
 
 - El repo copiado en `C:\torito_fresh` (esta carpeta es `C:\torito_fresh\deploy\windows`).
 - PostgreSQL corriendo.
-- **Mozilla Firefox** instalado (si no está, se usa Chrome como respaldo).
+- Un navegador cualquiera (Firefox, Chrome, Edge) para entrar a la app.
 - Conexión a internet la **primera vez** (para instalar Node, `npm install` y los motores de
   Prisma).
 - Node.js 20+: si no está, `setup.ps1` lo instala con `winget`.
@@ -37,14 +38,16 @@ Luego, prueba sin reiniciar:
 .\start-kiosk.ps1
 ```
 
-Debe abrir Firefox a pantalla completa con la pantalla de inicio de sesión. Entra con:
+Cuando termine debe decir `Todo listo. Abre el navegador en http://localhost:3070`. Entra a esa
+dirección desde el navegador y usa:
 
 | Usuario | Clave |
 |---|---|
 | `admin` | `admin` |
 | `01` / `02` (reparto) | `01` / `02` |
 
-Para salir del navegador kiosko: **Alt + F4** (en Firefox, `F11` alterna pantalla completa).
+Sugerencia: deja `http://localhost:3070` como página de inicio del navegador y un acceso directo
+en el escritorio, así el usuario solo abre el navegador y ya está adentro.
 
 ## Autoarranque al iniciar sesión
 
@@ -53,7 +56,8 @@ Para salir del navegador kiosko: **Alt + F4** (en Firefox, `F11` alterna pantall
 ```
 
 Crea la Tarea Programada **ToritoKiosk** para el usuario actual. Cierra sesión y vuelve a
-entrar (o reinicia): la app arranca sola.
+entrar (o reinicia): los servicios arrancan solos en segundo plano y el usuario solo tiene que
+abrir el navegador en `http://localhost:3070`.
 
 Para quitar el autoarranque:
 
@@ -63,7 +67,7 @@ Para quitar el autoarranque:
 
 ## Mantenimiento
 
-- **Detener la app:** `.\stop-kiosk.ps1`
+- **Detener la app:** `.\stop-kiosk.ps1` (mata los procesos de los puertos 3070 y 4070)
 - **Volver a arrancarla:** `.\start-kiosk.ps1`
 - **Recompilar tras actualizar el código** (`git pull` en `C:\torito_fresh`):
   ```powershell

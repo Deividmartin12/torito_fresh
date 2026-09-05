@@ -3,11 +3,14 @@ import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PrismaService } from '../prisma/prisma.service';
+import { obtenerClaveJwt } from './jwt-config';
 
 interface JwtPayload {
   sub: string;
   email: string;
+  role?: string;
   iat?: number;
+  exp?: number;
 }
 
 @Injectable()
@@ -18,16 +21,16 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      // El vencimiento lo controla el propio token (`exp`), que passport ya valida acá.
+      // Antes había además un chequeo manual de "6 horas" que duplicaba esta regla.
       ignoreExpiration: false,
-      secretOrKey: config.get<string>('JWT_SECRET') ?? 'dev-secret',
+      secretOrKey: obtenerClaveJwt(config),
     });
   }
 
   async validate(payload: JwtPayload) {
-    const issuedAt = payload.iat ? payload.iat * 1000 : 0;
-    if (!issuedAt || Date.now() >= issuedAt + 6 * 60 * 60 * 1000) {
-      throw new UnauthorizedException('La sesión ha vencido');
-    }
+    // El rol se lee de la base en cada petición (no del token), así que desactivar a un
+    // usuario o cambiarle el rol tiene efecto inmediato sin volver a iniciar sesión.
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       include: { role: true },

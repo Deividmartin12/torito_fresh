@@ -1,8 +1,6 @@
 import { api } from './api';
 
-export type OperationKind = 'sale' | 'purchase';
 export type PaymentType = 'CONTADO' | 'CREDITO' | 'MIXTO';
-export type ReceiptType = 'FACTURA' | 'BOLETA' | 'TICKET' | 'NOTA' | 'OTRO';
 
 export type CatalogItem = {
   id: string;
@@ -18,7 +16,6 @@ export type CatalogItem = {
 };
 
 export type OperationCatalogs = {
-  proveedores: CatalogItem[];
   clientes: CatalogItem[];
   almacenes: CatalogItem[];
   productos: CatalogItem[];
@@ -49,10 +46,12 @@ export type StockRow = {
 
 export type OperationDetailLine = {
   id: string;
+  productoId: string;
   producto: string;
   cantidad: number;
   cantidadDevuelta: number;
   precio: number;
+  descuento: number;
   subtotal: number;
 };
 
@@ -60,11 +59,14 @@ export type Sale = {
   id: string;
   codigo: string;
   fecha: string;
+  clienteId: string;
   cliente: string;
   clienteDocumento: string | null;
   clienteTipoDocumento: string | null;
+  almacenId: string;
   almacen: string;
   pago: string;
+  observaciones: string | null;
   subtotal: number;
   igv: number;
   descuento: number;
@@ -73,33 +75,6 @@ export type Sale = {
   montoInicial: number;
   fechaVencimiento: string | null;
   cuentaCobrarId: string | null;
-  pagado: number;
-  saldo: number;
-  estado: string;
-  estadoPago: string;
-  estadoDevolucion: string;
-  kardexId: string | null;
-  kardexRef: string | null;
-  items: OperationDetailLine[];
-};
-
-export type Purchase = {
-  id: string;
-  codigo: string;
-  tipoComprobante: ReceiptType;
-  serie: string;
-  numero: string;
-  comprobante: string;
-  fecha: string;
-  proveedor: string;
-  almacen: string;
-  pago: string;
-  subtotal: number;
-  igv: number;
-  total: number;
-  totalNeto: number;
-  montoInicial: number;
-  fechaVencimiento: string | null;
   pagado: number;
   saldo: number;
   estado: string;
@@ -147,7 +122,8 @@ export type OperationalPaymentPayload = {
   observaciones?: string;
 };
 
-type BaseOperationPayload = {
+export type SaleOperationPayload = {
+  clienteId: string;
   almacenId?: string;
   tipoPago: PaymentType;
   observaciones: string;
@@ -157,17 +133,7 @@ type BaseOperationPayload = {
   items: OperationLine[];
 };
 
-export type SaleOperationPayload = BaseOperationPayload & { clienteId: string };
-export type PurchaseOperationPayload = BaseOperationPayload & {
-  tipoComprobante: ReceiptType;
-  serie: string;
-  numero: string;
-  proveedorId: string;
-  almacenId: string;
-};
-
 export const emptyCatalogs: OperationCatalogs = {
-  proveedores: [],
   clientes: [],
   almacenes: [],
   productos: [],
@@ -196,26 +162,16 @@ function dateRangeQuery(from?: string, to?: string) {
 export function getSales(from?: string, to?: string) {
   return api<Sale[]>(`/operations/sales${dateRangeQuery(from, to)}`);
 }
-export function getPurchases(from?: string, to?: string) {
-  return api<Purchase[]>(`/operations/purchases${dateRangeQuery(from, to)}`);
+export function getSale(id: string) {
+  return api<Sale>(`/operations/sales/${id}`);
 }
-export function createSale(payload: SaleOperationPayload, confirm: boolean) {
-  return api<Sale>(`/operations/sales?confirm=${confirm}`, {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
+// Registrar una venta es un solo paso: queda confirmada de inmediato (descuenta stock y
+// genera kardex), sin un paso de confirmación aparte.
+export function createSale(payload: SaleOperationPayload) {
+  return api<Sale>('/operations/sales', { method: 'POST', body: JSON.stringify(payload) });
 }
-export function createPurchase(payload: PurchaseOperationPayload, confirm: boolean) {
-  return api<Purchase>(`/operations/purchases?confirm=${confirm}`, {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
-}
-export function confirmSale(id: string) {
-  return api<Sale>(`/operations/sales/${id}/confirm`, { method: 'POST' });
-}
-export function confirmPurchase(id: string) {
-  return api<Purchase>(`/operations/purchases/${id}/confirm`, { method: 'POST' });
+export function updateSale(id: string, payload: SaleOperationPayload) {
+  return api<Sale>(`/operations/sales/${id}`, { method: 'PATCH', body: JSON.stringify(payload) });
 }
 export function getOperationalAccounts(type: 'cobrar' | 'pagar', clienteId?: string) {
   const query = clienteId ? `?clienteId=${encodeURIComponent(clienteId)}` : '';
@@ -244,7 +200,7 @@ export function registerOperationalPayment(
 export type OperationalReturn = {
   id: string;
   codigo: string;
-  tipo: 'VENTA' | 'COMPRA';
+  tipo: 'VENTA';
   fecha: string;
   operacionId: string;
   comprobante: string;
@@ -259,7 +215,7 @@ export type OperationalReturn = {
 };
 export type FavorBalance = {
   id: string;
-  tipo: 'CLIENTE' | 'PROVEEDOR';
+  tipo: 'CLIENTE';
   tercero: string;
   original: number;
   disponible: number;
@@ -281,8 +237,8 @@ export type ReturnPayload = {
 export function getOperationalReturns() {
   return api<ReturnsData>('/operations/returns');
 }
-export function createOperationalReturn(type: 'venta' | 'compra', payload: ReturnPayload) {
-  return api<OperationalReturn>(`/operations/returns/${type}`, {
+export function createOperationalReturn(payload: ReturnPayload) {
+  return api<OperationalReturn>('/operations/returns/venta', {
     method: 'POST',
     body: JSON.stringify(payload),
   });

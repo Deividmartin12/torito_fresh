@@ -26,6 +26,7 @@ type Producto = {
 
 export default function ProductosPage() {
   const [datos, setDatos] = useState<Producto[]>([]);
+  const [tiposProducto, setTiposProducto] = useState<{ id: string; nombre: string }[]>([]);
   const [buscar, setBuscar] = useState('');
   const [tipo, setTipo] = useState('Todos');
   const [pagina, setPagina] = useState(1);
@@ -40,6 +41,9 @@ export default function ProductosPage() {
       .catch((cause) =>
         toast.error(cause instanceof Error ? cause.message : 'No se pudieron cargar los productos'),
       );
+    api<{ id: string; nombre: string }[]>('/operations/product-types')
+      .then(setTiposProducto)
+      .catch(() => undefined);
   }, []);
   const tipos = useMemo(
     () => [...new Set(datos.map((item) => item.tipo))].sort((a, b) => a.localeCompare(b)),
@@ -72,7 +76,6 @@ export default function ProductosPage() {
       await api('/operations/products', {
         method: 'POST',
         body: JSON.stringify({
-          codigo: values.get('codigo'),
           nombre: values.get('nombre'),
           tipo: values.get('tipo'),
           unidad: values.get('unidad'),
@@ -83,6 +86,9 @@ export default function ProductosPage() {
         }),
       });
       setDatos(await api<Producto[]>('/operations/products'));
+      api<{ id: string; nombre: string }[]>('/operations/product-types')
+        .then(setTiposProducto)
+        .catch(() => undefined);
       setModal(false);
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : 'No se pudo registrar el producto');
@@ -130,7 +136,7 @@ export default function ProductosPage() {
               setBuscar(event.target.value);
               setPagina(1);
             }}
-            placeholder="Buscar por codigo o nombre"
+            placeholder="Buscar por código o nombre"
           />
         </label>
         <select
@@ -228,7 +234,12 @@ export default function ProductosPage() {
         }}
       />
       {modal ? (
-        <div className="modal-backdrop">
+        <div
+          className="modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !guardando) setModal(false);
+          }}
+        >
           <section
             className="crud-modal"
             role="dialog"
@@ -246,23 +257,30 @@ export default function ProductosPage() {
               </button>
             </div>
             <form className="modal-form" onSubmit={guardar}>
-              <label>
-                <span>Codigo</span>
-                <input name="codigo" defaultValue={editando?.codigo} required />
-              </label>
+              {editando ? (
+                <label>
+                  <span>Código</span>
+                  <input value={editando.codigo} disabled />
+                </label>
+              ) : null}
               <label>
                 <span>Nombre</span>
                 <input name="nombre" defaultValue={editando?.nombre} required />
               </label>
               <label>
                 <span>Tipo de producto</span>
-                <select name="tipo" defaultValue={editando?.tipo ?? 'Agua'}>
-                  <option>Agua</option>
-                  <option>Bidon</option>
-                  <option>Dispensador</option>
-                  <option>Accesorio</option>
-                  <option>Insumo</option>
-                </select>
+                <input
+                  name="tipo"
+                  list="tipos-producto-options"
+                  defaultValue={editando?.tipo}
+                  placeholder="Ej. Agua, Bidón, Insumo..."
+                  required
+                />
+                <datalist id="tipos-producto-options">
+                  {tiposProducto.map((item) => (
+                    <option value={item.nombre} key={item.id} />
+                  ))}
+                </datalist>
               </label>
               <label>
                 <span>Unidad de medida</span>

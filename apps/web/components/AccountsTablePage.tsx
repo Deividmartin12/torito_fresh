@@ -15,7 +15,7 @@ import { useSearchParams } from 'next/navigation';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { estadoCuentaLabel, resumenVencimiento } from '../lib/credit';
-import { money } from '../lib/format';
+import { moneda } from '../lib/format';
 import {
   getOperationalAccounts,
   getOperationalPaymentMethods,
@@ -285,10 +285,10 @@ export function AccountsTablePage({ tipo }: { tipo: 'cobrar' | 'pagar' }) {
           <span className={`due-state ${due.tone}`}>{due.label}</span>
           <small>{estadoCuentaLabel[item.estado] ?? item.estado}</small>
         </td>
-        <td>{money(item.original)}</td>
-        <td>{money(item.pagado)}</td>
+        <td>{moneda(item.original)}</td>
+        <td>{moneda(item.pagado)}</td>
         <td>
-          <strong>{money(item.saldo)}</strong>
+          <strong>{moneda(item.saldo)}</strong>
         </td>
         <td>
           <div className="row-actions">
@@ -352,11 +352,11 @@ export function AccountsTablePage({ tipo }: { tipo: 'cobrar' | 'pagar' }) {
       <div className="summary-row">
         <div className="summary-glass">
           <span>{payable ? 'Saldo por pagar' : 'Total por cobrar'}</span>
-          <strong>{money(saldoTotal)}</strong>
+          <strong>{moneda(saldoTotal)}</strong>
         </div>
         <div className="summary-glass">
           <span>Saldo vencido</span>
-          <strong>{money(vencidoTotal)}</strong>
+          <strong>{moneda(vencidoTotal)}</strong>
         </div>
         <div className="summary-glass">
           <span>Vence en 7 días</span>
@@ -364,7 +364,7 @@ export function AccountsTablePage({ tipo }: { tipo: 'cobrar' | 'pagar' }) {
         </div>
         <div className="summary-glass">
           <span>{payable ? 'Pagado' : 'Cobrado'} este mes</span>
-          <strong>{money(paidThisMonth)}</strong>
+          <strong>{moneda(paidThisMonth)}</strong>
         </div>
       </div>
 
@@ -377,7 +377,7 @@ export function AccountsTablePage({ tipo }: { tipo: 'cobrar' | 'pagar' }) {
           <TriangleAlert size={18} />
           <span>
             <strong>{vencidas.length} vencidas</strong>
-            <small>{money(vencidoTotal)} por regularizar</small>
+            <small>{moneda(vencidoTotal)} por regularizar</small>
           </span>
         </button>
         <button
@@ -534,7 +534,7 @@ export function AccountsTablePage({ tipo }: { tipo: 'cobrar' | 'pagar' }) {
                     </td>
                     <td colSpan={2} />
                     <td>
-                      <strong>{money(group.saldo)}</strong>
+                      <strong>{moneda(group.saldo)}</strong>
                     </td>
                     <td>
                       <div className="row-actions">
@@ -675,10 +675,10 @@ export function AccountsTablePage({ tipo }: { tipo: 'cobrar' | 'pagar' }) {
             <div className="account-history-body">
               <div className="payment-balance-preview">
                 <span>
-                  Monto original <strong>{money(historial.original)}</strong>
+                  Monto original <strong>{moneda(historial.original)}</strong>
                 </span>
                 <span>
-                  Saldo pendiente <strong>{money(historial.saldo)}</strong>
+                  Saldo pendiente <strong>{moneda(historial.saldo)}</strong>
                 </span>
               </div>
               {historial.pagos.length ? (
@@ -694,7 +694,7 @@ export function AccountsTablePage({ tipo }: { tipo: 'cobrar' | 'pagar' }) {
                           <small>Operación: {payment.numeroOperacion}</small>
                         ) : null}
                       </div>
-                      <strong>{money(payment.monto)}</strong>
+                      <strong>{moneda(payment.monto)}</strong>
                     </article>
                   ))}
                 </div>

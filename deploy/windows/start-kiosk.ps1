@@ -1,7 +1,7 @@
 <#
-  Levanta backend + frontend de Torito Fresh y abre Chrome a pantalla completa
-  en http://localhost:3070. Lo dispara la Tarea Programada al iniciar sesion;
-  tambien se puede correr a mano para probar.
+  Levanta backend + frontend de Torito Fresh y los deja corriendo en segundo plano.
+  NO abre ningun navegador: el usuario entra solo a http://localhost:3070.
+  Lo dispara la Tarea Programada al iniciar sesion; tambien se puede correr a mano.
 #>
 
 $ErrorActionPreference = 'Continue'
@@ -48,36 +48,10 @@ for ($i = 0; $i -lt 90; $i++) {
   if ($apiUp -and $webUp) { $ready = $true; break }
   Start-Sleep -Seconds 1
 }
-if ($ready) { Log "Servicios arriba." } else { Log "AVISO: no confirme salud en 90s; abro Chrome igual." }
 
-# 5) Navegador en modo kiosko --------------------------------------------
-# Preferimos Firefox; si no esta, usamos Chrome.
-$firefox = @(
-  "$env:ProgramFiles\Mozilla Firefox\firefox.exe"
-  "${env:ProgramFiles(x86)}\Mozilla Firefox\firefox.exe"
-) | Where-Object { Test-Path $_ } | Select-Object -First 1
-
-if ($firefox) {
-  $ffProfile = Join-Path $env:LOCALAPPDATA 'ToritoKioskFirefox'
-  New-Item -ItemType Directory -Force -Path $ffProfile | Out-Null
-  Log "Abriendo Firefox kiosko: $firefox"
-  & $firefox -kiosk -no-remote -new-instance -profile $ffProfile $Url
-  return
+if ($ready) {
+  Log "Todo listo. Abre el navegador en $Url"
+} else {
+  Log "AVISO: los servicios no respondieron en 90s. Revisa que PostgreSQL este corriendo."
+  exit 1
 }
-
-$chrome = @(
-  "$env:ProgramFiles\Google\Chrome\Application\chrome.exe"
-  "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe"
-  "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe"
-) | Where-Object { Test-Path $_ } | Select-Object -First 1
-
-if (-not $chrome) { Log "No encuentro Firefox ni Chrome. Instala Firefox y reintenta."; exit 1 }
-Log "Firefox no encontrado; abriendo Chrome kiosko: $chrome"
-& $chrome `
-  --kiosk `
-  --app=$Url `
-  --user-data-dir="$env:LOCALAPPDATA\ToritoKiosk" `
-  --no-first-run `
-  --no-default-browser-check `
-  --disable-features=TranslateUI `
-  --overscroll-history-navigation=0

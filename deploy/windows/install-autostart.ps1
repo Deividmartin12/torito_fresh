@@ -1,6 +1,6 @@
 <#
-  Crea la Tarea Programada "ToritoKiosk" que al iniciar sesion levanta la app
-  y abre Chrome a pantalla completa. Correr COMO ADMINISTRADOR.
+  Crea la Tarea Programada "ToritoKiosk" que al iniciar sesion levanta el backend
+  y el frontend en segundo plano. No abre ningun navegador. Correr COMO ADMINISTRADOR.
 
   Parametro opcional -User  (por defecto el usuario actual).
 #>
@@ -24,4 +24,5 @@ Register-ScheduledTask -TaskName 'ToritoKiosk' -Action $action -Trigger $trigger
 
 Write-Host "Tarea 'ToritoKiosk' creada para el usuario '$User'." -ForegroundColor Green
 Write-Host "Cierra sesion y vuelve a entrar (o reinicia) para probar."
+Write-Host "Despues, entra a http://localhost:3070 desde el navegador."
 Write-Host "Para quitarla:  .\uninstall-autostart.ps1"

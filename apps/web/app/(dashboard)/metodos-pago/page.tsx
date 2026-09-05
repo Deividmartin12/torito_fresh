@@ -219,26 +219,33 @@ export default function MetodosPagoPage() {
                   autoFocus
                 />
               </label>
-              <label className="check-field field-wide">
-                <input
-                  type="checkbox"
-                  checked={form.requiereOperacion}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, requiereOperacion: event.target.checked }))
-                  }
-                />
-                <span>Requiere número de operación</span>
-              </label>
-              <label className="check-field field-wide">
-                <input
-                  type="checkbox"
-                  checked={form.estado}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, estado: event.target.checked }))
-                  }
-                />
-                <span>Método activo</span>
-              </label>
+              {editing ? (
+                <>
+                  <label className="check-field field-wide">
+                    <input
+                      type="checkbox"
+                      checked={form.requiereOperacion}
+                      onChange={(event) =>
+                        setForm((current) => ({
+                          ...current,
+                          requiereOperacion: event.target.checked,
+                        }))
+                      }
+                    />
+                    <span>Requiere número de operación</span>
+                  </label>
+                  <label className="check-field field-wide">
+                    <input
+                      type="checkbox"
+                      checked={form.estado}
+                      onChange={(event) =>
+                        setForm((current) => ({ ...current, estado: event.target.checked }))
+                      }
+                    />
+                    <span>Método activo</span>
+                  </label>
+                </>
+              ) : null}
               <div className="modal-actions">
                 <button className="btn-secondary" type="button" onClick={close} disabled={saving}>
                   Cancelar

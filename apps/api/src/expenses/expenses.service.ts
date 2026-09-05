@@ -10,6 +10,7 @@ import {
   CreateExpenseCategoryDto,
   CreateExpenseDto,
   UpdateExpenseCategoryDto,
+  UpdateExpenseDto,
 } from './expenses.dto';
 
 @Injectable()
@@ -17,8 +18,8 @@ export class ExpensesService {
   constructor(private readonly prisma: PrismaService) {}
 
   async list(from?: string, to?: string) {
-    // `Gasto.fecha` is a date-only column stored at UTC midnight; filter with UTC boundaries
-    // so an expense dated exactly on `from` is included and `to` stays inclusive.
+    // `Gasto.fecha` es una columna de solo fecha guardada a medianoche UTC, así que se
+    // filtra con límites UTC para que un gasto fechado justo en `from` entre y `to` sea inclusivo.
     const hasRange = Boolean(from || to);
     const gte = from ? new Date(`${from}T00:00:00Z`) : undefined;
     let lt: Date | undefined;
@@ -34,8 +35,8 @@ export class ExpensesService {
         ? { fecha: { ...(gte ? { gte } : {}), ...(lt ? { lt } : {}) } }
         : undefined,
       orderBy: [{ fecha: 'desc' }, { id: 'desc' }],
-      take: hasRange ? 500 : 200,
-      include: { trabajador: true },
+      take: 1000,
+      include: { trabajador: true, proveedor: true },
     });
     return rows.map((row) => this.view(row));
   }
@@ -56,6 +57,14 @@ export class ExpensesService {
     const categoria = this.categoryName(dto.categoria);
     const exists = await this.findCategoryByName(categoria);
     if (!exists) throw new BadRequestException('Selecciona una categoría de gasto registrada');
+    let proveedorId: bigint | undefined;
+    if (dto.proveedorId) {
+      const proveedor = await this.prisma.proveedor.findUnique({
+        where: { id: BigInt(dto.proveedorId) },
+      });
+      if (!proveedor) throw new BadRequestException('El proveedor seleccionado no existe');
+      proveedorId = proveedor.id;
+    }
     const worker = await this.prisma.trabajador.findFirst({
       where: { estado: true },
       orderBy: { id: 'asc' },
@@ -69,8 +78,60 @@ export class ExpensesService {
         comprobante: dto.comprobante?.trim() || null,
         observaciones: dto.observaciones?.trim() || null,
         trabajadorId: worker?.id,
+        proveedorId,
       },
-      include: { trabajador: true },
+      include: { trabajador: true, proveedor: true },
+    });
+    return this.view(row);
+  }
+
+  async update(id: string, dto: UpdateExpenseDto) {
+    const gastoId = this.parseId(id);
+    const current = await this.prisma.gasto.findUnique({ where: { id: gastoId } });
+    if (!current) throw new NotFoundException('Gasto no encontrado');
+
+    const data: Prisma.GastoUpdateInput = {};
+    if (dto.fecha !== undefined) {
+      const date = new Date(`${dto.fecha.slice(0, 10)}T00:00:00-05:00`);
+      if (Number.isNaN(date.getTime()))
+        throw new BadRequestException('La fecha del gasto no es válida');
+      const today = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Lima',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date());
+      if (dto.fecha.slice(0, 10) > today)
+        throw new BadRequestException('La fecha del gasto no puede estar en el futuro');
+      data.fecha = date;
+    }
+    if (dto.concepto !== undefined) data.concepto = dto.concepto.trim();
+    if (dto.categoria !== undefined) {
+      const categoria = this.categoryName(dto.categoria);
+      const exists = await this.findCategoryByName(categoria);
+      if (!exists) throw new BadRequestException('Selecciona una categoría de gasto registrada');
+      data.categoria = categoria;
+    }
+    if (dto.monto !== undefined) data.monto = dto.monto;
+    if (dto.comprobante !== undefined) data.comprobante = dto.comprobante.trim() || null;
+    if (dto.observaciones !== undefined) data.observaciones = dto.observaciones.trim() || null;
+    if (dto.proveedorId !== undefined) {
+      if (dto.proveedorId) {
+        const proveedor = await this.prisma.proveedor.findUnique({
+          where: { id: BigInt(dto.proveedorId) },
+        });
+        if (!proveedor) throw new BadRequestException('El proveedor seleccionado no existe');
+        data.proveedor = { connect: { id: proveedor.id } };
+      } else {
+        data.proveedor = { disconnect: true };
+      }
+    }
+
+    // No se toca `trabajadorId`: editar un gasto no reasigna quién lo registró.
+    const row = await this.prisma.gasto.update({
+      where: { id: gastoId },
+      data,
+      include: { trabajador: true, proveedor: true },
     });
     return this.view(row);
   }
@@ -125,6 +186,14 @@ export class ExpensesService {
     return { id: category.id.toString() };
   }
 
+  private parseId(id: string): bigint {
+    try {
+      return BigInt(id);
+    } catch {
+      throw new NotFoundException('Gasto no encontrado');
+    }
+  }
+
   private categoryName(value: string) {
     const nombre = value.trim();
     if (!nombre) throw new BadRequestException('El nombre de la categoría es obligatorio');
@@ -163,6 +232,8 @@ export class ExpensesService {
       monto: Number(row.monto),
       comprobante: row.comprobante,
       observaciones: row.observaciones,
+      proveedorId: row.proveedorId?.toString() ?? null,
+      proveedor: row.proveedor?.razonSocial ?? null,
       registradoPor: row.trabajador
         ? `${row.trabajador.nombres} ${row.trabajador.apellidos}`
         : null,

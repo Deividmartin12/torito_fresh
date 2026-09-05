@@ -24,7 +24,7 @@ export function movementStyle(tipo: string): MovementStyle {
   return MOVEMENT_STYLES[tipo] ?? MOVEMENT_STYLES.TRANSFERENCIA;
 }
 
-/** Options for the movement-type filter: friendly label, enum value. */
+/** Opciones del filtro por tipo de movimiento: etiqueta legible y valor del enum. */
 export const MOVEMENT_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: '', label: 'Todos los tipos' },
   { value: 'COMPRA', label: 'Entradas por compra' },

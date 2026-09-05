@@ -4,23 +4,19 @@ import { Eye, Plus, Search, X } from 'lucide-react';
 import Link from 'next/link';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { money } from '../../../lib/format';
+import { moneda } from '../../../lib/format';
 import {
   createOperationalReturn,
   getOperationCatalogs,
   getOperationalReturns,
-  getPurchases,
   getSales,
   OperationCatalogs,
   OperationalReturn,
-  Purchase,
   ReturnsData,
   Sale,
   emptyCatalogs,
 } from '../../../lib/operations';
 
-type ReturnKind = 'VENTA' | 'COMPRA';
-type Source = Sale | Purchase;
 type LineDraft = {
   detalleId: string;
   cantidad: number;
@@ -32,14 +28,11 @@ const emptyData: ReturnsData = { devoluciones: [], saldosFavor: [] };
 export default function DevolucionesPage() {
   const [data, setData] = useState<ReturnsData>(emptyData);
   const [sales, setSales] = useState<Sale[]>([]);
-  const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [catalogs, setCatalogs] = useState<OperationCatalogs>(emptyCatalogs);
   const [search, setSearch] = useState('');
-  const [filterKind, setFilterKind] = useState('TODAS');
   const [tab, setTab] = useState<'devoluciones' | 'saldos'>('devoluciones');
   const [modal, setModal] = useState(false);
   const [detail, setDetail] = useState<OperationalReturn | null>(null);
-  const [kind, setKind] = useState<ReturnKind>('VENTA');
   const [operationId, setOperationId] = useState('');
   const [reason, setReason] = useState('');
   const [notes, setNotes] = useState('');
@@ -49,15 +42,13 @@ export default function DevolucionesPage() {
 
   const load = useCallback(async () => {
     try {
-      const [returnsData, saleData, purchaseData, catalogData] = await Promise.all([
+      const [returnsData, saleData, catalogData] = await Promise.all([
         getOperationalReturns(),
         getSales(),
-        getPurchases(),
         getOperationCatalogs(),
       ]);
       setData(returnsData);
       setSales(saleData);
-      setPurchases(purchaseData);
       setCatalogs(catalogData);
     } catch (cause) {
       toast.error(
@@ -72,30 +63,28 @@ export default function DevolucionesPage() {
     void load();
   }, [load]);
 
-  const sources = useMemo<Source[]>(
+  const sources = useMemo<Sale[]>(
     () =>
-      (kind === 'VENTA' ? sales : purchases).filter(
+      sales.filter(
         (item) =>
           item.estado === 'CONFIRMADA' &&
           item.items.some((line) => line.cantidadDevuelta < line.cantidad),
       ),
-    [kind, purchases, sales],
+    [sales],
   );
   const source = sources.find((item) => item.id === operationId);
-  const visible = data.devoluciones.filter(
-    (item) =>
-      (filterKind === 'TODAS' || item.tipo === filterKind) &&
-      `${item.codigo} ${item.comprobante} ${item.tercero} ${item.motivo}`
-        .toLowerCase()
-        .includes(search.toLowerCase()),
+  const visible = data.devoluciones.filter((item) =>
+    `${item.codigo} ${item.comprobante} ${item.tercero} ${item.motivo}`
+      .toLowerCase()
+      .includes(search.toLowerCase()),
   );
   const availableState =
     catalogs.estadosInventario.find((item) => item.codigo === 'DISPONIBLE') ??
     catalogs.estadosInventario[0];
 
-  function selectOperation(id: string, nextKind = kind) {
+  function selectOperation(id: string) {
     setOperationId(id);
-    const selected = (nextKind === 'VENTA' ? sales : purchases).find((item) => item.id === id);
+    const selected = sales.find((item) => item.id === id);
     setLines(
       selected?.items.map((item) => ({
         detalleId: item.id,
@@ -106,31 +95,27 @@ export default function DevolucionesPage() {
     );
   }
   function openCreate() {
-    const initialKind: ReturnKind = sales.some((item) => item.estado === 'CONFIRMADA')
-      ? 'VENTA'
-      : 'COMPRA';
-    setKind(initialKind);
     setReason('');
     setNotes('');
     setDetail(null);
     setModal(true);
-    const first = (initialKind === 'VENTA' ? sales : purchases).find(
+    const first = sales.find(
       (item) =>
         item.estado === 'CONFIRMADA' &&
         item.items.some((line) => line.cantidadDevuelta < line.cantidad),
     );
-    selectOperation(first?.id ?? '', initialKind);
+    selectOperation(first?.id ?? '');
   }
   async function submit(event: FormEvent) {
     event.preventDefault();
     const selected = lines.filter((line) => line.cantidad > 0);
     if (!operationId || !reason.trim() || !selected.length) {
-      toast.error('Selecciona la operación, indica el motivo y agrega al menos una cantidad.');
+      toast.error('Selecciona la venta, indica el motivo y agrega al menos una cantidad.');
       return;
     }
     setSaving(true);
     try {
-      await createOperationalReturn(kind.toLowerCase() as 'venta' | 'compra', {
+      await createOperationalReturn({
         operacionId: Number(operationId),
         motivo: reason,
         observaciones: notes,
@@ -138,7 +123,7 @@ export default function DevolucionesPage() {
           detalleId: Number(line.detalleId),
           cantidad: line.cantidad,
           estadoDestinoId: line.estadoDestinoId ? Number(line.estadoDestinoId) : undefined,
-          reintegraInventario: kind === 'VENTA' ? line.reintegraInventario : true,
+          reintegraInventario: line.reintegraInventario,
         })),
       });
       setModal(false);
@@ -159,10 +144,7 @@ export default function DevolucionesPage() {
         <div>
           <span className="operation-eyebrow">Operaciones relacionadas</span>
           <h1>Devoluciones y saldos a favor</h1>
-          <p>
-            Cada devolución conserva la compra o venta original y registra sus efectos financieros y
-            físicos.
-          </p>
+          <p>Cada devolución conserva la venta original y registra sus efectos financieros y físicos.</p>
         </div>
         <button className="btn-primary operation-primary-action" onClick={openCreate}>
           <Plus size={18} /> Nueva devolución
@@ -182,21 +164,7 @@ export default function DevolucionesPage() {
         <div className="summary-glass">
           <span>Saldos de clientes</span>
           <strong>
-            S/{' '}
-            {data.saldosFavor
-              .filter((item) => item.tipo === 'CLIENTE')
-              .reduce((sum, item) => sum + item.disponible, 0)
-              .toFixed(2)}
-          </strong>
-        </div>
-        <div className="summary-glass">
-          <span>Saldos con proveedores</span>
-          <strong>
-            S/{' '}
-            {data.saldosFavor
-              .filter((item) => item.tipo === 'PROVEEDOR')
-              .reduce((sum, item) => sum + item.disponible, 0)
-              .toFixed(2)}
+            S/ {data.saldosFavor.reduce((sum, item) => sum + item.disponible, 0).toFixed(2)}
           </strong>
         </div>
       </div>
@@ -219,18 +187,9 @@ export default function DevolucionesPage() {
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Buscar devolución, comprobante o tercero"
+                placeholder="Buscar devolución, comprobante o cliente"
               />
             </label>
-            <select
-              className="filter-pill"
-              value={filterKind}
-              onChange={(event) => setFilterKind(event.target.value)}
-            >
-              <option>TODAS</option>
-              <option>VENTA</option>
-              <option>COMPRA</option>
-            </select>
           </div>
           {loading ? (
             <div className="table-loading">
@@ -242,8 +201,8 @@ export default function DevolucionesPage() {
                 <thead>
                   <tr>
                     <th>Devolución</th>
-                    <th>Origen 1:1</th>
-                    <th>Cliente / proveedor</th>
+                    <th>Venta original</th>
+                    <th>Cliente</th>
                     <th>Motivo</th>
                     <th>Total</th>
                     <th>Efecto</th>
@@ -254,24 +213,21 @@ export default function DevolucionesPage() {
                 <tbody>
                   {visible.length ? (
                     visible.map((item) => (
-                      <tr key={`${item.tipo}-${item.id}`}>
+                      <tr key={item.id}>
                         <td>
                           <strong>{item.codigo}</strong>
                           <small>{new Date(item.fecha).toLocaleString('es-PE')}</small>
                         </td>
-                        <td>
-                          <span className="status status-blue">{item.tipo}</span>
-                          <small>{item.comprobante}</small>
-                        </td>
+                        <td>{item.comprobante}</td>
                         <td>{item.tercero}</td>
                         <td>{item.motivo}</td>
                         <td>
-                          <strong>{money(item.total)}</strong>
+                          <strong>{moneda(item.total)}</strong>
                         </td>
                         <td>
                           {item.saldoFavor > 0 ? (
                             <span className="status status-amber">
-                              Saldo {money(item.saldoFavor)}
+                              Saldo {moneda(item.saldoFavor)}
                             </span>
                           ) : item.kardexId ? (
                             <Link
@@ -315,8 +271,7 @@ export default function DevolucionesPage() {
           <table>
             <thead>
               <tr>
-                <th>Tipo</th>
-                <th>Cliente / proveedor</th>
+                <th>Cliente</th>
                 <th>Generado</th>
                 <th>Original</th>
                 <th>Disponible</th>
@@ -327,9 +282,6 @@ export default function DevolucionesPage() {
               {data.saldosFavor.length ? (
                 data.saldosFavor.map((item) => (
                   <tr key={item.id}>
-                    <td>
-                      <span className="status status-blue">{item.tipo}</span>
-                    </td>
                     <td>
                       <strong>{item.tercero}</strong>
                     </td>
@@ -345,7 +297,7 @@ export default function DevolucionesPage() {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={6}>
+                  <td colSpan={5}>
                     <div className="table-empty">No existen saldos a favor pendientes.</div>
                   </td>
                 </tr>
@@ -356,7 +308,12 @@ export default function DevolucionesPage() {
       )}
 
       {modal ? (
-        <div className="modal-backdrop">
+        <div
+          className="modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !saving) setModal(false);
+          }}
+        >
           <section
             className="crud-modal return-modal"
             role="dialog"
@@ -367,7 +324,7 @@ export default function DevolucionesPage() {
               <div>
                 <h2 id="return-title">Registrar devolución</h2>
                 <small>
-                  Solo puedes devolver productos y cantidades de la operación seleccionada.
+                  Solo puedes devolver productos y cantidades de la venta seleccionada.
                 </small>
               </div>
               <button className="modal-close" onClick={() => setModal(false)}>
@@ -375,45 +332,21 @@ export default function DevolucionesPage() {
               </button>
             </div>
             <form className="modal-form" onSubmit={submit}>
-              <div className="operation-field-pair">
-                <label>
-                  <span>Origen</span>
-                  <select
-                    value={kind}
-                    onChange={(event) => {
-                      const next = event.target.value as ReturnKind;
-                      setKind(next);
-                      const first = (next === 'VENTA' ? sales : purchases).find(
-                        (item) =>
-                          item.estado === 'CONFIRMADA' &&
-                          item.items.some((line) => line.cantidadDevuelta < line.cantidad),
-                      );
-                      selectOperation(first?.id ?? '', next);
-                    }}
-                  >
-                    <option>VENTA</option>
-                    <option>COMPRA</option>
-                  </select>
-                </label>
-                <label>
-                  <span>{kind === 'VENTA' ? 'Venta' : 'Compra'} original</span>
-                  <select
-                    value={operationId}
-                    onChange={(event) => selectOperation(event.target.value)}
-                    required
-                  >
-                    <option value="">Seleccionar operación</option>
-                    {sources.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.codigo} ·{' '}
-                        {'cliente' in item
-                          ? item.cliente
-                          : `${item.comprobante} · ${item.proveedor}`}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
+              <label className="field-wide">
+                <span>Venta original</span>
+                <select
+                  value={operationId}
+                  onChange={(event) => selectOperation(event.target.value)}
+                  required
+                >
+                  <option value="">Seleccionar venta</option>
+                  {sources.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.codigo} · {item.cliente}
+                    </option>
+                  ))}
+                </select>
+              </label>
               {source ? (
                 <div className="return-source-summary">
                   <span>
@@ -435,7 +368,7 @@ export default function DevolucionesPage() {
                   <span>Producto</span>
                   <span>Disponible para devolver</span>
                   <span>Cantidad</span>
-                  {kind === 'VENTA' ? <span>Destino físico</span> : null}
+                  <span>Destino físico</span>
                 </div>
                 {source?.items.map((item, index) => {
                   const draft = lines[index];
@@ -445,7 +378,7 @@ export default function DevolucionesPage() {
                       <div>
                         <strong>{item.producto}</strong>
                         <small>
-                          {item.cantidad} vendidos/comprados · {item.cantidadDevuelta} ya devueltos
+                          {item.cantidad} vendidos · {item.cantidadDevuelta} ya devueltos
                         </small>
                       </div>
                       <span>{remaining}</span>
@@ -465,7 +398,7 @@ export default function DevolucionesPage() {
                           )
                         }
                       />
-                      {kind === 'VENTA' && draft ? (
+                      {draft ? (
                         <div className="return-destination">
                           <label className="check-field">
                             <input
@@ -541,7 +474,12 @@ export default function DevolucionesPage() {
         </div>
       ) : null}
       {detail ? (
-        <div className="modal-backdrop">
+        <div
+          className="modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setDetail(null);
+          }}
+        >
           <section className="crud-modal">
             <div className="modal-top">
               <div>

@@ -10,6 +10,18 @@ export function ThemeToggle({ className = '' }: { className?: string }) {
 
   useEffect(() => {
     setTheme(document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light');
+
+    // Mientras el usuario no elija tema a mano, seguir la preferencia del sistema en vivo.
+    if (localStorage.getItem('torito-theme')) return;
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const syncWithSystem = () => {
+      const systemTheme: Theme = media.matches ? 'dark' : 'light';
+      document.documentElement.dataset.theme = systemTheme;
+      document.documentElement.style.colorScheme = systemTheme;
+      setTheme(systemTheme);
+    };
+    media.addEventListener('change', syncWithSystem);
+    return () => media.removeEventListener('change', syncWithSystem);
   }, []);
 
   function toggleTheme() {

@@ -3,8 +3,9 @@ node_modules
 .next-dev
 dist
 coverage
-.env
-.env.local
-.env.*.local
+# Cualquier archivo de entorno queda fuera de git (ahí van contraseñas y claves).
+# La única excepción es `.env.example`, que solo tiene valores de ejemplo.
+.env*
+!.env.example
 *.log
 uploads
