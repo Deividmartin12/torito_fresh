@@ -306,54 +306,6 @@ function HeatmapRow({
   );
 }
 
-export function MixAndPaymentsChart({
-  customerMix,
-  payments,
-}: {
-  customerMix: { new: number; recurring: number };
-  payments: { name: string; value: number }[];
-}) {
-  const totalMix = customerMix.new + customerMix.recurring;
-  const paymentTotal = payments.reduce((sum, item) => sum + item.value, 0);
-  return (
-    <ChartCard
-      icon={<BarChart3 size={18} />}
-      title="Fidelización y métodos de pago"
-      subtitle="Participación de clientes y composición de cobros"
-    >
-      <div className="mix-section">
-        <div className="mix-title">
-          <span>Nuevo vs recurrente</span>
-          <strong>
-            {totalMix
-              ? `${Math.round((customerMix.recurring / totalMix) * 100)}% recurrente`
-              : 'Sin datos'}
-          </strong>
-        </div>
-        <div className="mix-stack">
-          <span style={{ width: `${totalMix ? (customerMix.new / totalMix) * 100 : 0}%` }} />
-          <i style={{ width: `${totalMix ? (customerMix.recurring / totalMix) * 100 : 0}%` }} />
-        </div>
-        <div className="mix-legend">
-          <span>Nuevos {moneda(customerMix.new)}</span>
-          <span>Recurrentes {moneda(customerMix.recurring)}</span>
-        </div>
-      </div>
-      <div className="payment-bars">
-        {payments.map((item) => (
-          <div key={item.name}>
-            <span>{item.name}</span>
-            <div>
-              <i style={{ width: `${paymentTotal ? (item.value / paymentTotal) * 100 : 0}%` }} />
-            </div>
-            <strong>{moneda(item.value)}</strong>
-          </div>
-        ))}
-      </div>
-    </ChartCard>
-  );
-}
-
 function ChartCard({
   icon,
   title,

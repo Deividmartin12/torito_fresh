@@ -3,6 +3,7 @@
 import { HandCoins, Pencil, X } from 'lucide-react';
 import Link from 'next/link';
 import { resumenVencimiento } from '../../lib/credit';
+import { fechaCorta } from '../../lib/format';
 import { OperationDetailLine } from '../../lib/operations';
 
 type Props = {
@@ -98,11 +99,7 @@ export function OperationDetailDialog({
               <span>
                 Vencimiento
                 <strong>
-                  {dueDate
-                    ? `${new Intl.DateTimeFormat('es-PE', { timeZone: 'UTC' }).format(
-                        new Date(dueDate),
-                      )} · ${due.label}`
-                    : 'Sin fecha programada'}
+                  {dueDate ? `${fechaCorta(dueDate)} · ${due.label}` : 'Sin fecha programada'}
                 </strong>
               </span>
             ) : null}

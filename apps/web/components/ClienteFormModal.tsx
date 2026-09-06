@@ -5,6 +5,7 @@ import { FormEvent, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import { Cliente, createCliente, updateCliente } from '../lib/clients';
+import { consultarDni, consultarRuc } from '../lib/consulta-documento';
 
 type Props = {
   editando?: Cliente | null;
@@ -25,6 +26,34 @@ export function ClienteFormModal({ editando, onClose, onSaved }: Props) {
     address: editando?.address ?? '',
   });
   const [saving, setSaving] = useState(false);
+  const [buscando, setBuscando] = useState(false);
+
+  // El botón "Buscar" aplica solo a DNI (8 dígitos) y RUC (11 dígitos).
+  const largoDocumento = form.documentType === 'DNI' ? 8 : form.documentType === 'RUC' ? 11 : 0;
+  const puedeBuscar = largoDocumento > 0 && form.document.trim().length === largoDocumento;
+
+  async function buscarDocumento() {
+    const numero = form.document.trim();
+    setBuscando(true);
+    try {
+      if (form.documentType === 'DNI') {
+        const persona = await consultarDni(numero);
+        setForm((current) => ({ ...current, name: persona.nombreCompleto }));
+      } else {
+        const empresa = await consultarRuc(numero);
+        setForm((current) => ({
+          ...current,
+          name: empresa.razonSocial,
+          address: empresa.direccion || current.address,
+        }));
+      }
+      toast.success('Datos encontrados.');
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : 'No se pudo consultar el documento');
+    } finally {
+      setBuscando(false);
+    }
+  }
 
   async function guardar(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -76,7 +105,7 @@ export function ClienteFormModal({ editando, onClose, onSaved }: Props) {
           </button>
         </div>
         <form className="modal-form" onSubmit={(event) => void guardar(event)}>
-          <label>
+          <label className="field-wide">
             <span>Nombre</span>
             <input
               value={form.name}
@@ -84,7 +113,7 @@ export function ClienteFormModal({ editando, onClose, onSaved }: Props) {
               required
             />
           </label>
-          <label>
+          <label className="field-wide">
             <span>Celular</span>
             <input
               value={form.phone}
@@ -106,10 +135,30 @@ export function ClienteFormModal({ editando, onClose, onSaved }: Props) {
           </label>
           <label>
             <span>Número de documento (opcional)</span>
-            <input
-              value={form.document}
-              onChange={(event) => setForm({ ...form, document: event.target.value })}
-            />
+            <div className="field-with-action">
+              <input
+                value={form.document}
+                onChange={(event) => {
+                  const bruto = event.target.value;
+                  // DNI y RUC son solo dígitos (8 y 11); CE puede tener letras.
+                  const limite =
+                    form.documentType === 'DNI' ? 8 : form.documentType === 'RUC' ? 11 : 0;
+                  const valor = limite ? bruto.replace(/\D/g, '').slice(0, limite) : bruto;
+                  setForm({ ...form, document: valor });
+                }}
+                inputMode={form.documentType === 'CE' || !form.documentType ? 'text' : 'numeric'}
+              />
+              {form.documentType === 'DNI' || form.documentType === 'RUC' ? (
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => void buscarDocumento()}
+                  disabled={!puedeBuscar || buscando}
+                >
+                  {buscando ? 'Buscando...' : 'Buscar'}
+                </button>
+              ) : null}
+            </div>
           </label>
           <label className="field-wide">
             <span>Dirección (opcional)</span>

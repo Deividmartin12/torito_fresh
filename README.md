@@ -53,12 +53,12 @@ cp apps/web/.env.example apps/web/.env.local
 
 Edita `.env` y completa:
 
-| Variable | Qué es |
-|---|---|
-| `DATABASE_URL` | `postgresql://usuario:clave@localhost:5432/torito_fresh?schema=public` |
-| `JWT_SECRET` | Cadena larga y aleatoria. Genérala con `openssl rand -base64 48` |
-| `NEXT_PUBLIC_API_URL` | `http://localhost:4070` |
-| `WEB_ORIGIN` | `http://localhost:3070` (orígenes permitidos por CORS, separados por coma) |
+| Variable              | Qué es                                                                     |
+| --------------------- | -------------------------------------------------------------------------- |
+| `DATABASE_URL`        | `postgresql://usuario:clave@localhost:5432/torito_fresh?schema=public`     |
+| `JWT_SECRET`          | Cadena larga y aleatoria. Genérala con `openssl rand -base64 48`           |
+| `NEXT_PUBLIC_API_URL` | `http://localhost:4070`                                                    |
+| `WEB_ORIGIN`          | `http://localhost:3070` (orígenes permitidos por CORS, separados por coma) |
 
 Los archivos `.env` **nunca** se suben a git: `.gitignore` los excluye a todos y solo deja pasar
 los `.env.example`. Si `JWT_SECRET` falta o es muy corto, la API se niega a arrancar con un
@@ -86,36 +86,36 @@ Entra a **http://localhost:3070**.
 
 ## Usuarios iniciales (seed)
 
-| Usuario | Clave | Rol |
-|---|---|---|
+| Usuario | Clave   | Rol           |
+| ------- | ------- | ------------- |
 | `admin` | `admin` | Administrador |
-| `01` | `01` | Reparto |
-| `02` | `02` | Reparto |
+| `01`    | `01`    | Reparto       |
+| `02`    | `02`    | Reparto       |
 
 Se puede iniciar sesión con el usuario o con el correo (`<usuario>@toritofresh.local`).
 **Cámbialas apenas entres la primera vez**: son solo para arrancar.
 
 ## Comandos útiles
 
-| Comando | Para qué |
-|---|---|
-| `npm run dev:api` / `npm run dev:web` | Levantar en modo desarrollo |
-| `npm run build` | Compilar backend y frontend para producción |
-| `npm run db:push` | Sincronizar el esquema + aplicar las constraints |
-| `npm run db:constraints` | Solo reaplicar las constraints SQL |
-| `npm run db:seed` | Recargar usuarios y catálogos iniciales |
-| `npm run db:studio` | Abrir Prisma Studio para ver/editar la base |
-| `npm run format` | Formatear todo con Prettier |
+| Comando                               | Para qué                                         |
+| ------------------------------------- | ------------------------------------------------ |
+| `npm run dev:api` / `npm run dev:web` | Levantar en modo desarrollo                      |
+| `npm run build`                       | Compilar backend y frontend para producción      |
+| `npm run db:push`                     | Sincronizar el esquema + aplicar las constraints |
+| `npm run db:constraints`              | Solo reaplicar las constraints SQL               |
+| `npm run db:seed`                     | Recargar usuarios y catálogos iniciales          |
+| `npm run db:studio`                   | Abrir Prisma Studio para ver/editar la base      |
+| `npm run format`                      | Formatear todo con Prettier                      |
 
 ## Si algo falla
 
-| Síntoma | Causa habitual |
-|---|---|
-| La API no arranca y habla de `JWT_SECRET` | Falta esa variable en `.env`, o tiene menos de 16 caracteres |
+| Síntoma                                                 | Causa habitual                                                         |
+| ------------------------------------------------------- | ---------------------------------------------------------------------- |
+| La API no arranca y habla de `JWT_SECRET`               | Falta esa variable en `.env`, o tiene menos de 16 caracteres           |
 | El navegador dice "No se pudo conectar con el servidor" | La API no está levantada, o `NEXT_PUBLIC_API_URL` apunta a otro puerto |
-| Errores de CORS en la consola del navegador | La URL desde la que entras no está en `WEB_ORIGIN` |
-| `db:push` falla al conectarse | `DATABASE_URL` con usuario/clave equivocados, o PostgreSQL apagado |
-| Cambiaste `NEXT_PUBLIC_API_URL` y no surte efecto | Esa variable se incrusta al compilar: hay que rehacer `npm run build` |
+| Errores de CORS en la consola del navegador             | La URL desde la que entras no está en `WEB_ORIGIN`                     |
+| `db:push` falla al conectarse                           | `DATABASE_URL` con usuario/clave equivocados, o PostgreSQL apagado     |
+| Cambiaste `NEXT_PUBLIC_API_URL` y no surte efecto       | Esa variable se incrusta al compilar: hay que rehacer `npm run build`  |
 
 ---
 
@@ -145,6 +145,14 @@ Resumen de los pasos (el detalle completo, con el mantenimiento y las notas de r
 5. **Dejarlo automático** con `.\install-autostart.ps1`, y cerrar sesión y volver a entrar.
 6. Deja `http://localhost:3070` como página de inicio del navegador y un acceso directo en el
    escritorio, para que el operador solo haga doble clic.
+
+**Para actualizar a una versión nueva del código** (no repitas `setup.ps1`: su seed reescribe
+las claves de los usuarios con las de fábrica):
+
+```powershell
+cd C:\torito_fresh\deploy\windows
+.\update.ps1
+```
 
 Mantenimiento: `.\stop-kiosk.ps1` baja los servicios y `.\start-kiosk.ps1` los vuelve a levantar.
 

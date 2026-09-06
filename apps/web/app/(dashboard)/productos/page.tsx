@@ -65,33 +65,41 @@ export default function ProductosPage() {
   }
   async function guardar(event: FormEvent) {
     event.preventDefault();
-    if (editando) {
-      setModal(false);
-      return;
-    }
     const form = event.currentTarget as HTMLFormElement;
     const values = new FormData(form);
+    const body = {
+      nombre: values.get('nombre'),
+      tipo: values.get('tipo'),
+      unidad: values.get('unidad'),
+      precio: Number(values.get('precio')),
+      costo: Number(values.get('costo')),
+      controlaLote: values.has('lote'),
+      esRetornable: values.has('retornable'),
+    };
     setGuardando(true);
     try {
-      await api('/operations/products', {
-        method: 'POST',
-        body: JSON.stringify({
-          nombre: values.get('nombre'),
-          tipo: values.get('tipo'),
-          unidad: values.get('unidad'),
-          precio: Number(values.get('precio')),
-          costo: Number(values.get('costo')),
-          controlaLote: values.has('lote'),
-          esRetornable: values.has('retornable'),
-        }),
-      });
+      if (editando) {
+        await api(`/operations/products/${editando.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify(body),
+        });
+      } else {
+        await api('/operations/products', { method: 'POST', body: JSON.stringify(body) });
+      }
       setDatos(await api<Producto[]>('/operations/products'));
       api<{ id: string; nombre: string }[]>('/operations/product-types')
         .then(setTiposProducto)
         .catch(() => undefined);
       setModal(false);
+      toast.success(editando ? 'Producto actualizado' : 'Producto registrado');
     } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : 'No se pudo registrar el producto');
+      toast.error(
+        cause instanceof Error
+          ? cause.message
+          : editando
+            ? 'No se pudo actualizar el producto'
+            : 'No se pudo registrar el producto',
+      );
     } finally {
       setGuardando(false);
     }
@@ -284,10 +292,10 @@ export default function ProductosPage() {
               </label>
               <label>
                 <span>Unidad de medida</span>
-                <select name="unidad" defaultValue={editando?.unidad ?? 'Unidad'}>
-                  <option>Unidad</option>
-                  <option>Litro</option>
-                  <option>Caja</option>
+                <select name="unidad" defaultValue={(editando?.unidad ?? 'UNIDAD').toUpperCase()}>
+                  <option value="UNIDAD">Unidad</option>
+                  <option value="LITRO">Litro</option>
+                  <option value="CAJA">Caja</option>
                 </select>
               </label>
               <label>
@@ -323,11 +331,7 @@ export default function ProductosPage() {
                   Cancelar
                 </button>
                 <button className="btn-primary" disabled={guardando}>
-                  {guardando
-                    ? 'Registrando...'
-                    : editando
-                      ? 'Guardar cambios'
-                      : 'Registrar producto'}
+                  {guardando ? 'Guardando...' : editando ? 'Guardar cambios' : 'Registrar producto'}
                 </button>
               </div>
             </form>

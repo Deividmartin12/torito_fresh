@@ -284,12 +284,11 @@ model Lote {
 }
 
 model MetodoPago {
-  id                BigInt        @id @default(autoincrement())
-  nombre            String        @unique @db.VarChar(50)
-  requiereOperacion Boolean       @default(false) @map("requiere_operacion")
-  estado            Boolean       @default(true)
-  createdAt         DateTime      @default(now()) @map("created_at")
-  pagosCliente      PagoCliente[]
+  id           BigInt        @id @default(autoincrement())
+  nombre       String        @unique @db.VarChar(50)
+  estado       Boolean       @default(true)
+  createdAt    DateTime      @default(now()) @map("created_at")
+  pagosCliente PagoCliente[]
 
   @@map("metodo_pago")
 }
@@ -432,19 +431,18 @@ model CuentaCobrar {
 }
 
 model PagoCliente {
-  id              BigInt       @id @default(autoincrement())
-  cuentaCobrarId  BigInt       @map("cuenta_cobrar_id")
-  metodoPagoId    BigInt       @map("metodo_pago_id")
-  trabajadorId    BigInt       @map("trabajador_id")
-  fechaPago       DateTime     @default(now()) @map("fecha_pago")
-  monto           Decimal      @db.Decimal(12, 2)
-  numeroOperacion String?      @map("numero_operacion") @db.VarChar(100)
-  observaciones   String?
-  estado          String       @default("CONFIRMADO") @db.VarChar(20)
-  createdAt       DateTime     @default(now()) @map("created_at")
-  cuentaCobrar    CuentaCobrar @relation(fields: [cuentaCobrarId], references: [id])
-  metodoPago      MetodoPago   @relation(fields: [metodoPagoId], references: [id])
-  trabajador      Trabajador   @relation(fields: [trabajadorId], references: [id])
+  id             BigInt       @id @default(autoincrement())
+  cuentaCobrarId BigInt       @map("cuenta_cobrar_id")
+  metodoPagoId   BigInt       @map("metodo_pago_id")
+  trabajadorId   BigInt       @map("trabajador_id")
+  fechaPago      DateTime     @default(now()) @map("fecha_pago")
+  monto          Decimal      @db.Decimal(12, 2)
+  observaciones  String?
+  estado         String       @default("CONFIRMADO") @db.VarChar(20)
+  createdAt      DateTime     @default(now()) @map("created_at")
+  cuentaCobrar   CuentaCobrar @relation(fields: [cuentaCobrarId], references: [id])
+  metodoPago     MetodoPago   @relation(fields: [metodoPagoId], references: [id])
+  trabajador     Trabajador   @relation(fields: [trabajadorId], references: [id])
 
   @@index([fechaPago])
   @@index([cuentaCobrarId, estado])

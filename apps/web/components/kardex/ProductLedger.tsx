@@ -3,13 +3,8 @@
 import { Download, PackageSearch } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { moneda, cantidad } from '../../lib/format';
-import {
-  CatalogItem,
-  KardexLedger,
-  getKardex,
-  getOperationCatalogs,
-} from '../../lib/operations';
+import { moneda, cantidad, fechaCorta } from '../../lib/format';
+import { CatalogItem, KardexLedger, getKardex, getOperationCatalogs } from '../../lib/operations';
 import { PeriodFilter } from '../PeriodFilter';
 import { SearchableSelect } from '../SearchableSelect';
 
@@ -56,7 +51,9 @@ export function ProductLedger({
         }),
       );
     } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : 'No se pudo cargar el kardex del producto');
+      toast.error(
+        cause instanceof Error ? cause.message : 'No se pudo cargar el kardex del producto',
+      );
     } finally {
       setLoading(false);
     }
@@ -89,7 +86,7 @@ export function ProductLedger({
       ['Fecha', 'Documento', 'Movimiento', 'Entrada', 'Salida', 'Saldo', 'Costo unitario'],
       ['', 'Saldo inicial', '', '', '', cantidad(ledger.saldoInicial), ''],
       ...ledger.movimientos.map((row) => [
-        new Date(row.fecha).toLocaleDateString('es-PE'),
+        fechaCorta(row.fecha),
         row.documento,
         row.operacionLabel,
         row.entrada ? cantidad(row.entrada) : '',
@@ -176,7 +173,7 @@ export function ProductLedger({
                 {ledger.movimientos.length ? (
                   ledger.movimientos.map((row) => (
                     <tr key={row.detalleId}>
-                      <td>{new Date(row.fecha).toLocaleDateString('es-PE')}</td>
+                      <td>{fechaCorta(row.fecha)}</td>
                       <td>
                         <strong>{row.documento}</strong>
                         <small>{row.tercero}</small>

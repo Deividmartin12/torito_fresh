@@ -12,12 +12,7 @@ import {
 } from '../../lib/analytics';
 import { moneda, variacion } from '../../lib/format';
 import { PeriodFilter } from '../PeriodFilter';
-import {
-  ComparisonBarChart,
-  DemandHeatmap,
-  MixAndPaymentsChart,
-  RankingBarChart,
-} from '../charts/AnalyticsCharts';
+import { ComparisonBarChart, DemandHeatmap, RankingBarChart } from '../charts/AnalyticsCharts';
 import { ProductRankingChart, SalesTrendChart } from '../charts/BusinessCharts';
 import { ReportHeader, ReportMetric } from './ReportNav';
 
@@ -249,12 +244,6 @@ export function TransactionReport({ kind }: { kind: ReportKind }) {
               rows={analytics.topClients}
               title="Top clientes"
               subtitle="Clientes con mayor consumo neto"
-            />
-          ) : null}
-          {sales ? (
-            <MixAndPaymentsChart
-              customerMix={analytics.customerMix}
-              payments={analytics.paymentMethods}
             />
           ) : null}
           {sales ? (

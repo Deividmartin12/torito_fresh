@@ -3,7 +3,6 @@ import { api } from './api';
 export type PaymentMethod = {
   id: string;
   nombre: string;
-  requiereOperacion: boolean;
   estado: boolean;
 };
 export type PaymentMethodPayload = Omit<PaymentMethod, 'id'>;

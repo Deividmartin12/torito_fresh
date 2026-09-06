@@ -1,9 +1,9 @@
 'use client';
 
-import { Pencil, Plus, ReceiptText, Search, SlidersHorizontal, X } from 'lucide-react';
+import { Eye, Pencil, Plus, ReceiptText, Search, SlidersHorizontal, X } from 'lucide-react';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { moneda } from '../../../lib/format';
+import { fechaCorta, moneda } from '../../../lib/format';
 import {
   CreateExpensePayload,
   createExpense,
@@ -118,13 +118,17 @@ export default function GastosPage() {
     setSaving(true);
     try {
       const payload = { ...form, proveedorId: form.proveedorId || undefined };
-      const saved = editing ? await updateExpense(editing.id, payload) : await createExpense(payload);
+      const saved = editing
+        ? await updateExpense(editing.id, payload)
+        : await createExpense(payload);
       setExpenses((current) =>
         editing
           ? current.map((item) => (item.id === saved.id ? saved : item))
           : [saved, ...current],
       );
-      toast.success(editing ? 'Gasto actualizado correctamente.' : 'Gasto registrado correctamente.');
+      toast.success(
+        editing ? 'Gasto actualizado correctamente.' : 'Gasto registrado correctamente.',
+      );
       closeForm();
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : 'No se pudo guardar el gasto', {
@@ -209,9 +213,7 @@ export default function GastosPage() {
               {visible.length ? (
                 visible.map((item) => (
                   <tr key={item.id} className="clickable-row" onClick={() => setDetail(item)}>
-                    <td>
-                      {new Date(`${item.fecha.slice(0, 10)}T00:00:00`).toLocaleDateString('es-PE')}
-                    </td>
+                    <td>{fechaCorta(item.fecha)}</td>
                     <td>
                       <strong>{item.concepto}</strong>
                       {item.comprobante ? <small>Comprobante {item.comprobante}</small> : null}
@@ -225,18 +227,32 @@ export default function GastosPage() {
                     </td>
                     <td>{item.registradoPor || '—'}</td>
                     <td>
-                      <button
-                        type="button"
-                        className="icon-soft"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          openForm(item);
-                        }}
-                        title="Editar gasto"
-                        aria-label={`Editar ${item.concepto}`}
-                      >
-                        <Pencil size={16} />
-                      </button>
+                      <div className="row-actions">
+                        <button
+                          type="button"
+                          className="icon-soft"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setDetail(item);
+                          }}
+                          title="Ver detalle"
+                          aria-label={`Ver detalle de ${item.concepto}`}
+                        >
+                          <Eye size={16} />
+                        </button>
+                        <button
+                          type="button"
+                          className="icon-soft"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openForm(item);
+                          }}
+                          title="Editar gasto"
+                          aria-label={`Editar ${item.concepto}`}
+                        >
+                          <Pencil size={16} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -311,11 +327,17 @@ export default function GastosPage() {
             if (event.target === event.currentTarget) setDetail(null);
           }}
         >
-          <section className="crud-modal" role="dialog" aria-modal="true" aria-label="Detalle del gasto">
+          <section
+            className="crud-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Detalle del gasto"
+          >
             <div className="modal-top">
               <div>
+                <span className="operation-eyebrow">Detalle del gasto</span>
                 <h2>{detail.concepto}</h2>
-                <small>{new Date(`${detail.fecha.slice(0, 10)}T00:00:00`).toLocaleDateString('es-PE')}</small>
+                <small>{fechaCorta(detail.fecha)}</small>
               </div>
               <button
                 className="modal-close"
@@ -326,31 +348,34 @@ export default function GastosPage() {
                 <X size={18} />
               </button>
             </div>
-            <div className="operation-detail-items">
-              <div className="detail-line">
-                <span>Categoría</span>
-                <strong>{detail.categoria}</strong>
+            <div className="operation-detail">
+              <div className="expense-detail-hero">
+                <div>
+                  <small>Monto del gasto</small>
+                  <strong>{moneda(detail.monto)}</strong>
+                </div>
+                <span className="status status-amber">{detail.categoria}</span>
               </div>
-              <div className="detail-line">
-                <span>Monto</span>
-                <strong>{moneda(detail.monto)}</strong>
+              <div className="detail-summary">
+                <span>
+                  Fecha<strong>{fechaCorta(detail.fecha)}</strong>
+                </span>
+                <span>
+                  Proveedor<strong>{detail.proveedor || 'Sin proveedor'}</strong>
+                </span>
+                <span>
+                  Comprobante<strong>{detail.comprobante || '—'}</strong>
+                </span>
+                <span>
+                  Registrado por<strong>{detail.registradoPor || '—'}</strong>
+                </span>
               </div>
-              <div className="detail-line">
-                <span>Proveedor</span>
-                <strong>{detail.proveedor || 'Sin proveedor'}</strong>
-              </div>
-              <div className="detail-line">
-                <span>Comprobante</span>
-                <strong>{detail.comprobante || '—'}</strong>
-              </div>
-              <div className="detail-line">
-                <span>Observaciones</span>
-                <strong>{detail.observaciones || '—'}</strong>
-              </div>
-              <div className="detail-line">
-                <span>Registrado por</span>
-                <strong>{detail.registradoPor || '—'}</strong>
-              </div>
+              {detail.observaciones ? (
+                <div className="operation-review-note">
+                  <small>Observaciones</small>
+                  <p>{detail.observaciones}</p>
+                </div>
+              ) : null}
             </div>
             <div className="modal-actions">
               <button className="btn-secondary" type="button" onClick={() => setDetail(null)}>

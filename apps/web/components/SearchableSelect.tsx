@@ -1,7 +1,7 @@
 'use client';
 
 import { Search, X } from 'lucide-react';
-import { KeyboardEvent, useEffect, useId, useRef, useState } from 'react';
+import { KeyboardEvent, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 
 export type SearchableOption = {
   value: string;
@@ -38,7 +38,18 @@ export function SearchableSelect({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(-1);
+  // El menú va con position: fixed y se ancla al control por coordenadas. Así no lo recorta
+  // el contenedor de líneas de la venta, que ahora tiene scroll propio (overflow-y: auto).
+  // `place` decide si se abre hacia abajo o hacia arriba según el espacio disponible.
+  const [menuBox, setMenuBox] = useState<{
+    left: number;
+    width: number;
+    place: 'below' | 'above';
+    offset: number;
+    maxHeight: number;
+  } | null>(null);
   const root = useRef<HTMLDivElement>(null);
+  const control = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const listboxId = useId();
   const selected = options.find((option) => option.value === value);
@@ -89,9 +100,42 @@ export function SearchableSelect({
     setActiveIndex(-1);
   }, [query]);
 
+  // Mientras el menú está abierto, se mantiene pegado al control aunque se haga scroll o
+  // cambie el tamaño de la ventana. El listener de scroll es en captura para oír también
+  // el scroll de contenedores internos (la lista de productos de la venta).
+  useLayoutEffect(() => {
+    if (!open || disabled) {
+      setMenuBox(null);
+      return;
+    }
+    const gap = 5;
+    const margin = 8;
+    const reposition = () => {
+      const rect = control.current?.getBoundingClientRect();
+      if (!rect) return;
+      const spaceBelow = window.innerHeight - rect.bottom - gap - margin;
+      const spaceAbove = rect.top - gap - margin;
+      const above = spaceBelow < 180 && spaceAbove > spaceBelow;
+      setMenuBox({
+        left: rect.left,
+        width: rect.width,
+        place: above ? 'above' : 'below',
+        offset: above ? window.innerHeight - rect.top + gap : rect.bottom + gap,
+        maxHeight: Math.min(280, Math.max(above ? spaceAbove : spaceBelow, 120)),
+      });
+    };
+    reposition();
+    window.addEventListener('scroll', reposition, true);
+    window.addEventListener('resize', reposition);
+    return () => {
+      window.removeEventListener('scroll', reposition, true);
+      window.removeEventListener('resize', reposition);
+    };
+  }, [open, disabled]);
+
   return (
     <div ref={root} className={`searchable-select ${className}`}>
-      <div className="searchable-select-control">
+      <div ref={control} className="searchable-select-control">
         <Search size={15} />
         <input
           ref={input}
@@ -131,8 +175,21 @@ export function SearchableSelect({
           </button>
         ) : null}
       </div>
-      {open && !disabled ? (
-        <div className="searchable-select-menu" id={listboxId} role="listbox">
+      {open && !disabled && menuBox ? (
+        <div
+          className="searchable-select-menu"
+          id={listboxId}
+          role="listbox"
+          style={{
+            position: 'fixed',
+            left: menuBox.left,
+            width: menuBox.width,
+            right: 'auto',
+            top: menuBox.place === 'below' ? menuBox.offset : 'auto',
+            bottom: menuBox.place === 'above' ? menuBox.offset : 'auto',
+            maxHeight: menuBox.maxHeight,
+          }}
+        >
           {filtered.length ? (
             filtered.map((option, index) => (
               <button

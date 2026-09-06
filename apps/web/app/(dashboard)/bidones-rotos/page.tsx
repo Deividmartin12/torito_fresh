@@ -9,6 +9,7 @@ import {
   createBidonRoto,
   getBidonesRotos,
 } from '../../../lib/bidones-rotos';
+import { fechaCorta } from '../../../lib/format';
 
 const localDate = () =>
   new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
@@ -163,7 +164,7 @@ export default function BidonesRotosPage() {
               {visibles.length ? (
                 visibles.map((item) => (
                   <tr key={item.id}>
-                    <td>{new Date(`${dia(item.fecha)}T00:00:00`).toLocaleDateString('es-PE')}</td>
+                    <td>{fechaCorta(item.fecha)}</td>
                     <td>
                       <strong>{item.cantidad}</strong>
                     </td>

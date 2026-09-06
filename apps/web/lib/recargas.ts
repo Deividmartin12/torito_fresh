@@ -13,9 +13,7 @@ export type RecargaCliente = {
   intervaloDias: number | null;
   proximaRecarga: string | null;
   diasParaProxima: number | null;
-  pagoPromedio: number;
   ultimoPago: number;
-  totalPagado: number;
   estado: EstadoRecarga;
 };
 

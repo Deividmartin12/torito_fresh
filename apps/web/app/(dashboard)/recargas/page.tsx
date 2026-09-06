@@ -3,7 +3,7 @@
 import { CalendarClock, Search } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { moneda } from '../../../lib/format';
+import { fechaCorta, moneda } from '../../../lib/format';
 import { EstadoRecarga, RecargaCliente, getRecargas } from '../../../lib/recargas';
 
 const ESTADO_INFO: Record<EstadoRecarga, { label: string; clase: string }> = {
@@ -12,9 +12,6 @@ const ESTADO_INFO: Record<EstadoRecarga, { label: string; clase: string }> = {
   AL_DIA: { label: 'Al día', clase: 'status status-green' },
   SIN_HISTORIAL: { label: 'Sin historial', clase: 'status status-gray' },
 };
-
-const fechaCorta = (valor: string | null) =>
-  valor ? new Date(`${valor.slice(0, 10)}T00:00:00`).toLocaleDateString('es-PE') : '—';
 
 export default function RecargasPage() {
   const [recargas, setRecargas] = useState<RecargaCliente[]>([]);
@@ -56,9 +53,6 @@ export default function RecargasPage() {
           conIntervalo.length,
       )
     : 0;
-  const pagoPromedio = recargas.length
-    ? recargas.reduce((suma, item) => suma + item.pagoPromedio, 0) / recargas.length
-    : 0;
   const porRecargarPronto = recargas.filter(
     (item) => item.estado === 'ATRASADO' || item.estado === 'POR_VENCER',
   ).length;
@@ -80,11 +74,6 @@ export default function RecargasPage() {
           <span>Intervalo promedio</span>
           <strong>{intervaloPromedio} días</strong>
           <small>Entre una recarga y la siguiente</small>
-        </div>
-        <div className="summary-glass">
-          <span>Pago promedio</span>
-          <strong>{moneda(pagoPromedio)}</strong>
-          <small>Por recarga</small>
         </div>
         <div className="summary-glass">
           <span>Por recargar pronto</span>
@@ -142,7 +131,6 @@ export default function RecargasPage() {
                 <th>Cada cuánto</th>
                 <th>Próxima recarga</th>
                 <th>Estado</th>
-                <th>Pago promedio</th>
                 <th>Último pago</th>
               </tr>
             </thead>
@@ -166,15 +154,12 @@ export default function RecargasPage() {
                         {ESTADO_INFO[item.estado].label}
                       </span>
                     </td>
-                    <td>
-                      <strong>{moneda(item.pagoPromedio)}</strong>
-                    </td>
                     <td>{moneda(item.ultimoPago)}</td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={8}>
+                  <td colSpan={7}>
                     <div className="table-empty">
                       <Search size={22} />
                       <span>No hay clientes que coincidan con los filtros.</span>

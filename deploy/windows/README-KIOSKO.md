@@ -49,9 +49,9 @@ Luego, prueba sin reiniciar:
 Cuando termine debe decir `Todo listo. Abre el navegador en http://localhost:3070`. Entra a esa
 dirección desde el navegador y usa:
 
-| Usuario | Clave |
-|---|---|
-| `admin` | `admin` |
+| Usuario               | Clave       |
+| --------------------- | ----------- |
+| `admin`               | `admin`     |
 | `01` / `02` (reparto) | `01` / `02` |
 
 Sugerencia: deja `http://localhost:3070` como página de inicio del navegador y un acceso directo
@@ -77,13 +77,20 @@ Para quitar el autoarranque:
 
 - **Detener la app:** `.\stop-kiosk.ps1` (mata los procesos de los puertos 3070 y 4070)
 - **Volver a arrancarla:** `.\start-kiosk.ps1`
-- **Recompilar tras actualizar el código** (`git pull` en `C:\torito_fresh`):
+- **Actualizar a una versión nueva del código:**
+
   ```powershell
-  cd C:\torito_fresh
-  npm install
-  npm run db:push
-  npm run build
+  cd C:\torito_fresh\deploy\windows
+  .\update.ps1
   ```
+
+  Baja la app, trae el código nuevo (`git pull`, o el que ya copiaste a mano), reinstala
+  dependencias, actualiza el esquema de la base, recompila y vuelve a levantar todo.
+
+  > **No vuelvas a correr `setup.ps1` para actualizar.** Ese script corre el seed, y el seed
+  > reescribe las claves de `admin`, `01` y `02` con las de fábrica: perderías los cambios de
+  > contraseña del negocio. `update.ps1` no toca el seed ni el `.env`.
+
 - **Ver la base:** `cd C:\torito_fresh; npm run db:studio`
 - Si la clave de `postgres` no es `123456789`, edita `C:\torito_fresh\.env`
   (línea `DATABASE_URL`).

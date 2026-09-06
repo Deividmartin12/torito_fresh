@@ -8,10 +8,6 @@ export class CreatePaymentMethodDto {
 
   @IsOptional()
   @IsBoolean()
-  requiereOperacion?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
   estado?: boolean;
 }
 
@@ -21,10 +17,6 @@ export class UpdatePaymentMethodDto {
   @Matches(/\S/, { message: 'El nombre es obligatorio' })
   @MaxLength(50)
   nombre?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  requiereOperacion?: boolean;
 
   @IsOptional()
   @IsBoolean()

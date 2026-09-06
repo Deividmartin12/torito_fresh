@@ -4,7 +4,8 @@ import { Eye, Plus, Search, X } from 'lucide-react';
 import Link from 'next/link';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { moneda } from '../../../lib/format';
+import { fechaCorta, fechaHora, moneda } from '../../../lib/format';
+import { NumericField } from '../../../components/operations/OperationForm';
 import {
   createOperationalReturn,
   getOperationCatalogs,
@@ -108,9 +109,19 @@ export default function DevolucionesPage() {
   }
   async function submit(event: FormEvent) {
     event.preventDefault();
-    const selected = lines.filter((line) => line.cantidad > 0);
+    const selected = lines.filter((line) => Number.isInteger(line.cantidad) && line.cantidad >= 1);
     if (!operationId || !reason.trim() || !selected.length) {
       toast.error('Selecciona la venta, indica el motivo y agrega al menos una cantidad.');
+      return;
+    }
+    const source = sales.find((item) => item.id === operationId);
+    const overLimit = selected.some((line) => {
+      const detail = source?.items.find((item) => String(item.id) === String(line.detalleId));
+      if (!detail) return true;
+      return line.cantidad > detail.cantidad - detail.cantidadDevuelta;
+    });
+    if (overLimit) {
+      toast.error('Una cantidad a devolver supera lo disponible de esa venta.');
       return;
     }
     setSaving(true);
@@ -144,7 +155,9 @@ export default function DevolucionesPage() {
         <div>
           <span className="operation-eyebrow">Operaciones relacionadas</span>
           <h1>Devoluciones y saldos a favor</h1>
-          <p>Cada devolución conserva la venta original y registra sus efectos financieros y físicos.</p>
+          <p>
+            Cada devolución conserva la venta original y registra sus efectos financieros y físicos.
+          </p>
         </div>
         <button className="btn-primary operation-primary-action" onClick={openCreate}>
           <Plus size={18} /> Nueva devolución
@@ -216,7 +229,7 @@ export default function DevolucionesPage() {
                       <tr key={item.id}>
                         <td>
                           <strong>{item.codigo}</strong>
-                          <small>{new Date(item.fecha).toLocaleString('es-PE')}</small>
+                          <small>{fechaHora(item.fecha)}</small>
                         </td>
                         <td>{item.comprobante}</td>
                         <td>{item.tercero}</td>
@@ -285,7 +298,7 @@ export default function DevolucionesPage() {
                     <td>
                       <strong>{item.tercero}</strong>
                     </td>
-                    <td>{new Date(item.fecha).toLocaleDateString('es-PE')}</td>
+                    <td>{fechaCorta(item.fecha)}</td>
                     <td>S/ {item.original.toFixed(2)}</td>
                     <td>
                       <strong>S/ {item.disponible.toFixed(2)}</strong>
@@ -323,9 +336,7 @@ export default function DevolucionesPage() {
             <div className="modal-top">
               <div>
                 <h2 id="return-title">Registrar devolución</h2>
-                <small>
-                  Solo puedes devolver productos y cantidades de la venta seleccionada.
-                </small>
+                <small>Solo puedes devolver productos y cantidades de la venta seleccionada.</small>
               </div>
               <button className="modal-close" onClick={() => setModal(false)}>
                 <X size={18} />
@@ -382,18 +393,13 @@ export default function DevolucionesPage() {
                         </small>
                       </div>
                       <span>{remaining}</span>
-                      <input
-                        type="number"
-                        min="0"
-                        max={remaining}
-                        step="1"
+                      <NumericField
                         value={draft?.cantidad ?? 0}
-                        onChange={(event) =>
+                        integer
+                        onCommit={(cantidad) =>
                           setLines((current) =>
                             current.map((line, position) =>
-                              position === index
-                                ? { ...line, cantidad: Number(event.target.value) }
-                                : line,
+                              position === index ? { ...line, cantidad } : line,
                             ),
                           )
                         }

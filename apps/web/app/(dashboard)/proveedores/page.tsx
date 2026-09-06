@@ -5,6 +5,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Pagination } from '../../../components/Pagination';
 import { api } from '../../../lib/api';
+import { consultarDni, consultarRuc } from '../../../lib/consulta-documento';
 
 type Proveedor = {
   id: string;
@@ -44,6 +45,7 @@ export default function ProveedoresPage() {
   const [fieldErrors, setFieldErrors] = useState<FormErrors>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [buscando, setBuscando] = useState(false);
   const [processingId, setProcessingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -104,6 +106,43 @@ export default function ProveedoresPage() {
   function updateField(field: keyof ProveedorForm, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
     setFieldErrors((current) => ({ ...current, [field]: undefined }));
+  }
+
+  // Un proveedor puede ser empresa (RUC de 11 dígitos) o persona natural (se busca por su
+  // DNI de 8 dígitos y el RUC "10..." se calcula en el API). El botón infiere cuál es por
+  // el largo de lo que se tecleó.
+  async function buscarDocumento() {
+    const numero = form.ruc.trim();
+    if (numero.length !== 8 && numero.length !== 11) {
+      toast.error('Ingresa un DNI (8 dígitos) o un RUC (11 dígitos).');
+      return;
+    }
+    setBuscando(true);
+    try {
+      if (numero.length === 8) {
+        const persona = await consultarDni(numero);
+        setForm((current) => ({
+          ...current,
+          ruc: persona.rucSugerido,
+          razonSocial: persona.nombreCompleto,
+        }));
+      } else {
+        const empresa = await consultarRuc(numero);
+        setForm((current) => ({
+          ...current,
+          razonSocial: empresa.razonSocial,
+          direccion: empresa.direccion || current.direccion,
+        }));
+      }
+      setFieldErrors((current) => ({ ...current, ruc: undefined, razonSocial: undefined }));
+      toast.success('Datos encontrados.');
+    } catch (requestError) {
+      toast.error(
+        requestError instanceof Error ? requestError.message : 'No se pudo consultar el documento',
+      );
+    } finally {
+      setBuscando(false);
+    }
   }
 
   function validate() {
@@ -339,18 +378,30 @@ export default function ProveedoresPage() {
             </div>
             <form className="modal-form" onSubmit={guardar} noValidate>
               <label>
-                <span>RUC</span>
-                <input
-                  value={form.ruc}
-                  onChange={(event) =>
-                    updateField('ruc', event.target.value.replace(/\D/g, '').slice(0, 11))
-                  }
-                  inputMode="numeric"
-                  pattern="\d{11}"
-                  maxLength={11}
-                  required
-                  autoFocus
-                />
+                <span>RUC o DNI</span>
+                <div className="field-with-action">
+                  <input
+                    value={form.ruc}
+                    onChange={(event) =>
+                      updateField('ruc', event.target.value.replace(/\D/g, '').slice(0, 11))
+                    }
+                    inputMode="numeric"
+                    pattern="\d{11}"
+                    maxLength={11}
+                    required
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => void buscarDocumento()}
+                    disabled={
+                      buscando || (form.ruc.trim().length !== 8 && form.ruc.trim().length !== 11)
+                    }
+                  >
+                    {buscando ? 'Buscando...' : 'Buscar'}
+                  </button>
+                </div>
                 {fieldErrors.ruc ? <small className="field-error">{fieldErrors.ruc}</small> : null}
               </label>
               <label>

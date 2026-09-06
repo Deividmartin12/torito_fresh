@@ -1,4 +1,14 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { RoleName } from '@prisma/client';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { Roles } from '../auth/roles.decorator';
@@ -9,6 +19,7 @@ import {
   CreateOperationalWarehouseDto,
   CreateReturnDto,
   RegisterOperationalPaymentDto,
+  UpdateOperationalProductDto,
   UpdateOperationalSaleDto,
   UpdateReceivableDueDateDto,
 } from './operations.dto';
@@ -25,11 +36,18 @@ export class OperationsController {
     return this.operations.catalogs();
   }
   @Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.WAREHOUSE, RoleName.DELIVERY)
-  @Get('products') products() {
+  @Get('products')
+  products() {
     return this.operations.products();
   }
   @Post('products') createProduct(@Body() dto: CreateOperationalProductDto) {
     return this.operations.createProduct(dto);
+  }
+  @Patch('products/:id') updateProduct(
+    @Param('id') id: string,
+    @Body() dto: UpdateOperationalProductDto,
+  ) {
+    return this.operations.updateProduct(id, dto);
   }
   @Delete('products/:id') deleteProduct(@Param('id') id: string) {
     return this.operations.deleteProduct(id);
@@ -71,7 +89,8 @@ export class OperationsController {
   }
 
   @Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.WAREHOUSE, RoleName.DELIVERY)
-  @Get('stock') stock(@Query('almacenId') almacenId?: string) {
+  @Get('stock')
+  stock(@Query('almacenId') almacenId?: string) {
     return this.operations.stock(almacenId);
   }
   @Get('movements') movements(

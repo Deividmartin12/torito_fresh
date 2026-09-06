@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { DeliverySummary, getDeliverySummary } from '../../../lib/dashboard';
 import { estadoPagoLabel } from '../../../lib/credit';
-import { moneda } from '../../../lib/format';
+import { fechaCorta, moneda } from '../../../lib/format';
 import { DashboardKpi } from './DashboardKpi';
 
 export function DeliveryDashboard() {
@@ -37,7 +37,7 @@ export function DeliveryDashboard() {
         <div>
           <h1>Mi resumen del día</h1>
           <span className="operation-eyebrow dashboard-period-label">
-            {data ? new Date(`${data.fecha}T00:00:00`).toLocaleDateString('es-PE') : ''}
+            {data ? fechaCorta(data.fecha) : ''}
           </span>
         </div>
         <button

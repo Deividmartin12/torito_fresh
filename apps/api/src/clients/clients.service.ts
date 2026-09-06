@@ -102,10 +102,18 @@ export class ClientsService {
   }
 
   async deactivate(id: string) {
+    return this.setEstado(id, false);
+  }
+
+  async activate(id: string) {
+    return this.setEstado(id, true);
+  }
+
+  private async setEstado(id: string, estado: boolean) {
     await this.get(id);
     const row = await this.prisma.cliente.update({
       where: { id: BigInt(id) },
-      data: { estado: false },
+      data: { estado },
     });
     return this.view(row);
   }

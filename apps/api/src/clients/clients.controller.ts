@@ -37,4 +37,9 @@ export class ClientsController {
   deactivate(@Param('id') id: string) {
     return this.clients.deactivate(id);
   }
+
+  @Patch(':id/activate')
+  activate(@Param('id') id: string) {
+    return this.clients.activate(id);
+  }
 }

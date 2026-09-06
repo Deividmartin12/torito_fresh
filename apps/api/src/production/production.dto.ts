@@ -51,3 +51,34 @@ export class CreateProductionOrderDto {
   @Type(() => ProductionInputDto)
   insumos?: ProductionInputDto[];
 }
+
+/**
+ * Editar una producción reescribe cantidad, fecha, vencimiento, almacén destino e insumos.
+ * El producto terminado no cambia (crearía un lote distinto): para eso se registra otra
+ * producción.
+ */
+export class UpdateProductionOrderDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  almacenProductoTerminadoId?: number;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.001)
+  cantidadPlanificada: number;
+
+  @IsDateString()
+  fechaPlanificada: string;
+
+  @IsOptional()
+  @IsDateString()
+  fechaVencimiento?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductionInputDto)
+  insumos?: ProductionInputDto[];
+}

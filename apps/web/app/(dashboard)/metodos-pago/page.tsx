@@ -13,7 +13,6 @@ import {
 
 const emptyForm = (): PaymentMethodPayload => ({
   nombre: '',
-  requiereOperacion: false,
   estado: true,
 });
 
@@ -64,15 +63,7 @@ export default function MetodosPagoPage() {
   }
   function openForm(method?: PaymentMethod) {
     setEditing(method ?? null);
-    setForm(
-      method
-        ? {
-            nombre: method.nombre,
-            requiereOperacion: method.requiereOperacion,
-            estado: method.estado,
-          }
-        : emptyForm(),
-    );
+    setForm(method ? { nombre: method.nombre, estado: method.estado } : emptyForm());
     setOpen(true);
   }
   async function save(event: FormEvent) {
@@ -90,10 +81,9 @@ export default function MetodosPagoPage() {
       toast.success(editing ? 'Método de pago actualizado.' : 'Método de pago registrado.');
       close();
     } catch (cause) {
-      toast.error(
-        cause instanceof Error ? cause.message : 'No se pudo guardar el método de pago',
-        { action: { label: 'Reintentar', onClick: () => void load() } },
-      );
+      toast.error(cause instanceof Error ? cause.message : 'No se pudo guardar el método de pago', {
+        action: { label: 'Reintentar', onClick: () => void load() },
+      });
     } finally {
       setSaving(false);
     }
@@ -136,7 +126,6 @@ export default function MetodosPagoPage() {
             <thead>
               <tr>
                 <th>Método</th>
-                <th>Número de operación</th>
                 <th>Estado</th>
                 <th>Acciones</th>
               </tr>
@@ -151,7 +140,6 @@ export default function MetodosPagoPage() {
                         <strong>{item.nombre}</strong>
                       </div>
                     </td>
-                    <td>{item.requiereOperacion ? 'Obligatorio' : 'No requerido'}</td>
                     <td>
                       <span className={`status ${item.estado ? 'status-green' : 'status-red'}`}>
                         {item.estado ? 'Activo' : 'Inactivo'}
@@ -171,7 +159,7 @@ export default function MetodosPagoPage() {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={4}>
+                  <td colSpan={3}>
                     <div className="table-empty">
                       No hay métodos de pago que coincidan.
                       <button type="button" onClick={() => setSearch('')}>
@@ -220,31 +208,16 @@ export default function MetodosPagoPage() {
                 />
               </label>
               {editing ? (
-                <>
-                  <label className="check-field field-wide">
-                    <input
-                      type="checkbox"
-                      checked={form.requiereOperacion}
-                      onChange={(event) =>
-                        setForm((current) => ({
-                          ...current,
-                          requiereOperacion: event.target.checked,
-                        }))
-                      }
-                    />
-                    <span>Requiere número de operación</span>
-                  </label>
-                  <label className="check-field field-wide">
-                    <input
-                      type="checkbox"
-                      checked={form.estado}
-                      onChange={(event) =>
-                        setForm((current) => ({ ...current, estado: event.target.checked }))
-                      }
-                    />
-                    <span>Método activo</span>
-                  </label>
-                </>
+                <label className="check-field field-wide">
+                  <input
+                    type="checkbox"
+                    checked={form.estado}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, estado: event.target.checked }))
+                    }
+                  />
+                  <span>Método activo</span>
+                </label>
               ) : null}
               <div className="modal-actions">
                 <button className="btn-secondary" type="button" onClick={close} disabled={saving}>

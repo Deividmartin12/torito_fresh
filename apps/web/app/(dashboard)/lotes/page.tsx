@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Pagination } from '../../../components/Pagination';
 import { api } from '../../../lib/api';
+import { fechaCorta } from '../../../lib/format';
 
 type Lote = {
   id: string;
@@ -16,9 +17,6 @@ type Lote = {
   disponible: number;
   estado: 'ACTIVO' | 'VENCIDO' | 'AGOTADO' | 'BLOQUEADO';
 };
-
-const formatDate = (value: string | null) =>
-  value ? new Date(value).toLocaleDateString('es-PE') : '—';
 
 export default function LotesPage() {
   const [datos, setDatos] = useState<Lote[]>([]);
@@ -99,8 +97,8 @@ export default function LotesPage() {
                     <strong>{item.codigo}</strong>
                   </td>
                   <td>{item.producto}</td>
-                  <td>{formatDate(item.fechaProduccion)}</td>
-                  <td>{formatDate(item.fechaVencimiento)}</td>
+                  <td>{fechaCorta(item.fechaProduccion)}</td>
+                  <td>{fechaCorta(item.fechaVencimiento)}</td>
                   <td>S/ {item.costo.toFixed(4)}</td>
                   <td>{item.disponible}</td>
                   <td>
@@ -119,7 +117,9 @@ export default function LotesPage() {
                 <td colSpan={7}>
                   <div className="table-empty">
                     <CalendarClock size={22} />
-                    <span>Aún no hay lotes. Se generan automáticamente al registrar producción.</span>
+                    <span>
+                      Aún no hay lotes. Se generan automáticamente al registrar producción.
+                    </span>
                   </div>
                 </td>
               </tr>

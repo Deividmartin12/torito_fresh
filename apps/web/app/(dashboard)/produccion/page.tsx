@@ -1,16 +1,18 @@
 'use client';
 
-import { Factory, Plus, Search, Trash2, X } from 'lucide-react';
+import { Eye, Factory, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import Link from 'next/link';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { SearchableSelect } from '../../../components/SearchableSelect';
+import { fechaCorta } from '../../../lib/format';
 import {
   createProductionOrder,
   getProductionCatalogs,
   getProductionOrders,
   ProductionCatalogs,
   ProductionOrder,
+  updateProductionOrder,
 } from '../../../lib/production';
 
 const emptyCatalogs: ProductionCatalogs = { productosTerminados: [], insumos: [], almacenes: [] };
@@ -31,6 +33,8 @@ export default function ProductionPage() {
   const [catalogs, setCatalogs] = useState(emptyCatalogs);
   const [orders, setOrders] = useState<ProductionOrder[]>([]);
   const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState<ProductionOrder | null>(null);
+  const [detail, setDetail] = useState<ProductionOrder | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
@@ -71,8 +75,29 @@ export default function ProductionPage() {
   );
   const producedUnits = orders.reduce((sum, item) => sum + item.cantidadProducida, 0);
   const totalCost = orders.reduce((sum, item) => sum + item.costoTotal, 0);
+  function openCreate() {
+    setEditing(null);
+    setForm(emptyForm());
+    setInputs([]);
+    setFormOpen(true);
+  }
+  function openEdit(order: ProductionOrder) {
+    setEditing(order);
+    setForm({
+      productoId: order.productoId,
+      almacenProductoTerminadoId: order.almacenProductoTerminadoId,
+      cantidadPlanificada: String(order.cantidadPlanificada),
+      fechaPlanificada: order.fechaPlanificada.slice(0, 10),
+      fechaVencimiento: order.fechaVencimiento ? order.fechaVencimiento.slice(0, 10) : '',
+    });
+    setInputs(
+      order.insumos.map((input) => ({ productoId: input.productoId, cantidad: input.planificada })),
+    );
+    setFormOpen(true);
+  }
   function closeForm() {
     setFormOpen(false);
+    setEditing(null);
     setForm(emptyForm());
     setInputs([]);
   }
@@ -89,17 +114,29 @@ export default function ProductionPage() {
     }
     setSaving(true);
     try {
-      const done = await createProductionOrder({
-        ...form,
+      const payload = {
+        almacenProductoTerminadoId: form.almacenProductoTerminadoId || undefined,
         cantidadPlanificada: Number(form.cantidadPlanificada),
+        fechaPlanificada: form.fechaPlanificada,
         fechaVencimiento: form.fechaVencimiento || undefined,
         insumos: inputs,
-      });
+      };
+      const done = editing
+        ? await updateProductionOrder(editing.id, payload)
+        : await createProductionOrder({ ...payload, productoId: form.productoId });
       closeForm();
-      toast.success(`Producción registrada${done.lote ? ` · Lote ${done.lote}` : ''}`);
+      toast.success(
+        editing
+          ? 'Producción actualizada.'
+          : `Producción registrada${done.lote ? ` · Lote ${done.lote}` : ''}`,
+      );
       await load();
     } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : 'No se pudo registrar la producción');
+      toast.error(
+        cause instanceof Error
+          ? cause.message
+          : `No se pudo ${editing ? 'actualizar' : 'registrar'} la producción`,
+      );
     } finally {
       setSaving(false);
     }
@@ -123,7 +160,7 @@ export default function ProductionPage() {
           <h1>Producción diaria</h1>
           <p>Registra cuánto producto terminado se produce cada día.</p>
         </div>
-        <button className="btn-primary operation-primary-action" onClick={() => setFormOpen(true)}>
+        <button className="btn-primary operation-primary-action" onClick={openCreate}>
           <Plus size={17} /> Registrar producción
         </button>
       </div>
@@ -163,13 +200,14 @@ export default function ProductionPage() {
               <th>Insumos</th>
               <th>Almacén destino</th>
               <th>Kardex</th>
+              <th>Acciones</th>
             </tr>
           </thead>
           <tbody>
             {visible.length ? (
               visible.map((item) => (
                 <tr key={item.id}>
-                  <td>{new Date(item.fechaPlanificada).toLocaleDateString('es-PE')}</td>
+                  <td>{fechaCorta(item.fechaPlanificada)}</td>
                   <td>
                     <strong>{item.producto}</strong>
                     <small>{item.lote ? `Lote ${item.lote}` : 'Sin lote'}</small>
@@ -196,11 +234,33 @@ export default function ProductionPage() {
                       '—'
                     )}
                   </td>
+                  <td>
+                    <div className="row-actions">
+                      <button
+                        type="button"
+                        className="icon-soft"
+                        onClick={() => setDetail(item)}
+                        title="Ver detalle"
+                        aria-label={`Ver detalle de ${item.codigo}`}
+                      >
+                        <Eye size={16} />
+                      </button>
+                      <button
+                        type="button"
+                        className="icon-soft"
+                        onClick={() => openEdit(item)}
+                        title="Editar producción"
+                        aria-label={`Editar ${item.codigo}`}
+                      >
+                        <Pencil size={16} />
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={6}>
+                <td colSpan={7}>
                   <div className="table-empty">No hay producciones registradas.</div>
                 </td>
               </tr>
@@ -220,13 +280,17 @@ export default function ProductionPage() {
             className="crud-modal production-order-modal"
             role="dialog"
             aria-modal="true"
-            aria-label="Registrar producción"
+            aria-label={editing ? 'Editar producción' : 'Registrar producción'}
           >
             <div className="modal-top">
               <div>
-                <h2>Registrar producción diaria</h2>
+                <h2>
+                  {editing ? `Editar producción ${editing.codigo}` : 'Registrar producción diaria'}
+                </h2>
                 <small>
-                  El código de orden, lote y almacén de origen se generan automáticamente.
+                  {editing
+                    ? 'Se revierte el movimiento de inventario anterior y se rehace con los datos nuevos. El producto terminado no cambia.'
+                    : 'El código de orden, lote y almacén de origen se generan automáticamente.'}
                 </small>
               </div>
               <button
@@ -264,16 +328,20 @@ export default function ProductionPage() {
               </label>
               <label className="field-wide">
                 <span>Producto terminado</span>
-                <SearchableSelect
-                  value={form.productoId}
-                  onChange={(value) => setForm({ ...form, productoId: value })}
-                  options={catalogs.productosTerminados.map((item) => ({
-                    value: item.id,
-                    label: `${item.codigo} · ${item.nombre}`,
-                  }))}
-                  placeholder="Seleccionar producto"
-                  required
-                />
+                {editing ? (
+                  <input value={editing.producto} disabled readOnly />
+                ) : (
+                  <SearchableSelect
+                    value={form.productoId}
+                    onChange={(value) => setForm({ ...form, productoId: value })}
+                    options={catalogs.productosTerminados.map((item) => ({
+                      value: item.id,
+                      label: `${item.codigo} · ${item.nombre}`,
+                    }))}
+                    placeholder="Seleccionar producto"
+                    required
+                  />
+                )}
               </label>
               <label>
                 <span>Almacén destino (opcional)</span>
@@ -376,10 +444,131 @@ export default function ProductionPage() {
                   Cancelar
                 </button>
                 <button className="btn-primary" disabled={saving}>
-                  <Factory size={16} /> {saving ? 'Registrando...' : 'Registrar producción'}
+                  <Factory size={16} />{' '}
+                  {saving ? 'Guardando...' : editing ? 'Guardar cambios' : 'Registrar producción'}
                 </button>
               </div>
             </form>
+          </section>
+        </div>
+      ) : null}
+
+      {detail ? (
+        <div
+          className="modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setDetail(null);
+          }}
+        >
+          <section
+            className="crud-modal operation-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Detalle de producción ${detail.codigo}`}
+          >
+            <div className="modal-top">
+              <div>
+                <h2>Producción {detail.codigo}</h2>
+                <small>Detalle de la producción y su efecto en inventario</small>
+              </div>
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() => setDetail(null)}
+                aria-label="Cerrar detalle"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="operation-detail">
+              <div className="detail-summary">
+                <span>
+                  Producto<strong>{detail.producto}</strong>
+                </span>
+                <span>
+                  Lote<strong>{detail.lote ?? 'Sin lote'}</strong>
+                </span>
+                <span>
+                  Fecha de producción<strong>{fechaCorta(detail.fechaPlanificada)}</strong>
+                </span>
+                <span>
+                  Vencimiento
+                  <strong>
+                    {detail.fechaVencimiento ? fechaCorta(detail.fechaVencimiento) : 'Sin fecha'}
+                  </strong>
+                </span>
+                <span>
+                  Cantidad producida<strong>{cantidad(detail.cantidadProducida)} un.</strong>
+                </span>
+                <span>
+                  Almacén destino<strong>{detail.almacenProductoTerminado}</strong>
+                </span>
+                <span>
+                  Almacén de insumos<strong>{detail.almacenInsumos}</strong>
+                </span>
+                <span>
+                  Responsable<strong>{detail.responsable}</strong>
+                </span>
+              </div>
+              <div className="operation-detail-items">
+                {detail.insumos.length ? (
+                  detail.insumos.map((input, index) => (
+                    <div className="detail-line" key={`${input.productoId}-${index}`}>
+                      <span>
+                        {input.producto}
+                        <small>
+                          Planificado: {cantidad(input.planificada)} · Consumido:{' '}
+                          {cantidad(input.consumida)}
+                        </small>
+                      </span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="detail-line">
+                    <span>Sin insumos registrados</span>
+                  </div>
+                )}
+              </div>
+              <div className="operation-financial-summary">
+                <span>
+                  Costo total<strong>{moneda(detail.costoTotal)}</strong>
+                </span>
+                <span>
+                  Costo unitario
+                  <strong>
+                    {moneda(
+                      detail.cantidadProducida > 0
+                        ? detail.costoTotal / detail.cantidadProducida
+                        : 0,
+                    )}
+                  </strong>
+                </span>
+              </div>
+              <div className="modal-actions">
+                <button type="button" className="btn-secondary" onClick={() => setDetail(null)}>
+                  Cerrar
+                </button>
+                {detail.kardexId ? (
+                  <Link
+                    className="btn-secondary"
+                    href={`/movimientos?ref=${encodeURIComponent(detail.kardexRef ?? '')}`}
+                  >
+                    Ver kardex
+                  </Link>
+                ) : null}
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() => {
+                    const order = detail;
+                    setDetail(null);
+                    openEdit(order);
+                  }}
+                >
+                  <Pencil size={16} /> Editar
+                </button>
+              </div>
+            </div>
           </section>
         </div>
       ) : null}

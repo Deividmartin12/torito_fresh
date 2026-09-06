@@ -9,7 +9,7 @@ export class ReportsService {
   async business(from?: string, to?: string) {
     const dateRange = this.dateRange(from, to);
     const expenseRange = this.expenseDateRange(from, to);
-    const [sales, expenses, productionOrders, stocks, firstSales] = await Promise.all([
+    const [sales, expenses, productionOrders, stocks] = await Promise.all([
       this.prisma.venta.findMany({
         where: { estado: 'CONFIRMADA', fecha: dateRange },
         orderBy: { fecha: 'asc' },
@@ -26,14 +26,6 @@ export class ReportsService {
             where: { tipoOperacion: 'VENTA', estado: 'CONFIRMADO' },
             include: { detalles: true },
           },
-          cuentaCobrar: {
-            include: {
-              pagos: {
-                where: { estado: 'CONFIRMADO', fechaPago: dateRange },
-                include: { metodoPago: true },
-              },
-            },
-          },
         },
       }),
       this.prisma.gasto.findMany({
@@ -47,11 +39,6 @@ export class ReportsService {
       this.prisma.producto.findMany({
         where: { estado: true },
         include: { stocks: { where: { estadoInventario: { codigo: 'DISPONIBLE' } } } },
-      }),
-      this.prisma.venta.groupBy({
-        by: ['clienteId'],
-        where: { estado: 'CONFIRMADA' },
-        _min: { fecha: true },
       }),
     ]);
 
@@ -80,17 +67,10 @@ export class ReportsService {
     const zones = new Map<string, Ranking>();
     const clients = new Map<string, Ranking>();
     const expenseCategories = new Map<string, Ranking>();
-    const paymentMethods = new Map<string, number>();
     const heatmap = new Map<
       string,
       { day: number; dayLabel: string; hour: number; orders: number; sales: number }
     >();
-    const firstSaleByClient = new Map(
-      firstSales.map((row) => [row.clienteId.toString(), row._min.fecha?.getTime()]),
-    );
-    const rangeStart = dateRange.gte.getTime();
-    const rangeEnd = dateRange.lt.getTime();
-    const customerMix = { new: 0, recurring: 0 };
     let totalSales = 0;
     let totalExpenses = 0;
     let totalCost = 0;
@@ -173,9 +153,6 @@ export class ReportsService {
         netSale,
       );
       this.addRanking(clients, sale.cliente.nombreLegal, sale.clienteId.toString(), netSale);
-      const first = firstSaleByClient.get(sale.clienteId.toString());
-      if (first != null && first >= rangeStart && first < rangeEnd) customerMix.new += netSale;
-      else customerMix.recurring += netSale;
       const local = this.localParts(sale.fecha);
       const heatKey = `${local.weekday}-${local.hour}`;
       const heat = heatmap.get(heatKey) ?? {
@@ -188,12 +165,6 @@ export class ReportsService {
       heat.orders += 1;
       heat.sales += netSale;
       heatmap.set(heatKey, heat);
-      for (const payment of sale.cuentaCobrar?.pagos ?? []) {
-        paymentMethods.set(
-          payment.metodoPago.nombre,
-          (paymentMethods.get(payment.metodoPago.nombre) ?? 0) + Number(payment.monto),
-        );
-      }
     }
 
     for (const expense of expenses) {
@@ -288,10 +259,6 @@ export class ReportsService {
       expenseCategories: [...expenseCategories.values()]
         .sort((a, b) => b.value - a.value)
         .slice(0, 10),
-      customerMix,
-      paymentMethods: [...paymentMethods]
-        .map(([name, value]) => ({ name, value }))
-        .sort((a, b) => b.value - a.value),
       heatmap: [...heatmap.values()],
       lowStock: [...lowStockByProduct.values()]
         .filter((row) => row.available <= row.minimum)

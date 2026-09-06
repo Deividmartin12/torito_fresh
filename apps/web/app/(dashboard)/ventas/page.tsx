@@ -9,7 +9,7 @@ import { OperationDetailDialog } from '../../../components/operations/OperationD
 import { RegisterCollectionModal } from '../../../components/operations/RegisterCollectionModal';
 import { SaleReceipt } from '../../../components/operations/SaleReceipt';
 import { Pagination } from '../../../components/Pagination';
-import { moneda } from '../../../lib/format';
+import { fechaHora, moneda } from '../../../lib/format';
 import {
   getOperationalAccounts,
   getOperationalPaymentMethods,
@@ -21,11 +21,12 @@ import {
 import { puedeEditar } from '../../../lib/permissions';
 import { useRole } from '../../../lib/useCurrentUser';
 
-/** Una venta se puede editar solo si no tiene pagos ni devoluciones registradas (ver
- * `OperationsService.updateSale`, que rechaza la edición en esos casos para no descuadrar
- * la cuenta por cobrar). */
+/** Una venta se puede editar mientras su único cobro sea el automático de la propia venta
+ * (una venta al contado nace cobrada y aun así se debe poder corregir). Un cobro hecho después
+ * desde Cobranzas, o una devolución confirmada, sí la bloquean: ver `OperationsService.updateSale`,
+ * que aplica la misma regla en el servidor para no descuadrar la cuenta por cobrar. */
 function esEditable(venta: Sale) {
-  return venta.pagado === 0 && venta.estadoDevolucion === 'SIN_DEVOLUCION';
+  return venta.pagado <= venta.montoInicial + 0.005 && venta.estadoDevolucion === 'SIN_DEVOLUCION';
 }
 
 export default function VentasPage() {
@@ -199,7 +200,7 @@ export default function VentasPage() {
                     <tr key={item.id}>
                       <td>
                         <strong>{item.codigo}</strong>
-                        <small>{new Date(item.fecha).toLocaleString('es-PE')}</small>
+                        <small>{fechaHora(item.fecha)}</small>
                       </td>
                       <td>{item.cliente}</td>
                       <td>{item.almacen}</td>

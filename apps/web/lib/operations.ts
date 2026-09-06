@@ -73,6 +73,7 @@ export type Sale = {
   total: number;
   totalNeto: number;
   montoInicial: number;
+  pagosIniciales: { metodoPagoId: string; metodo: string; monto: number }[];
   fechaVencimiento: string | null;
   cuentaCobrarId: string | null;
   pagado: number;
@@ -90,7 +91,6 @@ export type AccountPayment = {
   fecha: string;
   monto: number;
   metodo: string;
-  numeroOperacion: string | null;
   observaciones: string | null;
   estado: string;
   trabajador: string;
@@ -111,25 +111,26 @@ export type OperationalAccount = {
   pagos: AccountPayment[];
 };
 
-export type OperationalPaymentMethod = { id: string; nombre: string; requiereOperacion: boolean };
+export type OperationalPaymentMethod = { id: string; nombre: string };
 
 export type OperationalPaymentPayload = {
   cuentaId: number;
   metodoPagoId: number;
   monto: number;
   fechaPago: string;
-  numeroOperacion?: string;
   observaciones?: string;
 };
+
+export type SaleInitialPayment = { metodoPagoId: number; monto: number };
 
 export type SaleOperationPayload = {
   clienteId: string;
   almacenId?: string;
   tipoPago: PaymentType;
-  observaciones: string;
-  metodoPagoId?: string;
-  montoInicial?: number;
+  pagosIniciales?: SaleInitialPayment[];
   fechaVencimiento?: string;
+  /** Fecha de emisión (YYYY-MM-DD). Solo se envía al editar una venta. */
+  fecha?: string;
   items: OperationLine[];
 };
 

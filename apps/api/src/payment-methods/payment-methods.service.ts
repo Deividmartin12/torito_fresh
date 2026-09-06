@@ -47,7 +47,6 @@ export class PaymentMethodsService {
   private createData(dto: CreatePaymentMethodDto): Prisma.MetodoPagoUncheckedCreateInput {
     return {
       nombre: dto.nombre.trim().toUpperCase(),
-      requiereOperacion: dto.requiereOperacion ?? false,
       estado: dto.estado ?? true,
     };
   }
@@ -55,16 +54,14 @@ export class PaymentMethodsService {
   private updateData(dto: UpdatePaymentMethodDto): Prisma.MetodoPagoUncheckedUpdateInput {
     return {
       ...(dto.nombre !== undefined ? { nombre: dto.nombre.trim().toUpperCase() } : {}),
-      ...(dto.requiereOperacion !== undefined ? { requiereOperacion: dto.requiereOperacion } : {}),
       ...(dto.estado !== undefined ? { estado: dto.estado } : {}),
     };
   }
 
-  private view(row: { id: bigint; nombre: string; requiereOperacion: boolean; estado: boolean }) {
+  private view(row: { id: bigint; nombre: string; estado: boolean }) {
     return {
       id: row.id.toString(),
       nombre: row.nombre,
-      requiereOperacion: row.requiereOperacion,
       estado: row.estado,
     };
   }

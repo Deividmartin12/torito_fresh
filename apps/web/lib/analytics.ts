@@ -56,8 +56,6 @@ export type BusinessAnalytics = {
   zones: AnalyticsRanking[];
   topClients: AnalyticsRanking[];
   expenseCategories: AnalyticsRanking[];
-  customerMix: { new: number; recurring: number };
-  paymentMethods: { name: string; value: number }[];
   heatmap: HeatmapPoint[];
   lowStock: { id: string; name: string; available: number; minimum: number }[];
 };
@@ -192,5 +190,8 @@ export function previousPeriodRange(from: string, to: string): { from: string; t
   previousEnd.setUTCDate(previousEnd.getUTCDate() - 1);
   const previousStart = new Date(previousEnd);
   previousStart.setUTCDate(previousStart.getUTCDate() - (spanDays - 1));
-  return { from: previousStart.toISOString().slice(0, 10), to: previousEnd.toISOString().slice(0, 10) };
+  return {
+    from: previousStart.toISOString().slice(0, 10),
+    to: previousEnd.toISOString().slice(0, 10),
+  };
 }

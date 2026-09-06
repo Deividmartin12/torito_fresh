@@ -19,13 +19,14 @@ class OperationItemDto {
   @Min(1)
   productoId: number;
 
+  // Cantidad en unidades enteras: las ventas siempre usan enteros positivos (>= 1).
   @Type(() => Number)
   @IsInt()
   @Min(1)
   cantidad: number;
 
   @Type(() => Number)
-  @IsNumber()
+  @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   precioUnitario: number;
 
@@ -34,6 +35,20 @@ class OperationItemDto {
   @IsNumber()
   @Min(0)
   descuento?: number;
+}
+
+// Una línea del cobro inicial: un método (efectivo, Yape, tarjeta...) con su monto.
+// La venta puede repartir el cobro entre varias (p. ej. una parte en efectivo y otra en Yape).
+class InitialPaymentDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  metodoPagoId: number;
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.01)
+  monto: number;
 }
 
 class BaseOperationDto {
@@ -46,17 +61,13 @@ class BaseOperationDto {
   @IsIn(['CONTADO', 'CREDITO', 'MIXTO'])
   tipoPago: string;
 
+  // Métodos con los que se cobra al momento de la venta. En CONTADO deben sumar el total;
+  // en MIXTO suman el abono inicial; en CREDITO va vacío.
   @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  metodoPagoId?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(0)
-  montoInicial?: number;
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => InitialPaymentDto)
+  pagosIniciales?: InitialPaymentDto[];
 
   @IsOptional()
   @IsDateString()
@@ -67,10 +78,6 @@ class BaseOperationDto {
   @IsNumber()
   @Min(0)
   descuento?: number;
-
-  @IsOptional()
-  @IsString()
-  observaciones?: string;
 
   @IsArray()
   @ArrayMinSize(1)
@@ -105,30 +112,25 @@ export class UpdateOperationalSaleDto {
   tipoPago: string;
 
   @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  metodoPagoId?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(0)
-  montoInicial?: number;
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => InitialPaymentDto)
+  pagosIniciales?: InitialPaymentDto[];
 
   @IsOptional()
   @IsDateString()
   fechaVencimiento?: string;
+
+  // Fecha de emisión de la venta. Solo se toma al editar; al registrar es el día actual.
+  @IsOptional()
+  @IsDateString()
+  fecha?: string;
 
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
   @Min(0)
   descuento?: number;
-
-  @IsOptional()
-  @IsString()
-  observaciones?: string;
 
   @IsArray()
   @ArrayMinSize(1)
@@ -170,6 +172,48 @@ export class CreateOperationalProductDto {
   esRetornable: boolean;
 }
 
+// Edición de un producto ya creado. El código no se toca (es la referencia estable);
+// el resto de datos sí. Todos los campos son opcionales: se actualiza solo lo que llega.
+export class UpdateOperationalProductDto {
+  @IsOptional()
+  @IsString()
+  nombre?: string;
+
+  @IsOptional()
+  @IsString()
+  tipo?: string;
+
+  @IsOptional()
+  @IsString()
+  unidad?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  capacidadLitros?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  precio?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  costo?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  controlaLote?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  esRetornable?: boolean;
+}
+
 export class CreateOperationalWarehouseDto {
   @IsString()
   nombre: string;
@@ -204,10 +248,6 @@ export class RegisterOperationalPaymentDto {
 
   @IsOptional()
   @IsString()
-  numeroOperacion?: string;
-
-  @IsOptional()
-  @IsString()
   observaciones?: string;
 }
 
@@ -222,6 +262,7 @@ class ReturnItemDto {
   @Min(1)
   detalleId: number;
 
+  // Igual que la venta: unidades enteras positivas.
   @Type(() => Number)
   @IsInt()
   @Min(1)

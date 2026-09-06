@@ -1,6 +1,6 @@
 'use client';
 
-import { Pencil, Plus, Search, UserX } from 'lucide-react';
+import { Pencil, Plus, Search, UserCheck, UserX } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
@@ -59,14 +59,18 @@ export default function ClientesPage() {
     );
     cerrar();
   }
-  async function desactivar(id: string) {
+  async function cambiarEstado(cliente: Cliente) {
+    const accion = cliente.active ? 'deactivate' : 'activate';
     try {
-      const updated = await api<Cliente>(`/clients/${id}/deactivate`, { method: 'PATCH' });
-      setClientes((current) => current.map((item) => (item.id === id ? updated : item)));
+      const updated = await api<Cliente>(`/clients/${cliente.id}/${accion}`, { method: 'PATCH' });
+      setClientes((current) => current.map((item) => (item.id === updated.id ? updated : item)));
     } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : 'No se pudo desactivar el cliente', {
-        action: { label: 'Reintentar', onClick: () => void load() },
-      });
+      toast.error(
+        cause instanceof Error ? cause.message : 'No se pudo cambiar el estado del cliente',
+        {
+          action: { label: 'Reintentar', onClick: () => void load() },
+        },
+      );
     }
   }
 
@@ -174,16 +178,14 @@ export default function ClientesPage() {
                             >
                               <Pencil size={16} />
                             </button>
-                            {cliente.active ? (
-                              <button
-                                className="icon-soft"
-                                onClick={() => void desactivar(cliente.id)}
-                                title="Desactivar cliente"
-                                aria-label={`Desactivar ${cliente.name}`}
-                              >
-                                <UserX size={16} />
-                              </button>
-                            ) : null}
+                            <button
+                              className="icon-soft"
+                              onClick={() => void cambiarEstado(cliente)}
+                              title={cliente.active ? 'Desactivar cliente' : 'Activar cliente'}
+                              aria-label={`${cliente.active ? 'Desactivar' : 'Activar'} ${cliente.name}`}
+                            >
+                              {cliente.active ? <UserX size={16} /> : <UserCheck size={16} />}
+                            </button>
                           </div>
                         </td>
                       ) : null}
@@ -214,9 +216,7 @@ export default function ClientesPage() {
           />
         </>
       )}
-      {modal ? (
-        <ClienteFormModal editando={editando} onClose={cerrar} onSaved={onSaved} />
-      ) : null}
+      {modal ? <ClienteFormModal editando={editando} onClose={cerrar} onSaved={onSaved} /> : null}
     </div>
   );
 }

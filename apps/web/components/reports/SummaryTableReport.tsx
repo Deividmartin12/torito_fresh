@@ -67,6 +67,16 @@ export function SummaryTableReport() {
     }
   })();
 
+  // Totales del período: suman lo que muestran las filas de arriba.
+  const totales = rows.reduce(
+    (acc, row) => ({
+      sales: acc.sales + row.sales,
+      expenses: acc.expenses + row.expenses,
+      production: acc.production + row.production,
+    }),
+    { sales: 0, expenses: 0, production: 0 },
+  );
+
   function exportReport() {
     if (!rows.length) return;
     const csvRows: (string | number)[][] = [
@@ -77,6 +87,12 @@ export function SummaryTableReport() {
         row.expenses.toFixed(2),
         row.production.toFixed(2),
       ]),
+      [
+        'Total',
+        totales.sales.toFixed(2),
+        totales.expenses.toFixed(2),
+        totales.production.toFixed(2),
+      ],
     ];
     const csv = `﻿${csvRows.map((row) => row.map(csvCell).join(';')).join('\n')}`;
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
@@ -142,6 +158,14 @@ export function SummaryTableReport() {
                 </tr>
               ))}
             </tbody>
+            <tfoot>
+              <tr>
+                <td>Total</td>
+                <td>{moneda(totales.sales)}</td>
+                <td>{moneda(totales.expenses)}</td>
+                <td>{totales.production.toFixed(0)} un.</td>
+              </tr>
+            </tfoot>
           </table>
         </div>
       ) : (

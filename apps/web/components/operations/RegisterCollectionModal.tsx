@@ -40,13 +40,11 @@ export function RegisterCollectionModal({
   const [metodoId, setMetodoId] = useState(metodos[0]?.id ?? '');
   const [monto, setMonto] = useState('');
   const [fechaPago, setFechaPago] = useState(today);
-  const [numeroOperacion, setNumeroOperacion] = useState('');
   const [observaciones, setObservaciones] = useState('');
   const [saving, setSaving] = useState(false);
 
   const opciones = cuentas?.filter((item) => item.saldo > 0) ?? [cuenta];
   const seleccionada = opciones.find((item) => item.id === cuentaId) ?? cuenta;
-  const metodo = metodos.find((item) => item.id === metodoId);
   const vencimiento = useMemo(
     () => resumenVencimiento(seleccionada.vencimiento, seleccionada.saldo),
     [seleccionada],
@@ -81,10 +79,6 @@ export function RegisterCollectionModal({
       toast.error(`El monto debe ser mayor a cero y no superar ${moneda(seleccionada.saldo)}.`);
       return;
     }
-    if (metodo?.requiereOperacion && !numeroOperacion.trim()) {
-      toast.error(`Ingresa el número de operación para ${metodo.nombre}.`);
-      return;
-    }
     setSaving(true);
     try {
       const updated = await registerOperationalPayment(tipo, {
@@ -92,7 +86,6 @@ export function RegisterCollectionModal({
         metodoPagoId: Number(metodoId),
         monto: amount,
         fechaPago,
-        numeroOperacion: numeroOperacion.trim() || undefined,
         observaciones: observaciones.trim() || undefined,
       });
       toast.success(`${cobrar ? 'Cobro' : 'Pago'} de ${moneda(amount)} registrado correctamente.`);
@@ -161,13 +154,7 @@ export function RegisterCollectionModal({
 
           <label>
             <span>Método de pago</span>
-            <select
-              value={metodoId}
-              onChange={(e) => {
-                setMetodoId(e.target.value);
-                setNumeroOperacion('');
-              }}
-            >
+            <select value={metodoId} onChange={(e) => setMetodoId(e.target.value)}>
               {metodos.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.nombre}
@@ -195,16 +182,6 @@ export function RegisterCollectionModal({
                 Mitad
               </button>
             </div>
-          </label>
-
-          <label>
-            <span>Número de operación</span>
-            <input
-              value={numeroOperacion}
-              onChange={(e) => setNumeroOperacion(e.target.value)}
-              placeholder={metodo?.requiereOperacion ? 'Obligatorio' : 'Opcional'}
-              required={metodo?.requiereOperacion}
-            />
           </label>
 
           <label>

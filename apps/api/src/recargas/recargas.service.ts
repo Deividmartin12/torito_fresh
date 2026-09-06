@@ -67,7 +67,6 @@ export class RecargasService {
     const compras = ventas.length;
     const primera = ventas[0].fecha;
     const ultima = ventas[compras - 1].fecha;
-    const totalPagado = ventas.reduce((suma, venta) => suma + venta.total, 0);
 
     // El intervalo promedio necesita al menos dos compras para poder medir la
     // distancia entre una y otra.
@@ -93,9 +92,7 @@ export class RecargasService {
       intervaloDias,
       proximaRecarga,
       diasParaProxima,
-      pagoPromedio: totalPagado / compras,
       ultimoPago: ventas[compras - 1].total,
-      totalPagado,
       estado: this.estado(compras, diasParaProxima),
     };
   }

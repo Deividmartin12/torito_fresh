@@ -6,6 +6,7 @@ import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { RolesGuard } from './auth/roles.guard';
 import { BidonesRotosModule } from './bidones-rotos/bidones-rotos.module';
 import { ClientsModule } from './clients/clients.module';
+import { ConsultaDocumentoModule } from './consulta-documento/consulta-documento.module';
 import { ContainersModule } from './containers/containers.module';
 import { ExpensesModule } from './expenses/expenses.module';
 import { OperationsModule } from './operations/operations.module';
@@ -23,6 +24,7 @@ import { TrabajadoresModule } from './trabajadores/trabajadores.module';
     PrismaModule,
     AuthModule,
     ClientsModule,
+    ConsultaDocumentoModule,
     ProductionModule,
     ProveedoresModule,
     OperationsModule,

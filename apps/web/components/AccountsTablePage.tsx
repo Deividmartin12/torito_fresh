@@ -690,9 +690,6 @@ export function AccountsTablePage({ tipo }: { tipo: 'cobrar' | 'pagar' }) {
                         <small>
                           {formatDate(payment.fecha)} · {payment.trabajador}
                         </small>
-                        {payment.numeroOperacion ? (
-                          <small>Operación: {payment.numeroOperacion}</small>
-                        ) : null}
                       </div>
                       <strong>{moneda(payment.monto)}</strong>
                     </article>

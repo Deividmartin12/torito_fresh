@@ -9,6 +9,7 @@ import {
   CreateOperationalWarehouseDto,
   CreateReturnDto,
   RegisterOperationalPaymentDto,
+  UpdateOperationalProductDto,
   UpdateOperationalSaleDto,
   UpdateReceivableDueDateDto,
 } from './operations.dto';
@@ -18,8 +19,7 @@ type Transaction = Omit<
   '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'
 >;
 
-const saleCode = (id: bigint | number | string) =>
-  `V-${id.toString().padStart(6, '0')}`;
+const saleCode = (id: bigint | number | string) => `V-${id.toString().padStart(6, '0')}`;
 
 /**
  * Configuración de las transacciones que tocan stock (registrar y editar ventas).
@@ -62,17 +62,16 @@ export class OperationsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async catalogs() {
-    const [clientes, almacenes, productos, trabajador, estadosInventario] =
-      await Promise.all([
-        this.prisma.cliente.findMany({ where: { estado: true }, orderBy: { nombreLegal: 'asc' } }),
-        this.prisma.almacen.findMany({ where: { estado: true }, orderBy: { nombre: 'asc' } }),
-        this.prisma.producto.findMany({ where: { estado: true }, orderBy: { nombre: 'asc' } }),
-        this.prisma.trabajador.findFirst({ where: { estado: true }, orderBy: { id: 'asc' } }),
-        this.prisma.estadoInventario.findMany({
-          where: { estado: true },
-          orderBy: { nombre: 'asc' },
-        }),
-      ]);
+    const [clientes, almacenes, productos, trabajador, estadosInventario] = await Promise.all([
+      this.prisma.cliente.findMany({ where: { estado: true }, orderBy: { nombreLegal: 'asc' } }),
+      this.prisma.almacen.findMany({ where: { estado: true }, orderBy: { nombre: 'asc' } }),
+      this.prisma.producto.findMany({ where: { estado: true }, orderBy: { nombre: 'asc' } }),
+      this.prisma.trabajador.findFirst({ where: { estado: true }, orderBy: { id: 'asc' } }),
+      this.prisma.estadoInventario.findMany({
+        where: { estado: true },
+        orderBy: { nombre: 'asc' },
+      }),
+    ]);
 
     const debtByClient = await this.prisma.cuentaCobrar.groupBy({
       by: ['clienteId'],
@@ -201,6 +200,44 @@ export class OperationsService {
       },
     });
     return { id: product.id.toString(), codigo: product.codigo, nombre: product.nombre };
+  }
+
+  async updateProduct(id: string, dto: UpdateOperationalProductDto) {
+    let productId: bigint;
+    try {
+      productId = BigInt(id);
+    } catch {
+      throw new NotFoundException('Producto no encontrado');
+    }
+    const product = await this.prisma.producto.findUnique({ where: { id: productId } });
+    if (!product) throw new NotFoundException('Producto no encontrado');
+
+    // El tipo se maneja igual que al crear: se busca/crea por nombre.
+    let tipoProductoId = product.tipoProductoId;
+    const tipo = dto.tipo?.trim();
+    if (tipo) {
+      const tipoProducto = await this.prisma.tipoProducto.upsert({
+        where: { nombre: tipo },
+        update: { estado: true },
+        create: { nombre: tipo },
+      });
+      tipoProductoId = tipoProducto.id;
+    }
+
+    const updated = await this.prisma.producto.update({
+      where: { id: productId },
+      data: {
+        tipoProductoId,
+        ...(dto.nombre?.trim() ? { nombre: dto.nombre.trim() } : {}),
+        ...(dto.unidad?.trim() ? { unidadMedida: dto.unidad.trim().toUpperCase() } : {}),
+        ...(dto.capacidadLitros === undefined ? {} : { capacidadLitros: dto.capacidadLitros }),
+        ...(dto.precio === undefined ? {} : { precioVenta: dto.precio }),
+        ...(dto.costo === undefined ? {} : { costoReferencia: dto.costo }),
+        ...(dto.controlaLote === undefined ? {} : { controlaLote: dto.controlaLote }),
+        ...(dto.esRetornable === undefined ? {} : { esRetornable: dto.esRetornable }),
+      },
+    });
+    return { id: updated.id.toString(), codigo: updated.codigo, nombre: updated.nombre };
   }
 
   async warehouses() {
@@ -332,7 +369,6 @@ export class OperationsService {
     return rows.map((row) => ({
       id: row.id.toString(),
       nombre: row.nombre,
-      requiereOperacion: row.requiereOperacion,
     }));
   }
 
@@ -358,10 +394,6 @@ export class OperationsService {
       const method = await tx.metodoPago.findUnique({ where: { id: BigInt(dto.metodoPagoId) } });
       if (!method || !method.estado)
         throw new BadRequestException('El método de pago no está disponible');
-      const operationNumber = dto.numeroOperacion?.trim();
-      if (method.requiereOperacion && !operationNumber) {
-        throw new BadRequestException(`Ingrese el número de operación para ${method.nombre}`);
-      }
       if (dto.fechaPago && dto.fechaPago.slice(0, 10) > limaTodayKey())
         throw new BadRequestException('La fecha del pago no puede estar en el futuro');
       const paidAt = dto.fechaPago ? new Date(dto.fechaPago) : new Date();
@@ -379,7 +411,6 @@ export class OperationsService {
           trabajadorId: workerId,
           fechaPago: paidAt,
           monto: dto.monto,
-          numeroOperacion: operationNumber,
           observaciones: dto.observaciones?.trim(),
         },
       });
@@ -503,9 +534,7 @@ export class OperationsService {
         producto: item.producto.nombre,
         cantidad: Number(item.cantidad),
         importe: Number(item.subtotal),
-        destino: item.reintegraInventario
-          ? item.estadoDestino.nombre
-          : 'No retorna al inventario',
+        destino: item.reintegraInventario ? item.estadoDestino.nombre : 'No retorna al inventario',
       })),
     };
   }
@@ -633,9 +662,7 @@ export class OperationsService {
       productoId,
       ...(almacenId ? { almacenId } : {}),
     };
-    const saldoInicial = fecha?.gte
-      ? await this.kardexSaldoInicial(scopeFilter, fecha.gte)
-      : 0;
+    const saldoInicial = fecha?.gte ? await this.kardexSaldoInicial(scopeFilter, fecha.gte) : 0;
 
     const lines = await this.prisma.detalleMovimientoInventario.findMany({
       where: { ...scopeFilter, ...(fecha ? { movimiento: { fecha } } : {}) },
@@ -741,11 +768,11 @@ export class OperationsService {
           almacenOrigenId: warehouse.id,
           trabajadorId,
           tipoPago: dto.tipoPago,
-          metodoPagoInicialId: terms.methodId,
+          // Referencia rápida al método principal; el desglose real vive en PagoCliente.
+          metodoPagoInicialId: terms.payments[0]?.methodId ?? null,
           montoInicial: terms.initial,
           fechaVencimientoPago: terms.dueDate,
           estado: 'CONFIRMADA',
-          observaciones: dto.observaciones,
           subtotal: totals.subtotal,
           igv: totals.igv,
           descuento: totals.descuento,
@@ -775,20 +802,18 @@ export class OperationsService {
           estado: 'PENDIENTE',
         },
       });
-      const initial =
-        sale.tipoPago === 'CONTADO'
-          ? Number(sale.total)
-          : Math.min(Number(sale.montoInicial), Number(sale.total));
-      if (initial > 0)
-        await this.createInitialPayment(
-          tx,
-          account,
-          sale.trabajadorId,
-          sale.metodoPagoInicialId ?? undefined,
-          initial,
-        );
+      await this.applyInitialPayments(
+        tx,
+        { id: account.id, montoOriginal: Number(account.montoOriginal) },
+        sale.trabajadorId,
+        terms.payments,
+      );
       const paymentState =
-        initial >= Number(sale.total) ? 'PAGADA' : initial > 0 ? 'PARCIAL' : 'PENDIENTE';
+        terms.initial >= Number(sale.total) - 0.005
+          ? 'PAGADA'
+          : terms.initial > 0
+            ? 'PARCIAL'
+            : 'PENDIENTE';
       await tx.venta.update({ where: { id: sale.id }, data: { estadoPago: paymentState } });
       return this.saleView(await this.findSale(tx, sale.id));
     }, TRANSACCION_DE_STOCK);
@@ -798,8 +823,12 @@ export class OperationsService {
    * Edita una venta ya confirmada. Como una venta nace confirmada (no hay estado BORRADOR),
    * editar significa revertir el efecto físico del movimiento de salida original y volver a
    * aplicarlo con los datos nuevos — sin mutar ni borrar el kardex histórico (es un ledger de
-   * solo-append). Restricción de seguridad: no se puede editar si ya tiene un pago registrado
-   * o una devolución confirmada, para no descuadrar la cuenta por cobrar.
+   * solo-append).
+   *
+   * Se puede editar mientras el único cobro que tenga sea el automático que registra la propia
+   * venta (una venta al contado nace cobrada, y aun así se debe poder corregir). Lo que sí
+   * bloquea la edición es un cobro hecho después desde Cobranzas o una devolución confirmada:
+   * cambiar el total ahí dejaría descuadrada la cuenta del cliente.
    */
   async updateSale(id: string, dto: UpdateOperationalSaleDto) {
     return this.prisma.$transaction(async (tx) => {
@@ -809,10 +838,33 @@ export class OperationsService {
         include: { cuentaCobrar: true, devoluciones: true },
       });
       if (!sale) throw new NotFoundException('Venta no encontrada');
-      if (sale.cuentaCobrar && Number(sale.cuentaCobrar.montoPagado) > 0)
-        throw new BadRequestException('No se puede editar una venta con pagos registrados');
+      // El medio centavo de margen evita que un redondeo del decimal marque falso positivo.
+      const cobrado = Number(sale.cuentaCobrar?.montoPagado ?? 0);
+      if (cobrado > Number(sale.montoInicial) + 0.005)
+        throw new BadRequestException(
+          'No se puede editar una venta con cobros registrados desde Cobranzas',
+        );
       if (sale.devoluciones.some((item) => item.estado === 'CONFIRMADA'))
         throw new BadRequestException('No se puede editar una venta con devoluciones registradas');
+
+      // La fecha de emisión se puede corregir al editar. No puede quedar en el futuro (Lima).
+      // Se guarda a mediodía Lima para que los listados que agrupan por día no se corran de fecha;
+      // la cuenta por cobrar la guarda como fecha calendario (columna Date).
+      let nuevaFecha: { emision: Date; venta: Date } | null = null;
+      if (dto.fecha) {
+        const fechaKey = dto.fecha.slice(0, 10);
+        if (fechaKey > limaTodayKey())
+          throw new BadRequestException('La fecha de la venta no puede estar en el futuro');
+        nuevaFecha = {
+          emision: new Date(`${fechaKey}T00:00:00.000Z`),
+          venta: new Date(`${fechaKey}T12:00:00-05:00`),
+        };
+      }
+
+      // El cobro automático se rehace más abajo con el total nuevo, así que se borra el viejo.
+      // Solo puede ser ese: los cobros de Cobranzas ya cortaron la edición arriba.
+      if (sale.cuentaCobrar)
+        await tx.pagoCliente.deleteMany({ where: { cuentaCobrarId: sale.cuentaCobrar.id } });
 
       await this.reverseSaleOutbound(tx, saleId);
 
@@ -830,13 +882,11 @@ export class OperationsService {
           clienteId: BigInt(dto.clienteId),
           almacenOrigenId: warehouse.id,
           tipoPago: dto.tipoPago,
-          metodoPagoInicialId: terms.methodId,
-          // Editar NO registra un cobro (eso se hace desde Cobranzas), así que el "monto
-          // inicial" queda en 0. Si se guardara el monto, el panel del repartidor lo sumaría
-          // como dinero cobrado que en realidad nadie cobró.
-          montoInicial: 0,
+          ...(nuevaFecha ? { fecha: nuevaFecha.venta } : {}),
+          // Referencia rápida al método principal; el desglose real vive en PagoCliente.
+          metodoPagoInicialId: terms.payments[0]?.methodId ?? null,
+          montoInicial: terms.initial,
           fechaVencimientoPago: terms.dueDate,
-          observaciones: dto.observaciones,
           subtotal: totals.subtotal,
           igv: totals.igv,
           descuento: totals.descuento,
@@ -858,23 +908,36 @@ export class OperationsService {
 
       await this.applySaleOutbound(tx, saleId, '-R');
 
-      // El saldo pagado es 0 por la restricción de arriba, así que el nuevo saldo pendiente
-      // es directamente el nuevo total, sin ambigüedad. No se re-registra un pago inicial:
-      // si la venta editada pasa a ser al contado, el cobro se registra aparte, desde Cobranzas.
-      // También se actualiza el vencimiento: Cobranzas lo lee de acá, no de la venta, y si no
-      // se copiaba, la venta seguía apareciendo vencida después de reprogramarla.
+      // La cuenta por cobrar se rearma desde cero con el total nuevo: se borró el cobro viejo,
+      // así que parte en 0 pagado y se vuelve a registrar el cobro inicial que corresponda al
+      // tipo de pago nuevo. También se actualiza el vencimiento, porque Cobranzas lo lee de
+      // acá y no de la venta: sin esto la venta seguía apareciendo vencida al reprogramarla.
       if (sale.cuentaCobrar) {
         await tx.cuentaCobrar.update({
           where: { id: sale.cuentaCobrar.id },
           data: {
             montoOriginal: totals.total,
+            montoPagado: 0,
             saldoPendiente: totals.total,
             fechaVencimiento: terms.dueDate,
+            ...(nuevaFecha ? { fechaEmision: nuevaFecha.emision } : {}),
             estado: 'PENDIENTE',
           },
         });
+        await this.applyInitialPayments(
+          tx,
+          { id: sale.cuentaCobrar.id, montoOriginal: totals.total },
+          sale.trabajadorId,
+          terms.payments,
+        );
+        const estadoPago =
+          terms.initial >= totals.total - 0.005
+            ? 'PAGADA'
+            : terms.initial > 0
+              ? 'PARCIAL'
+              : 'PENDIENTE';
+        await tx.venta.update({ where: { id: saleId }, data: { estadoPago } });
       }
-      await tx.venta.update({ where: { id: saleId }, data: { estadoPago: 'PENDIENTE' } });
 
       return this.saleView(await this.findSale(tx, saleId));
     }, TRANSACCION_DE_STOCK);
@@ -989,7 +1052,8 @@ export class OperationsService {
       );
       const previous = Number(stock?.cantidad ?? 0);
       const next = previous + Number(line.cantidad);
-      if (stock) await tx.stockAlmacen.update({ where: { id: stock.id }, data: { cantidad: next } });
+      if (stock)
+        await tx.stockAlmacen.update({ where: { id: stock.id }, data: { cantidad: next } });
       else
         await tx.stockAlmacen.create({
           data: {
@@ -1166,10 +1230,7 @@ export class OperationsService {
           entry.detail.productoId,
           Number(entry.detail.producto.costoReferencia),
         );
-        for (const parte of repartirEntreLotesVendidos(
-          entry.detail.productoId,
-          entry.quantity,
-        )) {
+        for (const parte of repartirEntreLotesVendidos(entry.detail.productoId, entry.quantity)) {
           const stock = await this.stockRow(
             tx,
             entry.detail.productoId,
@@ -1294,37 +1355,36 @@ export class OperationsService {
     });
   }
 
-  private async createInitialPayment(
+  /**
+   * Registra el cobro inicial de una venta, que puede venir repartido en varios métodos
+   * (p. ej. una parte en efectivo y otra en Yape): crea un PagoCliente por método y deja
+   * la cuenta por cobrar con lo abonado, su saldo y su estado al día.
+   */
+  private async applyInitialPayments(
     tx: Transaction,
-    account: { id: bigint; montoOriginal: unknown },
+    account: { id: bigint; montoOriginal: number },
     workerId: bigint,
-    methodId: bigint | undefined,
-    amount: number,
+    payments: { methodId: bigint; monto: number }[],
   ) {
-    const method = methodId
-      ? await tx.metodoPago.findUnique({ where: { id: methodId } })
-      : await tx.metodoPago.findFirst({
-          where: { estado: true, nombre: { contains: 'EFECTIVO', mode: 'insensitive' } },
-        });
-    if (!method?.estado) throw new BadRequestException('Seleccione un método de pago activo');
-    if (method.requiereOperacion)
-      throw new BadRequestException(
-        `El método ${method.nombre} requiere número de operación; registre el abono desde la cuenta`,
-      );
-    const balance = Math.max(Number(account.montoOriginal) - amount, 0);
-    await tx.pagoCliente.create({
-      data: {
+    if (payments.length === 0) return;
+    const abonado = Math.round(payments.reduce((sum, p) => sum + p.monto, 0) * 100) / 100;
+    await tx.pagoCliente.createMany({
+      data: payments.map((payment) => ({
         cuentaCobrarId: account.id,
-        metodoPagoId: method.id,
+        metodoPagoId: payment.methodId,
         trabajadorId: workerId,
-        monto: amount,
+        monto: payment.monto,
         observaciones: 'Pago inicial de la venta',
-      },
+      })),
     });
-    const state = balance <= 0 ? 'PAGADA' : 'PARCIAL';
+    const saldo = Math.max(Math.round((account.montoOriginal - abonado) * 100) / 100, 0);
     await tx.cuentaCobrar.update({
       where: { id: account.id },
-      data: { montoPagado: amount, saldoPendiente: balance, estado: state },
+      data: {
+        montoPagado: abonado,
+        saldoPendiente: saldo,
+        estado: saldo <= 0 ? 'PAGADA' : 'PARCIAL',
+      },
     });
   }
 
@@ -1332,21 +1392,25 @@ export class OperationsService {
     tx: Transaction,
     dto: {
       tipoPago: string;
-      metodoPagoId?: number;
-      montoInicial?: number;
+      pagosIniciales?: { metodoPagoId: number; monto: number }[];
       fechaVencimiento?: string;
     },
     total: number,
   ) {
     if (total <= 0) throw new BadRequestException('El total de la operación debe ser mayor a cero');
+    const lines = dto.pagosIniciales ?? [];
+    const abonado =
+      Math.round(lines.reduce((sum, line) => sum + Number(line.monto), 0) * 100) / 100;
     const isCash = dto.tipoPago === 'CONTADO';
-    const initial = isCash ? total : dto.tipoPago === 'MIXTO' ? Number(dto.montoInicial ?? 0) : 0;
-    if (dto.tipoPago === 'MIXTO' && (initial <= 0 || initial >= total)) {
+
+    if (isCash && Math.abs(abonado - total) > 0.005)
+      throw new BadRequestException('Los métodos de pago deben sumar el total de la venta');
+    if (dto.tipoPago === 'MIXTO' && (abonado <= 0 || abonado >= total))
       throw new BadRequestException('El abono inicial debe ser mayor a cero y menor que el total');
-    }
-    if (!isCash && !dto.fechaVencimiento) {
+    if (dto.tipoPago === 'CREDITO' && abonado > 0)
+      throw new BadRequestException('Una venta a crédito no registra un pago inicial');
+    if (!isCash && !dto.fechaVencimiento)
       throw new BadRequestException('Ingrese la fecha de vencimiento del saldo');
-    }
 
     let dueDate: Date | null = null;
     if (dto.fechaVencimiento) {
@@ -1356,20 +1420,23 @@ export class OperationsService {
       dueDate = new Date(`${dueKey}T00:00:00.000Z`);
     }
 
-    let methodId: bigint | null = null;
-    if (initial > 0) {
-      if (!dto.metodoPagoId) throw new BadRequestException('Seleccione el método del pago inicial');
-      const method = await tx.metodoPago.findUnique({ where: { id: BigInt(dto.metodoPagoId) } });
-      if (!method?.estado) throw new BadRequestException('El método de pago no está disponible');
-      if (method.requiereOperacion) {
-        throw new BadRequestException(
-          `El método ${method.nombre} requiere número de operación; registre el abono desde la cuenta`,
-        );
+    // Los métodos elegidos se validan en una sola consulta.
+    const payments: { methodId: bigint; monto: number }[] = [];
+    if (dto.tipoPago !== 'CREDITO' && lines.length > 0) {
+      const ids = [...new Set(lines.map((line) => BigInt(line.metodoPagoId)))];
+      const methods = await tx.metodoPago.findMany({ where: { id: { in: ids } } });
+      for (const line of lines) {
+        const monto = Math.round(Number(line.monto) * 100) / 100;
+        if (monto <= 0)
+          throw new BadRequestException('Cada método de pago debe tener un monto mayor a cero');
+        const method = methods.find((row) => row.id === BigInt(line.metodoPagoId));
+        if (!method?.estado)
+          throw new BadRequestException('Uno de los métodos de pago no está disponible');
+        payments.push({ methodId: method.id, monto });
       }
-      methodId = method.id;
     }
 
-    return { methodId, initial, dueDate };
+    return { payments, initial: abonado, dueDate };
   }
 
   private async workerId(tx: Transaction, userId?: string) {
@@ -1384,7 +1451,6 @@ export class OperationsService {
     if (!worker) throw new BadRequestException('Registre un trabajador activo antes de operar');
     return worker.id;
   }
-
 
   private async availableState(tx: Transaction) {
     const state = await tx.estadoInventario.findUnique({ where: { codigo: 'DISPONIBLE' } });
@@ -1419,7 +1485,6 @@ export class OperationsService {
       fecha: row.fechaPago,
       monto: Number(row.monto),
       metodo: row.metodoPago.nombre,
-      numeroOperacion: row.numeroOperacion,
       observaciones: row.observaciones,
       estado: row.estado,
       trabajador: `${row.trabajador.nombres} ${row.trabajador.apellidos}`.trim(),
@@ -1499,7 +1564,9 @@ export class OperationsService {
               detallesDevolucion: { where: { devolucionVenta: { estado: 'CONFIRMADA' } } },
             },
           },
-          cuentaCobrar: true,
+          cuentaCobrar: {
+            include: { pagos: { include: { metodoPago: true }, orderBy: { id: 'asc' } } },
+          },
           devoluciones: true,
           movimientosInventario: { orderBy: { id: 'asc' } },
         },
@@ -1507,8 +1574,14 @@ export class OperationsService {
       .then((row) => row ?? Promise.reject(new NotFoundException('Venta no encontrada')));
   }
 
+  /**
+   * Importe de una línea, redondeado al centavo. La cantidad en ventas es un entero
+   * positivo, pero el precio puede tener centavos: sin redondear acá, el total de
+   * la venta cerraba un centavo distinto al que el usuario vio en el formulario.
+   */
   private lineTotal(item: { cantidad: number; precioUnitario: number; descuento?: number }) {
-    return Math.max(item.cantidad * item.precioUnitario - (item.descuento ?? 0), 0);
+    const importe = Math.max(item.cantidad * item.precioUnitario - (item.descuento ?? 0), 0);
+    return Math.round(importe * 100) / 100;
   }
 
   /**
@@ -1567,6 +1640,13 @@ export class OperationsService {
       descuento: Number(row.descuento),
       total: Number(row.total),
       montoInicial: Number(row.montoInicial),
+      // Desglose del cobro inicial por método (para reconstruirlo al editar la venta).
+      pagosIniciales:
+        row.cuentaCobrar?.pagos?.map((pago: any) => ({
+          metodoPagoId: pago.metodoPagoId.toString(),
+          metodo: pago.metodoPago?.nombre ?? '',
+          monto: Number(pago.monto),
+        })) ?? [],
       fechaVencimiento: row.cuentaCobrar?.fechaVencimiento ?? row.fechaVencimientoPago,
       cuentaCobrarId: row.cuentaCobrar?.id?.toString() ?? null,
       totalNeto: Math.max(Number(row.total) - returned, 0),
