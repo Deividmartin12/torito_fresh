@@ -63,6 +63,10 @@ export class ReportsService {
     };
     const months = new Map<string, Period>();
     const days = new Map<string, Period>();
+    // Serie por hora: solo tiene sentido (y solo se calcula) cuando el filtro pide un unico
+    // dia calendario. Para rangos mas largos se devuelve vacia y el front agrupa por dia o mas.
+    const hours = new Map<string, Period>();
+    const singleDay = dateRange.lt.getTime() - dateRange.gte.getTime() <= 86_400_000;
     const products = new Map<string, ProductRanking>();
     const zones = new Map<string, Ranking>();
     const clients = new Map<string, Ranking>();
@@ -146,6 +150,15 @@ export class ReportsService {
         margin: netSale - saleCost,
         orders: counts,
       });
+      if (singleDay) {
+        const hourKey = this.hourKey(sale.fecha);
+        this.addPeriod(hours, hourKey, this.hourLabel(hourKey), {
+          sales: netSale,
+          cost: saleCost,
+          margin: netSale - saleCost,
+          orders: counts,
+        });
+      }
       this.addRanking(
         zones,
         sale.cliente.direccion?.trim() || 'Sin zona registrada',
@@ -178,6 +191,12 @@ export class ReportsService {
       this.addPeriod(months, this.utcMonthKey(expense.fecha), this.utcMonthLabel(expense.fecha), {
         expenses: amount,
       });
+      if (singleDay) {
+        // `fecha` no guarda hora, asi que la hora del gasto se toma de `createdAt` (cuando se
+        // registro) pero colgada del dia de `fecha`, para que siempre caiga dentro del filtro.
+        const hourKey = `${this.utcDayKey(expense.fecha)}T${this.limaHour(expense.createdAt)}`;
+        this.addPeriod(hours, hourKey, this.hourLabel(hourKey), { expenses: amount });
+      }
       this.addRanking(expenseCategories, expense.categoria, expense.categoria, amount);
     }
 
@@ -192,6 +211,10 @@ export class ReportsService {
       this.addPeriod(months, this.monthKey(order.fechaFin), this.monthLabel(order.fechaFin), {
         production: produced,
       });
+      if (singleDay) {
+        const hourKey = this.hourKey(order.fechaFin);
+        this.addPeriod(hours, hourKey, this.hourLabel(hourKey), { production: produced });
+      }
     }
 
     const lowStockByProduct = new Map<
@@ -251,6 +274,7 @@ export class ReportsService {
         expenseCount: expenses.length,
         averageExpense: expenses.length ? totalExpenses / expenses.length : 0,
       },
+      hourly: [...hours.values()].sort((a, b) => a.key.localeCompare(b.key)),
       daily: [...days.values()].sort((a, b) => a.key.localeCompare(b.key)),
       monthly: [...months.values()].sort((a, b) => a.key.localeCompare(b.key)),
       topProducts: [...products.values()].sort((a, b) => b.cantidad - a.cantidad).slice(0, 10),
@@ -413,6 +437,22 @@ export class ReportsService {
       month: 'short',
       year: '2-digit',
     }).format(date);
+  }
+  /** Clave horaria `YYYY-MM-DDTHH` en America/Lima, para la serie del filtro "Dia". */
+  private hourKey(date: Date) {
+    return `${this.dayKey(date)}T${this.limaHour(date)}`;
+  }
+  private hourLabel(hourKey: string) {
+    return `${hourKey.slice(11, 13)}:00`;
+  }
+  /** Hora del dia (`00`..`23`) en America/Lima. */
+  private limaHour(date: Date) {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Lima',
+      hour: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(date);
+    return (parts.find((part) => part.type === 'hour')?.value ?? '00').padStart(2, '0');
   }
   private utcDayKey(date: Date) {
     return date.toISOString().slice(0, 10);

@@ -2471,6 +2471,21 @@ html[data-theme='dark']
   min-height: 0;
   border-radius: 5px 5px 1px 1px;
 }
+/* Series densas (las 24 horas del día, o muchas semanas): barras más finas y sin ancho mínimo
+   por columna, para que todo el período entre en la tarjeta sin scroll horizontal. */
+.comparison-chart-dense {
+  gap: 4px;
+}
+.comparison-chart-dense .comparison-column {
+  min-width: 0;
+}
+.comparison-chart-dense .comparison-bars {
+  gap: 2px;
+}
+.comparison-chart-dense .comparison-bars span {
+  width: min(10px, 46%);
+  border-radius: 3px 3px 1px 1px;
+}
 .comparison-sales {
   background: var(--chart-1);
 }
@@ -2651,6 +2666,9 @@ html[data-theme='dark'] .stock-report-alert {
   .comparison-chart {
     min-width: 520px;
     overflow-x: auto;
+  }
+  .comparison-chart-dense {
+    min-width: 640px;
   }
 }
 

@@ -9,25 +9,10 @@ import {
   MarginChart,
   RankingBarChart,
 } from '../../../components/charts/AnalyticsCharts';
-import { fillDailySeries, fillMonthlySeries, groupPeriodsByYear } from '../../../lib/analytics';
 import { BusinessDashboard, getBusinessDashboard } from '../../../lib/dashboard';
+import { buildReportSeries } from '../../../lib/report-series';
 import { moneda } from '../../../lib/format';
 import { DashboardKpi } from './DashboardKpi';
-
-type Granularity = 'day' | 'month' | 'year';
-
-const granularityLabel: Record<Granularity, string> = {
-  day: 'por día',
-  month: 'por mes',
-  year: 'por año',
-};
-
-/** Día/semana entran en un mes → barras diarias; más de un mes → mensuales; más de un año → anuales. */
-function pickGranularity(spanDays: number): Granularity {
-  if (spanDays > 366) return 'year';
-  if (spanDays > 31) return 'month';
-  return 'day';
-}
 
 export function AdminDashboard() {
   const [data, setData] = useState<BusinessDashboard | null>(null);
@@ -35,11 +20,13 @@ export function AdminDashboard() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [periodLabel, setPeriodLabel] = useState('');
+  const [period, setPeriod] = useState<PeriodKind>('week');
   const changePeriod = useCallback(
     (start: string, end: string, meta: { period: PeriodKind; label: string }) => {
       setFrom(start);
       setTo(end);
       setPeriodLabel(meta.label);
+      setPeriod(meta.period);
     },
     [],
   );
@@ -64,23 +51,12 @@ export function AdminDashboard() {
   }, [from, load, to]);
 
   const analytics = data?.analytics;
-  const spanDays =
-    from && to
-      ? Math.round(
-          (new Date(`${to}T00:00:00`).getTime() - new Date(`${from}T00:00:00`).getTime()) /
-            86_400_000,
-        ) + 1
-      : 0;
-  const granularity = pickGranularity(spanDays);
-  const periodSeries =
-    granularity === 'day'
-      ? fillDailySeries(analytics?.daily ?? [], from, to)
-      : granularity === 'month'
-        ? fillMonthlySeries(analytics?.monthly ?? [], from, to)
-        : groupPeriodsByYear(analytics?.monthly ?? []);
-  const comparisonSubtitle = `Importes registrados ${granularityLabel[granularity]}`;
-  const marginSubtitle = `Ventas menos gastos · ${granularityLabel[granularity]}`;
-  const profitSeries = periodSeries.map((row) => ({ ...row, margin: row.sales - row.expenses }));
+  // El eje X sigue al filtro: día → horas, semana → sus 7 días, mes → sus semanas,
+  // año → sus meses, y personalizada según el largo del rango.
+  const series = buildReportSeries(analytics, from, to, period);
+  const comparisonSubtitle = `Importes registrados ${series.granularityLabel}`;
+  const marginSubtitle = `Ventas menos gastos · ${series.granularityLabel}`;
+  const profitSeries = series.rows.map((row) => ({ ...row, margin: row.sales - row.expenses }));
 
   return (
     <div className="module-page business-dashboard">
@@ -148,7 +124,11 @@ export function AdminDashboard() {
           </section>
 
           <section className="dashboard-chart-grid" aria-label="Ventas vs gastos y top clientes">
-            <ComparisonBarChart data={periodSeries} subtitle={comparisonSubtitle} />
+            <ComparisonBarChart
+              data={series.rows}
+              subtitle={comparisonSubtitle}
+              tickEvery={series.tickEvery}
+            />
             <RankingBarChart
               rows={analytics?.topClients ?? []}
               title="Top clientes"
@@ -166,7 +146,11 @@ export function AdminDashboard() {
               subtitle="Áreas registradas con mayor facturación"
               icon="zone"
             />
-            <MarginChart data={profitSeries} subtitle={marginSubtitle} />
+            <MarginChart
+              data={profitSeries}
+              subtitle={marginSubtitle}
+              tickEvery={series.tickEvery}
+            />
           </section>
         </>
       ) : null}

@@ -11,17 +11,21 @@ export function SalesTrendChart({
   primaryLabel = 'Ventas',
   secondaryLabel = 'Cobrado',
   showSecondary = true,
+  tickEvery,
 }: {
-  data: SalesPeriodRow[];
+  /** `label` manda sobre `date` en el eje X: lo usa la vista por hora, cuya clave no es una fecha. */
+  data: (SalesPeriodRow & { label?: string })[];
   compact?: boolean;
   title?: string;
   subtitle?: string;
   primaryLabel?: string;
   secondaryLabel?: string;
   showSecondary?: boolean;
+  /** Cada cuántos puntos se rotula el eje X; por defecto se reparten ~5 etiquetas. */
+  tickEvery?: number;
 }) {
   const gradientId = useId().replace(/:/g, '');
-  const rows = data.slice(compact ? -10 : -18);
+  const rows = data.slice(compact ? -10 : -31);
   const width = 720;
   const height = compact ? 230 : 270;
   const padding = { top: 25, right: 18, bottom: 42, left: 58 };
@@ -36,7 +40,8 @@ export function SalesTrendChart({
   const areaPoints = rows.length
     ? `${padding.left},${padding.top + chartHeight} ${totalPoints} ${x(rows.length - 1)},${padding.top + chartHeight}`
     : '';
-  const labelEvery = Math.max(1, Math.ceil(rows.length / 5));
+  const labelEvery = Math.max(1, tickEvery ?? Math.ceil(rows.length / 5));
+  const pointLabel = (row: (typeof rows)[number]) => row.label ?? fechaCorta(row.date);
 
   return (
     <section className="business-chart-card" aria-labelledby={`${gradientId}-title`}>
@@ -106,7 +111,7 @@ export function SalesTrendChart({
                   r="4"
                 >
                   <title>
-                    {fechaCorta(row.date)}: {primaryLabel.toLowerCase()} {moneda(row.total)}
+                    {pointLabel(row)}: {primaryLabel.toLowerCase()} {moneda(row.total)}
                   </title>
                 </circle>
                 {showSecondary ? (
@@ -117,7 +122,7 @@ export function SalesTrendChart({
                     r="3"
                   >
                     <title>
-                      {fechaCorta(row.date)}: {secondaryLabel.toLowerCase()} {moneda(row.paid)}
+                      {pointLabel(row)}: {secondaryLabel.toLowerCase()} {moneda(row.paid)}
                     </title>
                   </circle>
                 ) : null}
@@ -128,7 +133,7 @@ export function SalesTrendChart({
                     y={height - 14}
                     textAnchor="middle"
                   >
-                    {shortDay(row.date)}
+                    {row.label ?? shortDay(row.date)}
                   </text>
                 ) : null}
               </g>

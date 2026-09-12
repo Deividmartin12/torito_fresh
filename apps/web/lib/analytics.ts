@@ -50,6 +50,8 @@ export type BusinessAnalytics = {
     expenseCount: number;
     averageExpense: number;
   };
+  /** Serie por hora del día filtrado. El backend solo la calcula cuando el rango es un solo día. */
+  hourly: AnalyticsPeriod[];
   daily: AnalyticsPeriod[];
   monthly: AnalyticsPeriod[];
   topProducts: AnalyticsProduct[];
@@ -80,6 +82,15 @@ const monthLabelFormatter = new Intl.DateTimeFormat('es-PE', {
   year: '2-digit',
 });
 
+const weekdayLabelFormatter = new Intl.DateTimeFormat('es-PE', {
+  timeZone: 'UTC',
+  weekday: 'short',
+  day: '2-digit',
+});
+const monthFormatter = new Intl.DateTimeFormat('es-PE', { timeZone: 'UTC', month: 'short' });
+/** Mes corto en minúsculas y sin punto (`set`), como se rotulan los ejes del resto de gráficos. */
+const shortMonth = (date: Date) => monthFormatter.format(date).replace('.', '').toLowerCase();
+
 function emptyPeriod(key: string, label: string): AnalyticsPeriod {
   return { key, label, sales: 0, expenses: 0, cost: 0, margin: 0, orders: 0, production: 0 };
 }
@@ -108,6 +119,28 @@ export function fillDailySeries(
     filled.push(byKey.get(key) ?? emptyPeriod(key, dayLabelFormatter.format(cursor)));
   }
   return filled;
+}
+
+/**
+ * Rellena las 24 horas del día `day` (`YYYY-MM-DD`) para que el eje X del filtro "Día" tenga
+ * un punto por hora, aunque a esa hora no se haya movido nada.
+ */
+export function fillHourlySeries(rows: AnalyticsPeriod[], day: string): AnalyticsPeriod[] {
+  if (!parseUtcDay(day)) return rows;
+  const byKey = new Map(rows.map((row) => [row.key, row]));
+  return Array.from({ length: 24 }, (_, hour) => {
+    const key = `${day}T${String(hour).padStart(2, '0')}`;
+    return byKey.get(key) ?? emptyPeriod(key, `${String(hour).padStart(2, '0')}:00`);
+  });
+}
+
+/** Etiqueta corta de día con su nombre (`lun 07`), para el eje X de la vista semanal. */
+export function withWeekdayLabels(rows: AnalyticsPeriod[]): AnalyticsPeriod[] {
+  return rows.map((row) => {
+    const date = parseUtcDay(row.key);
+    if (!date) return row;
+    return { ...row, label: weekdayLabelFormatter.format(date).replace('.', '') };
+  });
 }
 
 /** Rellena los huecos para que cada mes de [from, to] tenga barra, aunque ese mes no haya movimiento. */
@@ -155,8 +188,12 @@ export function groupPeriodsByYear(rows: AnalyticsPeriod[]): AnalyticsPeriod[] {
  * La clave de cada semana es el lunes correspondiente (`YYYY-MM-DD`), y la etiqueta muestra
  * ese lunes como referencia de la semana.
  */
-export function groupPeriodsByWeek(rows: AnalyticsPeriod[]): AnalyticsPeriod[] {
+export function groupPeriodsByWeek(
+  rows: AnalyticsPeriod[],
+  labelMode: 'largo' | 'compacto' = 'largo',
+): AnalyticsPeriod[] {
   const weeks = new Map<string, AnalyticsPeriod>();
+  const boundsByKey = new Map<string, { first: Date; last: Date }>();
   for (const row of rows) {
     const date = parseUtcDay(row.key);
     if (!date) continue;
@@ -165,6 +202,12 @@ export function groupPeriodsByWeek(rows: AnalyticsPeriod[]): AnalyticsPeriod[] {
     const monday = new Date(date);
     monday.setUTCDate(date.getUTCDate() - isoWeekday);
     const key = monday.toISOString().slice(0, 10);
+    // Extremos reales de la semana dentro del rango filtrado: así la etiqueta compacta de la
+    // primera y la última semana del mes muestra los días que de verdad entran (ej. "29-31 ago").
+    const bounds = boundsByKey.get(key);
+    if (!bounds) boundsByKey.set(key, { first: date, last: date });
+    else if (date < bounds.first) bounds.first = date;
+    else if (date > bounds.last) bounds.last = date;
     const current = weeks.get(key) ?? emptyPeriod(key, `Sem. ${dayLabelFormatter.format(monday)}`);
     current.sales += row.sales;
     current.expenses += row.expenses;
@@ -174,7 +217,24 @@ export function groupPeriodsByWeek(rows: AnalyticsPeriod[]): AnalyticsPeriod[] {
     current.production += row.production;
     weeks.set(key, current);
   }
-  return [...weeks.values()].sort((a, b) => a.key.localeCompare(b.key));
+  const ordered = [...weeks.values()].sort((a, b) => a.key.localeCompare(b.key));
+  if (labelMode === 'largo') return ordered;
+  return ordered.map((week) => {
+    const bounds = boundsByKey.get(week.key);
+    if (!bounds) return week;
+    const first = bounds.first.getUTCDate();
+    const last = bounds.last.getUTCDate();
+    const firstMonth = shortMonth(bounds.first);
+    const lastMonth = shortMonth(bounds.last);
+    if (first === last) return { ...week, label: `${first} ${lastMonth}` };
+    // Una semana a caballo entre dos meses lleva el mes en ambos extremos, para que
+    // "31 ago-6 set" no se lea como si los 31 fueran de setiembre.
+    const label =
+      firstMonth === lastMonth
+        ? `${first}-${last} ${lastMonth}`
+        : `${first} ${firstMonth}-${last} ${lastMonth}`;
+    return { ...week, label };
+  });
 }
 
 /**

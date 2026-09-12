@@ -9,14 +9,18 @@ export function ComparisonBarChart({
   data,
   title = 'Ventas vs gastos',
   subtitle = 'Importes registrados por mes',
+  tickEvery = 1,
 }: {
   data: AnalyticsPeriod[];
   title?: string;
   subtitle?: string;
+  /** Cada cuántas barras se rotula el eje X; las demás quedan sin etiqueta pero con tooltip. */
+  tickEvery?: number;
 }) {
   const rows = data.slice(-31);
   const max = Math.max(1, ...rows.flatMap((row) => [row.sales, row.expenses]));
   const showValues = rows.length <= 8;
+  const dense = rows.length > 16;
   return (
     <ChartCard
       icon={<BarChart3 size={18} />}
@@ -30,8 +34,12 @@ export function ComparisonBarChart({
       }
     >
       {rows.length ? (
-        <div className={`comparison-chart${showValues ? ' comparison-chart-labeled' : ''}`}>
-          {rows.map((row) => (
+        <div
+          className={`comparison-chart${showValues ? ' comparison-chart-labeled' : ''}${
+            dense ? ' comparison-chart-dense' : ''
+          }`}
+        >
+          {rows.map((row, index) => (
             <div className="comparison-column" key={row.key}>
               {showValues ? (
                 <div className="comparison-values">
@@ -43,17 +51,21 @@ export function ComparisonBarChart({
                 <span
                   className="comparison-sales"
                   style={{ height: `${Math.max(row.sales ? 4 : 0, (row.sales / max) * 100)}%` }}
-                  title={`Ventas: ${moneda(row.sales)}`}
+                  title={`${row.label} · Ventas: ${moneda(row.sales)}`}
                 />
                 <span
                   className="comparison-purchases"
                   style={{
                     height: `${Math.max(row.expenses ? 4 : 0, (row.expenses / max) * 100)}%`,
                   }}
-                  title={`Gastos: ${moneda(row.expenses)}`}
+                  title={`${row.label} · Gastos: ${moneda(row.expenses)}`}
                 />
               </div>
-              <small>{row.label}</small>
+              {/* El espacio duro mantiene la misma altura en las columnas sin etiqueta,
+                  para que todas las barras arranquen de la misma línea base. */}
+              <small>
+                {index % tickEvery === 0 || index === rows.length - 1 ? row.label : '\u00A0'}
+              </small>
             </div>
           ))}
         </div>
@@ -116,9 +128,12 @@ export function RankingBarChart({
 export function MarginChart({
   data,
   subtitle = 'Venta sin IGV menos costo de inventario',
+  tickEvery,
 }: {
   data: AnalyticsPeriod[];
   subtitle?: string;
+  /** Cada cuántos puntos se rotula el eje X; por defecto se reparten ~6 etiquetas. */
+  tickEvery?: number;
 }) {
   const gradientId = useId().replace(/:/g, '');
   const rows = data.slice(-31);
@@ -139,7 +154,7 @@ export function MarginChart({
   const areaPoints = rows.length
     ? `${x(0)},${zeroY} ${linePoints} ${x(rows.length - 1)},${zeroY}`
     : '';
-  const labelEvery = Math.max(1, Math.ceil(rows.length / 6));
+  const labelEvery = Math.max(1, tickEvery ?? Math.ceil(rows.length / 6));
 
   return (
     <ChartCard icon={<TrendingUp size={18} />} title="Evolución del margen" subtitle={subtitle}>

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 
-export type PeriodKind = 'day' | 'week' | 'month' | 'custom';
+export type PeriodKind = 'day' | 'week' | 'month' | 'year' | 'custom';
 type Period = PeriodKind;
 const localDate = (date = new Date()) =>
   new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
@@ -10,6 +10,7 @@ const anchorLabel: Record<Exclude<Period, 'custom'>, string> = {
   day: 'Fecha',
   week: 'Semana de',
   month: 'Mes de',
+  year: 'Año de',
 };
 
 function range(period: Exclude<Period, 'custom'>, anchor: string) {
@@ -24,6 +25,10 @@ function range(period: Exclude<Period, 'custom'>, anchor: string) {
   if (period === 'month') {
     start.setDate(1);
     end.setMonth(end.getMonth() + 1, 0);
+  }
+  if (period === 'year') {
+    start.setMonth(0, 1);
+    end.setMonth(11, 31);
   }
   return { from: localDate(start), to: localDate(end) };
 }
@@ -107,6 +112,13 @@ export function PeriodFilter({
           onClick={() => select('month')}
         >
           Mes
+        </button>
+        <button
+          type="button"
+          className={period === 'year' ? 'active' : ''}
+          onClick={() => select('year')}
+        >
+          Año
         </button>
         <button
           type="button"

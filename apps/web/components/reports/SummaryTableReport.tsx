@@ -3,21 +3,20 @@
 import { Download } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import {
-  AnalyticsPeriod,
-  BusinessAnalytics,
-  fillDailySeries,
-  fillMonthlySeries,
-  getBusinessAnalytics,
-  groupPeriodsByWeek,
-  groupPeriodsByYear,
-} from '../../lib/analytics';
+import { BusinessAnalytics, getBusinessAnalytics } from '../../lib/analytics';
 import { moneda } from '../../lib/format';
-import { PeriodFilter } from '../PeriodFilter';
+import {
+  SeriesGranularity,
+  buildSeriesAt,
+  pickGranularity,
+  spanInDays,
+} from '../../lib/report-series';
+import { PeriodFilter, PeriodKind } from '../PeriodFilter';
 import { ReportHeader } from './ReportNav';
 
-type View = 'dia' | 'semana' | 'mes' | 'anio';
+type View = SeriesGranularity;
 const views: { value: View; label: string }[] = [
+  { value: 'hora', label: 'Hora' },
   { value: 'dia', label: 'Día' },
   { value: 'semana', label: 'Semana' },
   { value: 'mes', label: 'Mes' },
@@ -32,7 +31,9 @@ export function SummaryTableReport() {
   const [analytics, setAnalytics] = useState<BusinessAnalytics | null>(null);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
-  const [view, setView] = useState<View>('dia');
+  // `null` = seguir al filtro de período; al elegir un agrupamiento a mano se fija ese.
+  const [view, setView] = useState<View | null>(null);
+  const [period, setPeriod] = useState<PeriodKind>('week');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -48,24 +49,22 @@ export function SummaryTableReport() {
       .finally(() => setLoading(false));
   }, [from, to]);
 
-  const changePeriod = useCallback((start: string, end: string) => {
-    setFrom(start);
-    setTo(end);
-  }, []);
+  const changePeriod = useCallback(
+    (start: string, end: string, meta: { period: PeriodKind; label: string }) => {
+      setFrom(start);
+      setTo(end);
+      setPeriod(meta.period);
+      // Cambiar el período vuelve al agrupamiento natural de ese filtro (día → horas,
+      // semana → días, mes → semanas, año → meses).
+      setView(null);
+    },
+    [],
+  );
 
-  const rows: AnalyticsPeriod[] = (() => {
-    if (!analytics) return [];
-    switch (view) {
-      case 'dia':
-        return fillDailySeries(analytics.daily, from, to);
-      case 'semana':
-        return groupPeriodsByWeek(fillDailySeries(analytics.daily, from, to));
-      case 'mes':
-        return fillMonthlySeries(analytics.monthly, from, to);
-      case 'anio':
-        return groupPeriodsByYear(analytics.monthly);
-    }
-  })();
+  // El agrupamiento sigue al filtro salvo que se haya elegido otro a mano.
+  const naturalView = pickGranularity(period, spanInDays(from, to));
+  const activeView = view ?? naturalView;
+  const rows = analytics ? buildSeriesAt(analytics, from, to, activeView).rows : [];
 
   // Totales del período: suman lo que muestran las filas de arriba.
   const totales = rows.reduce(
@@ -98,7 +97,7 @@ export function SummaryTableReport() {
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
     const link = document.createElement('a');
     link.href = url;
-    link.download = `reporte-resumen-${view}-${from || 'inicio'}-${to || localDate()}.csv`;
+    link.download = `reporte-resumen-${activeView}-${from || 'inicio'}-${to || localDate()}.csv`;
     link.click();
     URL.revokeObjectURL(url);
   }
@@ -108,7 +107,7 @@ export function SummaryTableReport() {
       <ReportHeader
         eyebrow="Reportes"
         title="Resumen diario"
-        description="Ventas, gastos y producción del período, agrupados por día, semana, mes o año."
+        description="Ventas, gastos y producción del período, agrupados por hora, día, semana, mes o año."
       />
       <PeriodFilter onChange={changePeriod} />
       <div className="module-tools report-filters">
@@ -117,7 +116,10 @@ export function SummaryTableReport() {
             <button
               key={item.value}
               type="button"
-              className={view === item.value ? 'active' : ''}
+              className={activeView === item.value ? 'active' : ''}
+              // La vista por hora necesita la serie horaria, que el backend solo calcula
+              // cuando el filtro de período apunta a un único día.
+              disabled={item.value === 'hora' && naturalView !== 'hora'}
               onClick={() => setView(item.value)}
             >
               {item.label}
