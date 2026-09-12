@@ -1,14 +1,13 @@
 'use client';
 
-import { Pencil, Plus, Search, Trash2, X } from 'lucide-react';
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { Lock, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import { CategoriaGastoFormModal } from '../../../components/CategoriaGastoFormModal';
 import {
-  createExpenseCategory,
   deleteExpenseCategory,
   ExpenseCategory,
   getExpenseCategories,
-  updateExpenseCategory,
 } from '../../../lib/expenses';
 
 export default function ExpenseCategoriesPage() {
@@ -16,19 +15,16 @@ export default function ExpenseCategoriesPage() {
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<ExpenseCategory | null>(null);
-  const [name, setName] = useState('');
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       setCategories(await getExpenseCategories());
     } catch (cause) {
-      toast.error(
-        cause instanceof Error ? cause.message : 'No se pudieron cargar las categorías',
-        { action: { label: 'Reintentar', onClick: () => void load() } },
-      );
+      toast.error(cause instanceof Error ? cause.message : 'No se pudieron cargar las categorías', {
+        action: { label: 'Reintentar', onClick: () => void load() },
+      });
     } finally {
       setLoading(false);
     }
@@ -43,35 +39,19 @@ export default function ExpenseCategoriesPage() {
   function close() {
     setOpen(false);
     setEditing(null);
-    setName('');
   }
   function openForm(category?: ExpenseCategory) {
     setEditing(category ?? null);
-    setName(category?.nombre ?? '');
     setOpen(true);
   }
-  async function save(event: FormEvent) {
-    event.preventDefault();
-    setSaving(true);
-    try {
-      const saved = editing
-        ? await updateExpenseCategory(editing.id, name)
-        : await createExpenseCategory(name);
-      setCategories((current) =>
-        (editing
-          ? current.map((item) => (item.id === saved.id ? saved : item))
-          : [...current, saved]
-        ).sort((a, b) => a.nombre.localeCompare(b.nombre)),
-      );
-      toast.success(editing ? 'Categoría actualizada.' : 'Categoría registrada.');
-      close();
-    } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : 'No se pudo guardar la categoría', {
-        action: { label: 'Reintentar', onClick: () => void load() },
-      });
-    } finally {
-      setSaving(false);
-    }
+  function handleSaved(saved: ExpenseCategory) {
+    setCategories((current) =>
+      (current.some((item) => item.id === saved.id)
+        ? current.map((item) => (item.id === saved.id ? saved : item))
+        : [...current, saved]
+      ).sort((a, b) => a.nombre.localeCompare(b.nombre)),
+    );
+    close();
   }
   async function remove(category: ExpenseCategory) {
     if (!window.confirm(`¿Eliminar la categoría ${category.nombre}?`)) return;
@@ -132,26 +112,36 @@ export default function ExpenseCategoriesPage() {
                   <tr key={item.id}>
                     <td>
                       <strong>{item.nombre}</strong>
+                      {item.sistema ? <small>Categoría fija del sistema</small> : null}
                     </td>
                     <td>
-                      <div className="row-actions">
-                        <button
-                          className="icon-soft"
-                          type="button"
-                          onClick={() => openForm(item)}
-                          title="Editar categoría"
-                        >
-                          <Pencil size={16} />
-                        </button>
-                        <button
-                          className="icon-soft"
-                          type="button"
-                          onClick={() => void remove(item)}
-                          title="Eliminar categoría"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
+                      {/* Las categorías del sistema son parte de la lógica de la app:
+                          "Pago a trabajador" es la que enlaza el gasto con su beneficiario,
+                          así que ni se renombra ni se elimina (el API también lo bloquea). */}
+                      {item.sistema ? (
+                        <span className="status status-green">
+                          <Lock size={12} /> Protegida
+                        </span>
+                      ) : (
+                        <div className="row-actions">
+                          <button
+                            className="icon-soft"
+                            type="button"
+                            onClick={() => openForm(item)}
+                            title="Editar categoría"
+                          >
+                            <Pencil size={16} />
+                          </button>
+                          <button
+                            className="icon-soft"
+                            type="button"
+                            onClick={() => void remove(item)}
+                            title="Eliminar categoría"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))
@@ -172,48 +162,7 @@ export default function ExpenseCategoriesPage() {
         </div>
       )}
       {open ? (
-        <div className="modal-backdrop">
-          <section
-            className="crud-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label={editing ? 'Editar categoría' : 'Agregar categoría'}
-          >
-            <div className="modal-top">
-              <h2>{editing ? 'Editar categoría' : 'Agregar categoría'}</h2>
-              <button
-                className="modal-close"
-                type="button"
-                onClick={close}
-                disabled={saving}
-                aria-label="Cerrar"
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <form className="modal-form" onSubmit={(event) => void save(event)}>
-              <label className="field-wide">
-                <span>Nombre</span>
-                <input
-                  value={name}
-                  maxLength={100}
-                  onChange={(event) => setName(event.target.value)}
-                  placeholder="Ej. Servicios"
-                  required
-                  autoFocus
-                />
-              </label>
-              <div className="modal-actions">
-                <button className="btn-secondary" type="button" onClick={close} disabled={saving}>
-                  Cancelar
-                </button>
-                <button className="btn-primary" disabled={saving}>
-                  {saving ? 'Guardando...' : editing ? 'Guardar cambios' : 'Registrar categoría'}
-                </button>
-              </div>
-            </form>
-          </section>
-        </div>
+        <CategoriaGastoFormModal editando={editing} onClose={close} onSaved={handleSaved} />
       ) : null}
     </div>
   );

@@ -1,4 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { AuthUser } from '../common/auth-user';
+import { exigirTrabajadorId } from '../common/worker-context';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateBidonRotoDto } from './bidones-rotos.dto';
 
@@ -29,7 +31,7 @@ export class BidonesRotosService {
     return rows.map((row) => this.view(row));
   }
 
-  async create(dto: CreateBidonRotoDto) {
+  async create(dto: CreateBidonRotoDto, actor: AuthUser) {
     const fecha = new Date(`${dto.fecha.slice(0, 10)}T00:00:00-05:00`);
     if (Number.isNaN(fecha.getTime())) throw new BadRequestException('La fecha no es válida');
     const today = new Intl.DateTimeFormat('en-CA', {
@@ -41,16 +43,13 @@ export class BidonesRotosService {
     if (dto.fecha.slice(0, 10) > today)
       throw new BadRequestException('La fecha no puede estar en el futuro');
 
-    const worker = await this.prisma.trabajador.findFirst({
-      where: { estado: true },
-      orderBy: { id: 'asc' },
-    });
+    const trabajadorId = await exigirTrabajadorId(this.prisma, actor.userId);
     const row = await this.prisma.bidonRoto.create({
       data: {
         fecha,
         cantidad: dto.cantidad,
         observaciones: dto.observaciones?.trim() || null,
-        trabajadorId: worker?.id,
+        trabajadorId,
       },
       include: { trabajador: true },
     });

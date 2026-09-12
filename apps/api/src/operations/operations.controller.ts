@@ -17,8 +17,11 @@ import {
   CreateOperationalProductDto,
   CreateOperationalSaleDto,
   CreateOperationalWarehouseDto,
+  CreateOwnPaymentMethodDto,
+  CreateProductTypeDto,
   CreateReturnDto,
   RegisterOperationalPaymentDto,
+  UpdateLoteDto,
   UpdateOperationalProductDto,
   UpdateOperationalSaleDto,
   UpdateReceivableDueDateDto,
@@ -32,8 +35,8 @@ export class OperationsController {
 
   @Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.WAREHOUSE, RoleName.DELIVERY)
   @Get('catalogs')
-  catalogs() {
-    return this.operations.catalogs();
+  catalogs(@CurrentUser() user: AuthUser) {
+    return this.operations.catalogs(user);
   }
   @Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.WAREHOUSE, RoleName.DELIVERY)
   @Get('products')
@@ -55,8 +58,14 @@ export class OperationsController {
   @Get('lots') lots() {
     return this.operations.lots();
   }
+  @Patch('lots/:id') updateLot(@Param('id') id: string, @Body() dto: UpdateLoteDto) {
+    return this.operations.updateLot(id, dto);
+  }
   @Get('product-types') productTypes() {
     return this.operations.productTypes();
+  }
+  @Post('product-types') createProductType(@Body() dto: CreateProductTypeDto) {
+    return this.operations.createProductType(dto);
   }
   @Get('warehouses') warehouses() {
     return this.operations.warehouses();
@@ -67,8 +76,12 @@ export class OperationsController {
 
   @Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.WAREHOUSE, RoleName.DELIVERY)
   @Get('sales')
-  sales(@Query('from') from?: string, @Query('to') to?: string) {
-    return this.operations.sales(from, to);
+  sales(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('trabajadorId') trabajadorId?: string,
+  ) {
+    return this.operations.sales(from, to, trabajadorId);
   }
   @Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.WAREHOUSE, RoleName.DELIVERY)
   @Get('sales/:id')
@@ -80,12 +93,16 @@ export class OperationsController {
   @Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.WAREHOUSE, RoleName.DELIVERY)
   @Post('sales')
   createSale(@CurrentUser() user: AuthUser, @Body() dto: CreateOperationalSaleDto) {
-    return this.operations.createSale(dto, user.userId);
+    return this.operations.createSale(dto, user);
   }
   @Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.WAREHOUSE, RoleName.DELIVERY)
   @Patch('sales/:id')
-  updateSale(@Param('id') id: string, @Body() dto: UpdateOperationalSaleDto) {
-    return this.operations.updateSale(id, dto);
+  updateSale(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateOperationalSaleDto,
+  ) {
+    return this.operations.updateSale(id, dto, user);
   }
 
   @Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.WAREHOUSE, RoleName.DELIVERY)
@@ -122,13 +139,26 @@ export class OperationsController {
     @Param('type') type: string,
     @Body() dto: CreateReturnDto,
   ) {
-    return this.operations.createReturn(type, dto, user.userId);
+    return this.operations.createReturn(type, dto, user);
   }
 
   @Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.WAREHOUSE, RoleName.DELIVERY)
   @Get('payment-methods')
-  paymentMethods() {
-    return this.operations.paymentMethods();
+  paymentMethods(@CurrentUser() user: AuthUser, @Query('trabajadorId') trabajadorId?: string) {
+    return this.operations.paymentMethods(user, trabajadorId);
+  }
+  @Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.WAREHOUSE, RoleName.DELIVERY)
+  @Get('payment-method-categories')
+  paymentMethodCategories() {
+    return this.operations.paymentMethodCategories();
+  }
+  @Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.WAREHOUSE, RoleName.DELIVERY)
+  @Post('payment-methods')
+  createOwnPaymentMethod(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: CreateOwnPaymentMethodDto,
+  ) {
+    return this.operations.createOwnPaymentMethod(user, dto);
   }
   // Solo queda el tipo "cobrar" (cuentas por pagar desapareció junto con Compras); se
   // conserva el segmento :type en la ruta para no romper el cliente existente.
@@ -147,7 +177,7 @@ export class OperationsController {
     @Body() dto: RegisterOperationalPaymentDto,
   ) {
     if (type !== 'cobrar') throw new BadRequestException('Tipo de cuenta inválido');
-    return this.operations.registerAccountPayment(dto, user.userId);
+    return this.operations.registerAccountPayment(dto, user);
   }
   @Roles(RoleName.ADMIN, RoleName.SELLER)
   @Patch('accounts/cobrar/:id/vencimiento')

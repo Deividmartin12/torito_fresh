@@ -1,7 +1,18 @@
 import { BarChart3, TrendingUp } from 'lucide-react';
 import { useId } from 'react';
-import { SalesPeriodRow, TopProductRow } from '../../lib/dashboard';
-import { moneda, fechaCorta } from '../../lib/format';
+import { TopProductRow } from '../../lib/dashboard';
+import { moneda } from '../../lib/format';
+import { AxisTick, tickEvery } from './AxisTick';
+
+/** Un punto de la tendencia: el valor y los textos de su marca de eje (ver `lib/chart-axis.ts`). */
+export type TrendPoint = {
+  key: string;
+  label: string;
+  labelTop?: string;
+  tooltip?: string;
+  total: number;
+  paid?: number;
+};
 
 export function SalesTrendChart({
   data,
@@ -12,7 +23,7 @@ export function SalesTrendChart({
   secondaryLabel = 'Cobrado',
   showSecondary = true,
 }: {
-  data: SalesPeriodRow[];
+  data: TrendPoint[];
   compact?: boolean;
   title?: string;
   subtitle?: string;
@@ -21,22 +32,22 @@ export function SalesTrendChart({
   showSecondary?: boolean;
 }) {
   const gradientId = useId().replace(/:/g, '');
-  const rows = data.slice(compact ? -10 : -18);
+  const rows = data.slice(compact ? -10 : -32);
   const width = 720;
   const height = compact ? 230 : 270;
   const padding = { top: 25, right: 18, bottom: 42, left: 58 };
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
-  const max = Math.max(1, ...rows.flatMap((row) => [Number(row.total), Number(row.paid)]));
+  const max = Math.max(1, ...rows.flatMap((row) => [Number(row.total), Number(row.paid ?? 0)]));
   const x = (index: number) =>
     padding.left + (rows.length <= 1 ? chartWidth / 2 : (index / (rows.length - 1)) * chartWidth);
   const y = (value: number) => padding.top + chartHeight - (value / max) * chartHeight;
   const totalPoints = rows.map((row, index) => `${x(index)},${y(Number(row.total))}`).join(' ');
-  const paidPoints = rows.map((row, index) => `${x(index)},${y(Number(row.paid))}`).join(' ');
+  const paidPoints = rows.map((row, index) => `${x(index)},${y(Number(row.paid ?? 0))}`).join(' ');
   const areaPoints = rows.length
     ? `${padding.left},${padding.top + chartHeight} ${totalPoints} ${x(rows.length - 1)},${padding.top + chartHeight}`
     : '';
-  const labelEvery = Math.max(1, Math.ceil(rows.length / 5));
+  const labelEvery = tickEvery(rows.length);
 
   return (
     <section className="business-chart-card" aria-labelledby={`${gradientId}-title`}>
@@ -98,7 +109,7 @@ export function SalesTrendChart({
               <polyline className="chart-line chart-line-paid" points={paidPoints} />
             ) : null}
             {rows.map((row, index) => (
-              <g key={row.date}>
+              <g key={row.key}>
                 <circle
                   className="chart-dot chart-dot-total"
                   cx={x(index)}
@@ -106,30 +117,30 @@ export function SalesTrendChart({
                   r="4"
                 >
                   <title>
-                    {fechaCorta(row.date)}: {primaryLabel.toLowerCase()} {moneda(row.total)}
+                    {`${row.tooltip ?? row.label}: ${primaryLabel.toLowerCase()} ${moneda(row.total)}`}
                   </title>
                 </circle>
                 {showSecondary ? (
                   <circle
                     className="chart-dot chart-dot-paid"
                     cx={x(index)}
-                    cy={y(Number(row.paid))}
+                    cy={y(Number(row.paid ?? 0))}
                     r="3"
                   >
                     <title>
-                      {fechaCorta(row.date)}: {secondaryLabel.toLowerCase()} {moneda(row.paid)}
+                      {`${row.tooltip ?? row.label}: ${secondaryLabel.toLowerCase()} ${moneda(
+                        row.paid ?? 0,
+                      )}`}
                     </title>
                   </circle>
                 ) : null}
                 {index % labelEvery === 0 || index === rows.length - 1 ? (
-                  <text
-                    className="chart-date-label"
+                  <AxisTick
                     x={x(index)}
                     y={height - 14}
-                    textAnchor="middle"
-                  >
-                    {shortDay(row.date)}
-                  </text>
+                    label={row.label}
+                    labelTop={row.labelTop}
+                  />
                 ) : null}
               </g>
             ))}
@@ -212,12 +223,4 @@ function ChartEmpty({ text }: { text: string }) {
 function compactMoney(value: number) {
   if (value >= 1000) return `S/${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}k`;
   return `S/${Math.round(value)}`;
-}
-
-function shortDay(value: string) {
-  return new Intl.DateTimeFormat('es-PE', {
-    day: '2-digit',
-    month: 'short',
-    timeZone: 'UTC',
-  }).format(new Date(value));
 }

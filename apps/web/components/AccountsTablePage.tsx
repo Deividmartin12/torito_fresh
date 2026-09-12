@@ -334,11 +334,6 @@ export function AccountsTablePage({ tipo }: { tipo: 'cobrar' | 'pagar' }) {
         <div>
           <span className="operation-eyebrow">Caja y cuentas</span>
           <h1>{payable ? 'Cuentas por pagar' : 'Cobranzas'}</h1>
-          <p>
-            {payable
-              ? 'Prioriza vencimientos, programa saldos y registra abonos a proveedores.'
-              : 'Todo lo que te deben los clientes: saldos, vencimientos y cobros, en un solo lugar.'}
-          </p>
         </div>
         <button
           className="btn-primary operation-primary-action"

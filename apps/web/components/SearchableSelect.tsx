@@ -2,6 +2,7 @@
 
 import { Search, X } from 'lucide-react';
 import { KeyboardEvent, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { normalizarBusqueda } from '../lib/format';
 
 export type SearchableOption = {
   value: string;
@@ -22,7 +23,25 @@ type Props = {
   /** Opción de acción fija al final del desplegable (p. ej. "+ Agregar cliente"). */
   actionLabel?: string;
   onAction?: () => void;
+  /**
+   * Opción fija que aparece siempre arriba de todo, incluso con el buscador vacío o sin
+   * resultados (p. ej. "NO REGISTRADO" para una venta sin cliente). Nunca se filtra por el
+   * texto tipeado y es alcanzable con el teclado como una fila más.
+   */
+  fixedOption?: SearchableOption;
 };
+
+// Filas por las que se mueve el teclado, de arriba hacia abajo: la opción fija (si hay),
+// los resultados filtrados y la fila "+ Agregar" (si hay). Mouse y teclado comparten este
+// mismo orden para que el resaltado sea uno solo.
+type NavRow =
+  | { kind: 'fixed'; option: SearchableOption }
+  | { kind: 'result'; option: SearchableOption }
+  | { kind: 'action' };
+
+// Búsqueda remota con debounce: por ahora no hace falta. La app carga los catálogos por
+// adelantado y las listas son chicas/medianas, así que el filtrado es local. Si alguna
+// lista crece, la extensión sería agregar props `onSearch` / `loading` / `debounceMs`.
 
 export function SearchableSelect({
   value,
@@ -34,6 +53,7 @@ export function SearchableSelect({
   required,
   actionLabel,
   onAction,
+  fixedOption,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -52,16 +72,40 @@ export function SearchableSelect({
   const control = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const listboxId = useId();
-  const selected = options.find((option) => option.value === value);
-  const filtered = options.filter((option) =>
-    option.label.toLowerCase().includes(query.toLowerCase()),
-  );
+
+  const hasAction = Boolean(actionLabel && onAction);
+  const selected =
+    fixedOption && value === fixedOption.value
+      ? fixedOption
+      : options.find((option) => option.value === value);
+  // La búsqueda ignora acentos y mayúsculas. Se matchea sólo `label` (el `hint` es un dato
+  // numérico de apoyo, no un criterio de búsqueda).
+  const q = normalizarBusqueda(query);
+  const filtered = options.filter((option) => normalizarBusqueda(option.label).includes(q));
+
+  const navRows: NavRow[] = [
+    ...(fixedOption ? [{ kind: 'fixed' as const, option: fixedOption }] : []),
+    ...filtered.map((option) => ({ kind: 'result' as const, option })),
+    ...(hasAction ? [{ kind: 'action' as const }] : []),
+  ];
 
   const selectOption = (option: SearchableOption) => {
     onChange(option.value);
     setQuery('');
     setOpen(false);
     setActiveIndex(-1);
+  };
+
+  const runAction = () => {
+    onAction?.();
+    setQuery('');
+    setOpen(false);
+    setActiveIndex(-1);
+  };
+
+  const activateRow = (row: NavRow) => {
+    if (row.kind === 'action') runAction();
+    else selectOption(row.option);
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -75,16 +119,16 @@ export function SearchableSelect({
       event.preventDefault();
       setOpen(true);
       setActiveIndex((current) => {
-        if (!filtered.length) return -1;
-        if (event.key === 'ArrowDown') return current >= filtered.length - 1 ? 0 : current + 1;
-        return current <= 0 ? filtered.length - 1 : current - 1;
+        if (!navRows.length) return -1;
+        if (event.key === 'ArrowDown') return current >= navRows.length - 1 ? 0 : current + 1;
+        return current <= 0 ? navRows.length - 1 : current - 1;
       });
       return;
     }
 
-    if (event.key === 'Enter' && open && activeIndex >= 0 && filtered[activeIndex]) {
+    if (event.key === 'Enter' && open && activeIndex >= 0 && navRows[activeIndex]) {
       event.preventDefault();
-      selectOption(filtered[activeIndex]);
+      activateRow(navRows[activeIndex]);
     }
   };
 
@@ -132,6 +176,12 @@ export function SearchableSelect({
       window.removeEventListener('resize', reposition);
     };
   }, [open, disabled]);
+
+  const fixedOffset = fixedOption ? 1 : 0;
+  const actionIndex = hasAction ? fixedOffset + filtered.length : -1;
+
+  const rowClass = (navIndex: number, isSelected: boolean) =>
+    isSelected || navIndex === activeIndex ? 'selected' : '';
 
   return (
     <div ref={root} className={`searchable-select ${className}`}>
@@ -190,41 +240,64 @@ export function SearchableSelect({
             maxHeight: menuBox.maxHeight,
           }}
         >
-          {filtered.length ? (
-            filtered.map((option, index) => (
+          {fixedOption ? (
+            <>
               <button
                 type="button"
-                id={`${listboxId}-${index}`}
-                key={option.value}
+                id={`${listboxId}-0`}
                 role="option"
-                aria-selected={option.value === value}
-                className={option.value === value || index === activeIndex ? 'selected' : ''}
+                aria-selected={fixedOption.value === value}
+                className={`searchable-select-fixed ${rowClass(0, fixedOption.value === value)}`}
                 onMouseDown={(event) => event.preventDefault()}
-                onMouseEnter={() => setActiveIndex(index)}
-                onClick={() => selectOption(option)}
+                onMouseEnter={() => setActiveIndex(0)}
+                onClick={() => selectOption(fixedOption)}
               >
-                <span>{option.label}</span>
-                {option.hint ? (
-                  <small className="searchable-select-hint">{option.hint}</small>
+                <span>{fixedOption.label}</span>
+                {fixedOption.hint ? (
+                  <small className="searchable-select-hint">{fixedOption.hint}</small>
                 ) : null}
               </button>
-            ))
+              <div className="searchable-select-separator" />
+            </>
+          ) : null}
+
+          {filtered.length ? (
+            filtered.map((option, index) => {
+              const navIndex = fixedOffset + index;
+              return (
+                <button
+                  type="button"
+                  id={`${listboxId}-${navIndex}`}
+                  key={option.value}
+                  role="option"
+                  aria-selected={option.value === value}
+                  className={rowClass(navIndex, option.value === value)}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onMouseEnter={() => setActiveIndex(navIndex)}
+                  onClick={() => selectOption(option)}
+                >
+                  <span>{option.label}</span>
+                  {option.hint ? (
+                    <small className="searchable-select-hint">{option.hint}</small>
+                  ) : null}
+                </button>
+              );
+            })
           ) : (
             <span className="searchable-select-empty" role="status">
-              Sin resultados para “{query}”
+              No se encontraron resultados
             </span>
           )}
-          {actionLabel && onAction ? (
+
+          {hasAction ? (
+            // La fila de acción ya trae su propia línea divisoria (border-top en CSS).
             <button
               type="button"
-              className="searchable-select-action"
+              id={`${listboxId}-${actionIndex}`}
+              className={`searchable-select-action ${rowClass(actionIndex, false)}`}
               onMouseDown={(event) => event.preventDefault()}
-              onClick={() => {
-                onAction();
-                setQuery('');
-                setOpen(false);
-                setActiveIndex(-1);
-              }}
+              onMouseEnter={() => setActiveIndex(actionIndex)}
+              onClick={runAction}
             >
               {actionLabel}
             </button>

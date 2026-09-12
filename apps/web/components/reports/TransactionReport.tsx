@@ -3,15 +3,10 @@
 import { Download } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import {
-  BusinessAnalytics,
-  fillDailySeries,
-  fillMonthlySeries,
-  getBusinessAnalytics,
-  previousPeriodRange,
-} from '../../lib/analytics';
+import { BusinessAnalytics, getBusinessAnalytics, previousPeriodRange } from '../../lib/analytics';
+import { axisCaption, buildChartSeries, pickAxis } from '../../lib/chart-axis';
 import { moneda, variacion } from '../../lib/format';
-import { PeriodFilter } from '../PeriodFilter';
+import { PeriodFilter, PeriodKind } from '../PeriodFilter';
 import { ComparisonBarChart, DemandHeatmap, RankingBarChart } from '../charts/AnalyticsCharts';
 import { ProductRankingChart, SalesTrendChart } from '../charts/BusinessCharts';
 import { ReportHeader, ReportMetric } from './ReportNav';
@@ -31,6 +26,7 @@ export function TransactionReport({ kind }: { kind: ReportKind }) {
   const [previous, setPrevious] = useState<BusinessAnalytics | null>(null);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [period, setPeriod] = useState<PeriodKind>('week');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -63,31 +59,26 @@ export function TransactionReport({ kind }: { kind: ReportKind }) {
   // muestre una variación calculada con datos a medio cargar.
   const change = (current?: number, prior?: number) =>
     summary && priorSummary ? variacion(current ?? 0, prior ?? 0) : undefined;
-  const trend = (analytics?.daily ?? []).map((row) => ({
-    date: row.key,
+  // El eje X sigue al período elegido: día → tramos de 3 horas, semana → días con su nombre,
+  // mes → las semanas del mes, año → los meses.
+  const axis = pickAxis(period, from, to);
+  const series = buildChartSeries(analytics, from, to, axis);
+  const trend = series.map((row) => ({
+    key: row.key,
+    label: row.label,
+    labelTop: row.labelTop,
+    tooltip: row.tooltip,
     total: sales ? row.sales : row.expenses,
-    paid: 0,
-    debt: 0,
-    count: row.orders,
   }));
   const productRows = (analytics?.topProducts ?? []).map((row) => ({
     product: { id: row.id, name: row.name },
     cantidad: row.cantidad,
     total: row.revenue,
   }));
-  const spanDays =
-    from && to
-      ? Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) +
-        1
-      : 0;
-  const comparisonSeries =
-    spanDays > 31
-      ? fillMonthlySeries(analytics?.monthly ?? [], from, to)
-      : fillDailySeries(analytics?.daily ?? [], from, to);
-
-  const changePeriod = useCallback((start: string, end: string) => {
+  const changePeriod = useCallback((start: string, end: string, meta: { period: PeriodKind }) => {
     setFrom(start);
     setTo(end);
+    setPeriod(meta.period);
   }, []);
 
   function exportReport() {
@@ -101,6 +92,13 @@ export function TransactionReport({ kind }: { kind: ReportKind }) {
             row.cost.toFixed(2),
             row.margin.toFixed(2),
             row.orders,
+          ]),
+          [],
+          ['Método de pago', 'Ventas', 'Facturado'],
+          ...analytics.paymentMethods.map((metodo) => [
+            metodo.name,
+            metodo.sales,
+            metodo.amount.toFixed(2),
           ]),
         ]
       : [
@@ -121,11 +119,6 @@ export function TransactionReport({ kind }: { kind: ReportKind }) {
       <ReportHeader
         eyebrow="Reportes"
         title={sales ? 'Ventas y rentabilidad' : 'Gastos y ventas'}
-        description={
-          sales
-            ? 'Analiza ingresos, demanda, clientes, zonas y hábitos de compra con datos confirmados.'
-            : 'Compara los egresos registrados con las ventas del mismo período.'
-        }
       />
       <section className="report-metrics">
         <ReportMetric
@@ -189,7 +182,11 @@ export function TransactionReport({ kind }: { kind: ReportKind }) {
           <SalesTrendChart
             data={trend}
             title={sales ? 'Ventas en el tiempo' : 'Gastos en el tiempo'}
-            subtitle={sales ? 'Importe neto confirmado por día' : 'Egresos registrados por día'}
+            subtitle={
+              sales
+                ? `Importe neto confirmado ${axisCaption[axis]}`
+                : `Egresos registrados ${axisCaption[axis]}`
+            }
             primaryLabel={sales ? 'Ventas' : 'Gastos'}
             showSecondary={false}
           />
@@ -207,8 +204,9 @@ export function TransactionReport({ kind }: { kind: ReportKind }) {
             />
           )}
           <ComparisonBarChart
-            data={comparisonSeries}
+            data={series}
             title={sales ? 'Ventas vs gastos' : 'Gastos vs ventas'}
+            subtitle={`Importes registrados ${axisCaption[axis]}`}
           />
           {sales ? (
             <RankingBarChart
@@ -239,6 +237,23 @@ export function TransactionReport({ kind }: { kind: ReportKind }) {
               subtitle="Las categorías con mayor egreso"
             />
           )}
+          {sales ? (
+            <RankingBarChart
+              rows={analytics.paymentMethods.map((metodo) => ({
+                id: metodo.id,
+                name: metodo.name,
+                value: metodo.sales,
+                count: metodo.sales,
+              }))}
+              title="Ventas por método de pago"
+              subtitle="Cantidad de ventas por forma de cobro"
+              valueKind="count"
+              detail={(row) => {
+                const metodo = analytics.paymentMethods.find((item) => item.id === row.id);
+                return `${moneda(metodo?.amount ?? 0)} facturado`;
+              }}
+            />
+          ) : null}
           {sales ? (
             <RankingBarChart
               rows={analytics.topClients}

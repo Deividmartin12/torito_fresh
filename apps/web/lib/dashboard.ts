@@ -1,13 +1,6 @@
 import { api } from './api';
 import { BusinessAnalytics, getBusinessAnalytics } from './analytics';
 
-export type SalesPeriodRow = {
-  date: string;
-  total: number;
-  paid: number;
-  debt: number;
-  count: number;
-};
 export type TopProductRow = {
   product?: { id: string; name: string };
   cantidad: number;

@@ -99,11 +99,7 @@ export function StockReport() {
 
   return (
     <div className="module-page report-page">
-      <ReportHeader
-        eyebrow="Reportes"
-        title="Reporte de stock actual"
-        description="Consulta disponibilidad, reservas, mínimos y valorización por almacén."
-      />
+      <ReportHeader eyebrow="Reportes" title="Reporte de stock actual" />
       <section className="report-metrics">
         <ReportMetric
           label="Disponible real"

@@ -6,6 +6,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { fechaCorta, fechaHora, moneda } from '../../../lib/format';
 import { NumericField } from '../../../components/operations/OperationForm';
+import { SearchableSelect } from '../../../components/SearchableSelect';
 import {
   createOperationalReturn,
   getOperationCatalogs,
@@ -155,9 +156,6 @@ export default function DevolucionesPage() {
         <div>
           <span className="operation-eyebrow">Operaciones relacionadas</span>
           <h1>Devoluciones y saldos a favor</h1>
-          <p>
-            Cada devolución conserva la venta original y registra sus efectos financieros y físicos.
-          </p>
         </div>
         <button className="btn-primary operation-primary-action" onClick={openCreate}>
           <Plus size={18} /> Nueva devolución
@@ -345,18 +343,16 @@ export default function DevolucionesPage() {
             <form className="modal-form" onSubmit={submit}>
               <label className="field-wide">
                 <span>Venta original</span>
-                <select
+                <SearchableSelect
                   value={operationId}
-                  onChange={(event) => selectOperation(event.target.value)}
+                  onChange={(value) => selectOperation(value)}
+                  options={sources.map((item) => ({
+                    value: item.id,
+                    label: `${item.codigo} · ${item.cliente}`,
+                  }))}
+                  placeholder="Buscar venta"
                   required
-                >
-                  <option value="">Seleccionar venta</option>
-                  {sources.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.codigo} · {item.cliente}
-                    </option>
-                  ))}
-                </select>
+                />
               </label>
               {source ? (
                 <div className="return-source-summary">

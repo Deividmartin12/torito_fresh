@@ -34,8 +34,11 @@ import {
   StockRow,
   updateSale,
 } from '../../lib/operations';
+import { AlmacenCreado, AlmacenFormModal } from '../AlmacenFormModal';
 import { ClienteFormModal } from '../ClienteFormModal';
+import { PaymentMethodFormModal } from '../PaymentMethodFormModal';
 import { SearchableSelect } from '../SearchableSelect';
+import { PaymentMethod } from '../../lib/payment-methods';
 
 type FieldErrors = Partial<Record<'entity' | 'items' | 'payment' | 'dueDate', string>>;
 
@@ -131,6 +134,9 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
   const [stock, setStock] = useState<StockRow[]>([]);
   const [entityId, setEntityId] = useState('');
   const [clienteModal, setClienteModal] = useState(false);
+  const [almacenModal, setAlmacenModal] = useState(false);
+  // Fila de pago que abrió "+ Agregar método de pago" (null = modal cerrado).
+  const [metodoModalRow, setMetodoModalRow] = useState<number | null>(null);
   const [warehouseId, setWarehouseId] = useState('');
   const [paymentType, setPaymentType] = useState<PaymentType>('CONTADO');
   const [paymentMethods, setPaymentMethods] = useState<OperationalPaymentMethod[]>([]);
@@ -249,6 +255,30 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
     setEntityId(cliente.id);
     setFieldErrors((current) => ({ ...current, entity: undefined }));
     setClienteModal(false);
+  }
+
+  // Almacén creado desde el combo de la venta: lo sumamos al catálogo y lo dejamos elegido.
+  function handleAlmacenCreado(almacen: AlmacenCreado) {
+    setCatalogs((current) => ({
+      ...current,
+      almacenes: [
+        ...current.almacenes,
+        { id: almacen.id, nombre: almacen.nombre, codigo: almacen.codigo },
+      ].sort((a, b) => a.nombre.localeCompare(b.nombre)),
+    }));
+    setWarehouseId(almacen.id);
+    setAlmacenModal(false);
+  }
+
+  // Método de pago creado desde una fila de cobro: lo sumamos a la lista y lo elegimos en esa fila.
+  function handleMetodoCreado(method: PaymentMethod) {
+    setPaymentMethods((current) =>
+      current.some((item) => item.id === method.id)
+        ? current
+        : [...current, { id: method.id, nombre: method.nombre }],
+    );
+    if (metodoModalRow !== null) updatePago(metodoModalRow, { metodoPagoId: method.id });
+    setMetodoModalRow(null);
   }
 
   useEffect(() => {
@@ -582,6 +612,22 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
               ) : null}
             </label>
 
+            <label>
+              <span>Almacén de salida</span>
+              <SearchableSelect
+                value={warehouseId}
+                onChange={setWarehouseId}
+                options={catalogs.almacenes.map((item) => ({
+                  value: item.id,
+                  label: item.codigo ? `${item.codigo} · ${item.nombre}` : item.nombre,
+                }))}
+                placeholder="Buscar almacén"
+                required
+                actionLabel="+ Agregar almacén"
+                onAction={() => setAlmacenModal(true)}
+              />
+            </label>
+
             <div className="payment-type-field">
               <span className="label">Forma de pago</span>
               <div className="payment-type-row">
@@ -653,17 +699,17 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
                 </div>
                 {pagos.map((pago, index) => (
                   <div className="payment-method-row" key={index}>
-                    <select
+                    <SearchableSelect
                       value={pago.metodoPagoId}
-                      onChange={(event) => updatePago(index, { metodoPagoId: event.target.value })}
-                    >
-                      <option value="">Seleccionar método</option>
-                      {paymentMethods.map((method) => (
-                        <option key={method.id} value={method.id}>
-                          {method.nombre}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(value) => updatePago(index, { metodoPagoId: value })}
+                      options={paymentMethods.map((method) => ({
+                        value: method.id,
+                        label: method.nombre,
+                      }))}
+                      placeholder="Seleccionar método"
+                      actionLabel="+ Agregar método de pago"
+                      onAction={() => setMetodoModalRow(index)}
+                    />
                     {contadoSingle ? (
                       <input value={moneda(total)} readOnly />
                     ) : (
@@ -897,6 +943,18 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
 
       {clienteModal ? (
         <ClienteFormModal onClose={() => setClienteModal(false)} onSaved={handleClienteCreado} />
+      ) : null}
+
+      {almacenModal ? (
+        <AlmacenFormModal onClose={() => setAlmacenModal(false)} onSaved={handleAlmacenCreado} />
+      ) : null}
+
+      {metodoModalRow !== null ? (
+        <PaymentMethodFormModal
+          inline
+          onClose={() => setMetodoModalRow(null)}
+          onSaved={handleMetodoCreado}
+        />
       ) : null}
     </form>
   );

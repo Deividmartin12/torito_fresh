@@ -4,8 +4,11 @@ import { Boxes, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Pagination } from '../../../components/Pagination';
+import { SearchableSelect } from '../../../components/SearchableSelect';
+import { TipoProductoCreado, TipoProductoFormModal } from '../../../components/TipoProductoFormModal';
 import { api } from '../../../lib/api';
 import { puedeEditar } from '../../../lib/permissions';
+import { soloTextoNombre, validarMonto, validarNombreLibre } from '../../../lib/validacion';
 import { useRole } from '../../../lib/useCurrentUser';
 
 type Producto = {
@@ -32,6 +35,8 @@ export default function ProductosPage() {
   const [pagina, setPagina] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [modal, setModal] = useState(false);
+  const [tipoModal, setTipoModal] = useState(false);
+  const [tipoNombre, setTipoNombre] = useState('');
   const [editando, setEditando] = useState<Producto | null>(null);
   const [guardando, setGuardando] = useState(false);
   const editable = puedeEditar(useRole());
@@ -61,18 +66,41 @@ export default function ProductosPage() {
   const paginados = productos.slice((pagina - 1) * pageSize, pagina * pageSize);
   function abrir(item?: Producto) {
     setEditando(item ?? null);
+    setTipoNombre(item?.tipo ?? '');
     setModal(true);
+  }
+  // Tipo creado desde el combo del formulario: lo sumamos a la lista y lo dejamos elegido.
+  function handleTipoCreado(tipo: TipoProductoCreado) {
+    setTiposProducto((current) =>
+      current.some((item) => item.nombre === tipo.nombre) ? current : [...current, tipo],
+    );
+    setTipoNombre(tipo.nombre);
+    setTipoModal(false);
   }
   async function guardar(event: FormEvent) {
     event.preventDefault();
     const form = event.currentTarget as HTMLFormElement;
     const values = new FormData(form);
+    if (!tipoNombre.trim()) {
+      toast.error('Selecciona el tipo de producto.');
+      return;
+    }
+    const nombre = String(values.get('nombre') ?? '').trim();
+    const precio = Number(values.get('precio'));
+    const costo = Number(values.get('costo'));
+    const errorNombre = validarNombreLibre(nombre, 'el nombre del producto');
+    const errorPrecio = validarMonto(precio, { etiqueta: 'el precio de venta' });
+    const errorCosto = validarMonto(costo, { etiqueta: 'el costo de referencia' });
+    if (errorNombre || errorPrecio || errorCosto) {
+      toast.error(errorNombre || errorPrecio || errorCosto);
+      return;
+    }
     const body = {
-      nombre: values.get('nombre'),
-      tipo: values.get('tipo'),
+      nombre,
+      tipo: tipoNombre,
       unidad: values.get('unidad'),
-      precio: Number(values.get('precio')),
-      costo: Number(values.get('costo')),
+      precio,
+      costo,
       controlaLote: values.has('lote'),
       esRetornable: values.has('retornable'),
     };
@@ -273,22 +301,30 @@ export default function ProductosPage() {
               ) : null}
               <label>
                 <span>Nombre</span>
-                <input name="nombre" defaultValue={editando?.nombre} required />
+                <input
+                  name="nombre"
+                  defaultValue={editando?.nombre}
+                  maxLength={120}
+                  onChange={(event) => {
+                    event.target.value = soloTextoNombre(event.target.value);
+                  }}
+                  required
+                />
               </label>
               <label>
                 <span>Tipo de producto</span>
-                <input
-                  name="tipo"
-                  list="tipos-producto-options"
-                  defaultValue={editando?.tipo}
-                  placeholder="Ej. Agua, Bidón, Insumo..."
+                <SearchableSelect
+                  value={tipoNombre}
+                  onChange={setTipoNombre}
+                  options={tiposProducto.map((item) => ({
+                    value: item.nombre,
+                    label: item.nombre,
+                  }))}
+                  placeholder="Buscar tipo de producto"
                   required
+                  actionLabel="+ Agregar tipo"
+                  onAction={() => setTipoModal(true)}
                 />
-                <datalist id="tipos-producto-options">
-                  {tiposProducto.map((item) => (
-                    <option value={item.nombre} key={item.id} />
-                  ))}
-                </datalist>
               </label>
               <label>
                 <span>Unidad de medida</span>
@@ -304,6 +340,7 @@ export default function ProductosPage() {
                   name="precio"
                   type="number"
                   step="0.01"
+                  min="0"
                   defaultValue={editando?.precio}
                   required
                 />
@@ -314,6 +351,7 @@ export default function ProductosPage() {
                   name="costo"
                   type="number"
                   step="0.01"
+                  min="0"
                   defaultValue={editando?.costo}
                   required
                 />
@@ -337,6 +375,9 @@ export default function ProductosPage() {
             </form>
           </section>
         </div>
+      ) : null}
+      {tipoModal ? (
+        <TipoProductoFormModal onClose={() => setTipoModal(false)} onSaved={handleTipoCreado} />
       ) : null}
     </div>
   );

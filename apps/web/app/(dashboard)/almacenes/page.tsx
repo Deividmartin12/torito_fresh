@@ -4,12 +4,12 @@ import { Boxes, Pencil, Plus, Search, X } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '../../../lib/api';
+import { soloTextoNombre, validarNombreLibre } from '../../../lib/validacion';
 
 type Almacen = {
   id: string;
   codigo: string;
   nombre: string;
-  tipo: string;
   direccion: string;
   responsable: string;
   productos: number;
@@ -50,14 +50,19 @@ export default function AlmacenesPage() {
       return;
     }
     const values = new FormData(event.currentTarget as HTMLFormElement);
+    const nombre = String(values.get('nombre') ?? '').trim();
+    const errorNombre = validarNombreLibre(nombre, 'el nombre del almacén');
+    if (errorNombre) {
+      toast.error(errorNombre);
+      return;
+    }
     setGuardando(true);
     try {
       await api('/operations/warehouses', {
         method: 'POST',
         body: JSON.stringify({
-          nombre: values.get('nombre'),
-          tipo: values.get('tipo'),
-          direccion: values.get('direccion'),
+          nombre,
+          direccion: String(values.get('direccion') ?? '').trim() || undefined,
         }),
       });
       setAlmacenes(await api<Almacen[]>('/operations/warehouses'));
@@ -99,7 +104,6 @@ export default function AlmacenesPage() {
           <thead>
             <tr>
               <th>Almacén</th>
-              <th>Tipo</th>
               <th>Dirección</th>
               <th>Responsable</th>
               <th>Productos</th>
@@ -115,7 +119,6 @@ export default function AlmacenesPage() {
                   <strong>{item.nombre}</strong>
                   <small>{item.codigo}</small>
                 </td>
-                <td>{item.tipo}</td>
                 <td>{item.direccion}</td>
                 <td>{item.responsable}</td>
                 <td>{item.productos}</td>
@@ -174,23 +177,19 @@ export default function AlmacenesPage() {
               ) : null}
               <label>
                 <span>Nombre</span>
-                <input name="nombre" defaultValue={editando?.nombre} required />
-              </label>
-              <label>
-                <span>Tipo</span>
-                <select name="tipo" defaultValue={editando?.tipo ?? 'PRINCIPAL'}>
-                  <option>PRINCIPAL</option>
-                  <option>SECUNDARIO</option>
-                  <option>MATERIA_PRIMA</option>
-                  <option>PRODUCTO_TERMINADO</option>
-                  <option>ENVASES</option>
-                  <option>VEHICULO</option>
-                  <option>PLANTA</option>
-                </select>
+                <input
+                  name="nombre"
+                  defaultValue={editando?.nombre}
+                  maxLength={80}
+                  onChange={(event) => {
+                    event.target.value = soloTextoNombre(event.target.value);
+                  }}
+                  required
+                />
               </label>
               <label className="field-wide">
                 <span>Dirección</span>
-                <input name="direccion" defaultValue={editando?.direccion} />
+                <input name="direccion" defaultValue={editando?.direccion} maxLength={250} />
               </label>
               <div className="modal-actions">
                 <button className="btn-secondary" type="button" onClick={() => setModal(false)}>

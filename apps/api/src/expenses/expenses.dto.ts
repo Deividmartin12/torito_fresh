@@ -1,11 +1,20 @@
 import { Type } from 'class-transformer';
-import { IsDateString, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import {
+  IsDateString,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 export class CreateExpenseDto {
   @IsDateString()
   fecha: string;
 
   @IsString()
+  @Matches(/\S/, { message: 'El concepto del gasto es obligatorio' })
   @MaxLength(200)
   concepto: string;
 
@@ -25,11 +34,29 @@ export class CreateExpenseDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   observaciones?: string;
 
   @IsOptional()
   @IsString()
   proveedorId?: string;
+
+  // A nombre de quién queda el gasto. Solo un ADMIN puede mandarlo; el resto registra
+  // siempre a su propio nombre. La regla vive en `resolverTrabajadorAutor`.
+  @IsOptional()
+  @IsString()
+  trabajadorId?: string;
+
+  // Con qué se pagó. Debe ser un método global o del trabajador que lo registra.
+  @IsOptional()
+  @IsString()
+  metodoPagoId?: string;
+
+  // A quién se le paga. Obligatorio en la categoría "Pago a trabajador" y rechazado en
+  // cualquier otra: ver `ExpensesService.resolverBeneficiario`.
+  @IsOptional()
+  @IsString()
+  beneficiarioId?: string;
 }
 
 // Mismos campos que CreateExpenseDto, escritos a mano (el proyecto no usa
@@ -63,21 +90,36 @@ export class UpdateExpenseDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(500)
   observaciones?: string;
 
   @IsOptional()
   @IsString()
   proveedorId?: string;
+
+  @IsOptional()
+  @IsString()
+  trabajadorId?: string;
+
+  @IsOptional()
+  @IsString()
+  metodoPagoId?: string;
+
+  @IsOptional()
+  @IsString()
+  beneficiarioId?: string;
 }
 
 export class CreateExpenseCategoryDto {
   @IsString()
+  @Matches(/\S/, { message: 'El nombre de la categoría es obligatorio' })
   @MaxLength(100)
   categoria: string;
 }
 
 export class UpdateExpenseCategoryDto {
   @IsString()
+  @Matches(/\S/, { message: 'El nombre de la categoría es obligatorio' })
   @MaxLength(100)
   categoria: string;
 }

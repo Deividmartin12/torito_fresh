@@ -2,27 +2,12 @@
 
 import { HandCoins, Pencil, X } from 'lucide-react';
 import Link from 'next/link';
-import { resumenVencimiento } from '../../lib/credit';
-import { fechaCorta } from '../../lib/format';
-import { OperationDetailLine } from '../../lib/operations';
+import { estadoPagoLabel, formaPagoLabel, resumenVencimiento } from '../../lib/credit';
+import { fechaCorta, fechaHora, moneda } from '../../lib/format';
+import { Sale } from '../../lib/operations';
 
 type Props = {
-  title: string;
-  partyLabel: string;
-  party: string;
-  warehouseLabel: string;
-  warehouse: string;
-  status: string;
-  total: number;
-  netTotal?: number;
-  paid?: number;
-  balance?: number;
-  paymentStatus?: string;
-  dueDate?: string | null;
-  returnStatus?: string;
-  kardexId: string | null;
-  kardexRef?: string | null;
-  items: OperationDetailLine[];
+  sale: Sale;
   onClose: () => void;
   /** Solo ventas con saldo: abre el registro de cobro. */
   onRegisterCollection?: () => void;
@@ -30,28 +15,24 @@ type Props = {
   onEdit?: () => void;
 };
 
-export function OperationDetailDialog({
-  title,
-  partyLabel,
-  party,
-  warehouseLabel,
-  warehouse,
-  status,
-  total,
-  netTotal = total,
-  paid = 0,
-  balance = 0,
-  paymentStatus = 'PENDIENTE',
-  dueDate,
-  returnStatus = 'SIN_DEVOLUCION',
-  kardexId,
-  kardexRef,
-  items,
-  onClose,
-  onRegisterCollection,
-  onEdit,
-}: Props) {
-  const due = resumenVencimiento(dueDate ?? null, balance);
+/** Tono del vencimiento (`resumenVencimiento`) → clase de badge del sistema. */
+const dueToneClass: Record<string, string> = {
+  overdue: 'status-red',
+  today: 'status-amber',
+  soon: 'status-amber',
+  scheduled: 'status-blue',
+  undated: '',
+  paid: 'status-green',
+};
+
+const estadoClass = (estado: string) =>
+  estado === 'CONFIRMADA' ? 'status-green' : estado === 'ANULADA' ? 'status-red' : 'status-amber';
+
+/** Detalle de una venta: montos, estado, productos y su efecto en inventario. */
+export function OperationDetailDialog({ sale, onClose, onRegisterCollection, onEdit }: Props) {
+  const pendiente = sale.saldo > 0;
+  const due = resumenVencimiento(sale.fechaVencimiento ?? null, sale.saldo);
+
   return (
     <div
       className="modal-backdrop"
@@ -60,104 +41,174 @@ export function OperationDetailDialog({
       }}
     >
       <section
-        className="crud-modal operation-modal"
+        className="crud-modal sale-detail-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby="operation-detail-title"
       >
         <div className="modal-top">
           <div>
-            <h2 id="operation-detail-title">{title}</h2>
-            <small>Detalle de la operación y efecto en inventario</small>
+            <h2 id="operation-detail-title">{sale.codigo}</h2>
+            <small>{fechaHora(sale.fecha)}</small>
           </div>
-          <button
-            type="button"
-            className="modal-close"
-            onClick={onClose}
-            aria-label="Cerrar detalle"
-          >
+          <button type="button" className="modal-close" onClick={onClose} aria-label="Cerrar detalle">
             <X size={18} />
           </button>
         </div>
-        <div className="operation-detail">
-          <div className="detail-summary">
-            <span>
-              {partyLabel}
-              <strong>{party}</strong>
-            </span>
-            <span>
-              {warehouseLabel}
-              <strong>{warehouse}</strong>
-            </span>
-            <span>
-              Operación<strong>{status}</strong>
-            </span>
-            <span>
-              Pago<strong>{paymentStatus}</strong>
-            </span>
-            {balance > 0 ? (
+
+        <div className="sale-detail-body">
+          <div className="sale-detail-hero">
+            <div>
+              <small>{pendiente ? 'Saldo pendiente' : 'Total de la venta'}</small>
+              <strong>{moneda(pendiente ? sale.saldo : sale.totalNeto)}</strong>
               <span>
-                Vencimiento
-                <strong>
-                  {dueDate ? `${fechaCorta(dueDate)} · ${due.label}` : 'Sin fecha programada'}
-                </strong>
+                {pendiente
+                  ? `Total ${moneda(sale.totalNeto)} · pagado ${moneda(sale.pagado)}`
+                  : `Pagado ${moneda(sale.pagado)}`}
+              </span>
+            </div>
+            <span
+              className={`status ${sale.estadoPago === 'PAGADA' ? 'status-green' : 'status-amber'}`}
+            >
+              {estadoPagoLabel[sale.estadoPago] ?? sale.estadoPago}
+            </span>
+          </div>
+
+          <div className="sale-detail-tags">
+            <span className="status status-blue">{formaPagoLabel[sale.pago] ?? sale.pago}</span>
+            <span className={`status ${estadoClass(sale.estado)}`}>
+              {sale.estado === 'CONFIRMADA' ? 'Confirmada' : sale.estado}
+            </span>
+            {sale.estadoDevolucion !== 'SIN_DEVOLUCION' ? (
+              <span className="status status-amber">
+                Devolución {sale.estadoDevolucion.replace('DEVOLUCION_', '').toLowerCase()}
+              </span>
+            ) : null}
+            {pendiente ? (
+              <span className={`status ${dueToneClass[due.tone] ?? ''}`}>{due.label}</span>
+            ) : null}
+          </div>
+
+          <div className="sale-detail-facts">
+            <div>
+              <small>Cliente</small>
+              <strong>{sale.cliente}</strong>
+              {sale.clienteDocumento ? (
+                <span>
+                  {sale.clienteTipoDocumento || 'Doc'} {sale.clienteDocumento}
+                </span>
+              ) : null}
+            </div>
+            <div>
+              <small>Almacén de salida</small>
+              <strong>{sale.almacen}</strong>
+            </div>
+            {sale.fechaVencimiento ? (
+              <div>
+                <small>Vence</small>
+                <strong>{fechaCorta(sale.fechaVencimiento)}</strong>
+              </div>
+            ) : null}
+            <div>
+              <small>Inventario</small>
+              {sale.kardexId ? (
+                <Link
+                  className="sale-detail-kardex"
+                  href={`/movimientos?ref=${encodeURIComponent(sale.kardexRef ?? '')}`}
+                >
+                  {sale.kardexRef ?? 'Ver kardex'}
+                </Link>
+              ) : (
+                <strong>Pendiente</strong>
+              )}
+            </div>
+          </div>
+
+          <div className="sale-detail-section">
+            <span className="sale-detail-label">Productos</span>
+            <div className="sale-detail-items">
+              {sale.items.map((item, index) => (
+                <div className="detail-line" key={`${item.producto}-${index}`}>
+                  <span>
+                    {item.producto}
+                    <small>
+                      {item.cantidad} × {moneda(item.precio)}
+                      {item.descuento > 0 ? ` · dcto ${moneda(item.descuento)}` : ''}
+                      {item.cantidadDevuelta ? ` · devuelto ${item.cantidadDevuelta}` : ''}
+                    </small>
+                  </span>
+                  <strong>{moneda(item.subtotal)}</strong>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="sale-detail-totals">
+            <span>
+              <em>Subtotal</em>
+              <b>{moneda(sale.subtotal)}</b>
+            </span>
+            {sale.descuento > 0 ? (
+              <span>
+                <em>Descuento</em>
+                <b>- {moneda(sale.descuento)}</b>
+              </span>
+            ) : null}
+            {sale.igv > 0 ? (
+              <span>
+                <em>IGV</em>
+                <b>{moneda(sale.igv)}</b>
+              </span>
+            ) : null}
+            <span className="sale-detail-total-row">
+              <em>Total</em>
+              <b>{moneda(sale.total)}</b>
+            </span>
+            {sale.total !== sale.totalNeto ? (
+              <span>
+                <em>Total neto (con devoluciones)</em>
+                <b>{moneda(sale.totalNeto)}</b>
               </span>
             ) : null}
             <span>
-              Devolución<strong>{returnStatus.replaceAll('_', ' ')}</strong>
+              <em>Pagado</em>
+              <b>{moneda(sale.pagado)}</b>
+            </span>
+            <span className={pendiente ? 'sale-detail-balance-row pending' : 'sale-detail-balance-row'}>
+              <em>Saldo</em>
+              <b>{moneda(sale.saldo)}</b>
             </span>
           </div>
-          <div className="operation-detail-items">
-            {items.map((item, index) => (
-              <div className="detail-line" key={`${item.producto}-${index}`}>
-                <span>
-                  {item.producto}
-                  <small>
-                    {item.cantidad} × S/ {item.precio.toFixed(2)}
-                    {item.cantidadDevuelta ? ` · Devuelto: ${item.cantidadDevuelta}` : ''}
-                  </small>
-                </span>
-                <strong>S/ {item.subtotal.toFixed(2)}</strong>
+
+          {sale.pagosIniciales.length ? (
+            <div className="sale-detail-section">
+              <span className="sale-detail-label">Cobro inicial</span>
+              <div className="sale-detail-payments">
+                {sale.pagosIniciales.map((pago, index) => (
+                  <div key={`${pago.metodoPagoId}-${index}`}>
+                    <span>{pago.metodo}</span>
+                    <strong>{moneda(pago.monto)}</strong>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-          <div className="operation-financial-summary">
-            <span>
-              Total original<strong>S/ {total.toFixed(2)}</strong>
-            </span>
-            <span>
-              Total neto<strong>S/ {netTotal.toFixed(2)}</strong>
-            </span>
-            <span>
-              Pagado<strong>S/ {paid.toFixed(2)}</strong>
-            </span>
-            <span>
-              Saldo<strong>S/ {balance.toFixed(2)}</strong>
-            </span>
-          </div>
-          <div className="modal-actions">
-            <button type="button" className="btn-secondary" onClick={onClose}>
-              Cerrar
+            </div>
+          ) : null}
+        </div>
+
+        <div className="modal-actions sale-detail-actions">
+          <button type="button" className="btn-secondary" onClick={onClose}>
+            Cerrar
+          </button>
+          {onEdit ? (
+            <button type="button" className="btn-secondary" onClick={onEdit}>
+              <Pencil size={16} /> Editar
             </button>
-            {kardexId ? (
-              <Link
-                className="btn-secondary"
-                href={`/movimientos?ref=${encodeURIComponent(kardexRef ?? '')}`}
-              >
-                Ver kardex
-              </Link>
-            ) : null}
-            {onEdit ? (
-              <button type="button" className="btn-secondary" onClick={onEdit}>
-                <Pencil size={16} /> Editar
-              </button>
-            ) : null}
-            {balance > 0 && onRegisterCollection ? (
-              <button type="button" className="btn-primary" onClick={onRegisterCollection}>
-                <HandCoins size={16} /> Registrar cobro
-              </button>
-            ) : null}
-          </div>
+          ) : null}
+          {pendiente && onRegisterCollection ? (
+            <button type="button" className="btn-primary" onClick={onRegisterCollection}>
+              <HandCoins size={16} /> Registrar cobro
+            </button>
+          ) : null}
         </div>
       </section>
     </div>

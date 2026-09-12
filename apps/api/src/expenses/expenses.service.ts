@@ -5,6 +5,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { AuthUser } from '../common/auth-user';
+import { CATEGORIA_PAGO_TRABAJADOR, esPagoTrabajador } from '../common/expense-categories';
+import { etiquetaMetodoPago } from '../common/payment-method-label';
+import { resolverTrabajadorAutor } from '../common/worker-context';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   CreateExpenseCategoryDto,
@@ -13,11 +17,21 @@ import {
   UpdateExpenseDto,
 } from './expenses.dto';
 
+/** Un gasto siempre se lee con su autor, su beneficiario, su proveedor y su método de pago. */
+const CON_RELACIONES = {
+  trabajador: true,
+  beneficiario: true,
+  proveedor: true,
+  metodoPago: { include: { categoria: true } },
+} as const;
+
+type CategoriaRow = { id: bigint; nombre: string; sistema: boolean };
+
 @Injectable()
 export class ExpensesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(from?: string, to?: string) {
+  async list(from?: string, to?: string, trabajadorId?: string, beneficiarioId?: string) {
     // `Gasto.fecha` es una columna de solo fecha guardada a medianoche UTC, así que se
     // filtra con límites UTC para que un gasto fechado justo en `from` entre y `to` sea inclusivo.
     const hasRange = Boolean(from || to);
@@ -31,17 +45,19 @@ export class ExpensesService {
       throw new BadRequestException('El rango de fechas no es válido');
     }
     const rows = await this.prisma.gasto.findMany({
-      where: hasRange
-        ? { fecha: { ...(gte ? { gte } : {}), ...(lt ? { lt } : {}) } }
-        : undefined,
+      where: {
+        ...(hasRange ? { fecha: { ...(gte ? { gte } : {}), ...(lt ? { lt } : {}) } } : {}),
+        ...(trabajadorId ? { trabajadorId: BigInt(trabajadorId) } : {}),
+        ...(beneficiarioId ? { beneficiarioId: BigInt(beneficiarioId) } : {}),
+      },
       orderBy: [{ fecha: 'desc' }, { id: 'desc' }],
       take: 1000,
-      include: { trabajador: true, proveedor: true },
+      include: CON_RELACIONES,
     });
     return rows.map((row) => this.view(row));
   }
 
-  async create(dto: CreateExpenseDto) {
+  async create(dto: CreateExpenseDto, actor: AuthUser) {
     const date = new Date(`${dto.fecha.slice(0, 10)}T00:00:00-05:00`);
     if (Number.isNaN(date.getTime()))
       throw new BadRequestException('La fecha del gasto no es válida');
@@ -65,10 +81,9 @@ export class ExpensesService {
       if (!proveedor) throw new BadRequestException('El proveedor seleccionado no existe');
       proveedorId = proveedor.id;
     }
-    const worker = await this.prisma.trabajador.findFirst({
-      where: { estado: true },
-      orderBy: { id: 'asc' },
-    });
+    const trabajadorId = await resolverTrabajadorAutor(this.prisma, actor, dto.trabajadorId);
+    const metodoPagoId = await this.validarMetodoDePago(dto.metodoPagoId, trabajadorId);
+    const beneficiarioId = await this.resolverBeneficiario(categoria, dto.beneficiarioId);
     const row = await this.prisma.gasto.create({
       data: {
         fecha: date,
@@ -77,15 +92,69 @@ export class ExpensesService {
         monto: dto.monto,
         comprobante: dto.comprobante?.trim() || null,
         observaciones: dto.observaciones?.trim() || null,
-        trabajadorId: worker?.id,
+        trabajadorId,
+        beneficiarioId,
         proveedorId,
+        metodoPagoId,
       },
-      include: { trabajador: true, proveedor: true },
+      include: CON_RELACIONES,
     });
     return this.view(row);
   }
 
-  async update(id: string, dto: UpdateExpenseDto) {
+  /**
+   * Beneficiario del gasto: el trabajador al que se le está pagando.
+   *
+   * Solo tiene sentido en la categoría fija "Pago a trabajador", donde es obligatorio; en
+   * cualquier otra se rechaza. Así el reporte por trabajador suma remuneraciones reales y
+   * no gastos sueltos que alguien haya asociado a una persona por error.
+   */
+  private async resolverBeneficiario(categoria: string, beneficiarioId?: string | null) {
+    const solicitado = beneficiarioId?.toString().trim();
+    if (!esPagoTrabajador(categoria)) {
+      if (solicitado)
+        throw new BadRequestException(
+          `Solo los gastos de la categoría "${CATEGORIA_PAGO_TRABAJADOR}" se asocian a un trabajador`,
+        );
+      return null;
+    }
+    if (!solicitado)
+      throw new BadRequestException('Selecciona el trabajador al que se le está pagando');
+    let id: bigint;
+    try {
+      id = BigInt(solicitado);
+    } catch {
+      throw new BadRequestException('El trabajador seleccionado no es válido');
+    }
+    const trabajador = await this.prisma.trabajador.findFirst({
+      where: { id, estado: true },
+      select: { id: true },
+    });
+    if (!trabajador)
+      throw new BadRequestException('El trabajador seleccionado no existe o está inactivo');
+    return trabajador.id;
+  }
+
+  /**
+   * Un método con dueño (el Yape de un repartidor) solo lo puede usar ese trabajador; los
+   * globales (Efectivo) son de todos. Es la misma regla que aplica el cobro de una venta.
+   */
+  private async validarMetodoDePago(metodoPagoId: string | undefined, trabajadorId: bigint) {
+    if (!metodoPagoId) return null;
+    const metodo = await this.prisma.metodoPago.findUnique({
+      where: { id: BigInt(metodoPagoId) },
+      include: { categoria: true },
+    });
+    if (!metodo || !metodo.estado || metodo.categoria?.estado === false)
+      throw new BadRequestException('El método de pago no está disponible');
+    if (metodo.trabajadorId !== null && metodo.trabajadorId !== trabajadorId)
+      throw new BadRequestException(
+        `El método ${etiquetaMetodoPago(metodo)} pertenece a otro trabajador`,
+      );
+    return metodo.id;
+  }
+
+  async update(id: string, dto: UpdateExpenseDto, actor: AuthUser) {
     const gastoId = this.parseId(id);
     const current = await this.prisma.gasto.findUnique({ where: { id: gastoId } });
     if (!current) throw new NotFoundException('Gasto no encontrado');
@@ -127,18 +196,45 @@ export class ExpensesService {
       }
     }
 
-    // No se toca `trabajadorId`: editar un gasto no reasigna quién lo registró.
+    // Reasignar quién registró el gasto solo lo puede un admin, y solo si lo pide
+    // explícitamente; si el DTO no trae `trabajadorId` se conserva el autor original.
+    const autorId = dto.trabajadorId
+      ? await resolverTrabajadorAutor(this.prisma, actor, dto.trabajadorId)
+      : current.trabajadorId;
+    if (dto.trabajadorId) data.trabajador = { connect: { id: autorId! } };
+
+    if (dto.metodoPagoId !== undefined) {
+      const metodoPagoId = dto.metodoPagoId
+        ? await this.validarMetodoDePago(dto.metodoPagoId, autorId!)
+        : null;
+      data.metodoPago = metodoPagoId ? { connect: { id: metodoPagoId } } : { disconnect: true };
+    }
+
+    // El beneficiario se recalcula siempre contra la categoría que queda vigente: si el
+    // gasto deja de ser "Pago a trabajador" hay que soltar al trabajador, y si pasa a serlo
+    // hay que exigirlo, aunque el body no toque el campo.
+    const categoriaVigente = dto.categoria !== undefined ? data.categoria! : current.categoria;
+    const beneficiarioVigente =
+      dto.beneficiarioId !== undefined
+        ? dto.beneficiarioId
+        : (current.beneficiarioId?.toString() ?? undefined);
+    const beneficiarioId = await this.resolverBeneficiario(
+      categoriaVigente as string,
+      beneficiarioVigente,
+    );
+    data.beneficiario = beneficiarioId ? { connect: { id: beneficiarioId } } : { disconnect: true };
+
     const row = await this.prisma.gasto.update({
       where: { id: gastoId },
       data,
-      include: { trabajador: true, proveedor: true },
+      include: CON_RELACIONES,
     });
     return this.view(row);
   }
 
   async categories() {
-    const rows = await this.prisma.$queryRaw<Array<{ id: bigint; nombre: string }>>(
-      Prisma.sql`SELECT id, nombre FROM categoria_gasto ORDER BY nombre ASC`,
+    const rows = await this.prisma.$queryRaw<CategoriaRow[]>(
+      Prisma.sql`SELECT id, nombre, sistema FROM categoria_gasto ORDER BY nombre ASC`,
     );
     return rows.map((row) => this.categoryView(row));
   }
@@ -147,21 +243,22 @@ export class ExpensesService {
     const nombre = this.categoryName(dto.categoria);
     if (await this.findCategoryByName(nombre))
       throw new ConflictException('Ya existe una categoría con ese nombre');
-    const [category] = await this.prisma.$queryRaw<Array<{ id: bigint; nombre: string }>>(
-      Prisma.sql`INSERT INTO categoria_gasto (nombre, created_at, updated_at) VALUES (${nombre}, NOW(), NOW()) RETURNING id, nombre`,
+    const [category] = await this.prisma.$queryRaw<CategoriaRow[]>(
+      Prisma.sql`INSERT INTO categoria_gasto (nombre, created_at, updated_at) VALUES (${nombre}, NOW(), NOW()) RETURNING id, nombre, sistema`,
     );
     return this.categoryView(category);
   }
 
   async updateCategory(id: string, dto: UpdateExpenseCategoryDto) {
     const current = await this.findCategory(id);
+    this.exigirCategoriaEditable(current);
     const nombre = this.categoryName(dto.categoria);
     const duplicate = await this.findCategoryByName(nombre);
     if (duplicate && duplicate.id !== current.id)
       throw new ConflictException('Ya existe una categoría con ese nombre');
     const category = await this.prisma.$transaction(async (tx) => {
-      const [updated] = await tx.$queryRaw<Array<{ id: bigint; nombre: string }>>(
-        Prisma.sql`UPDATE categoria_gasto SET nombre = ${nombre}, updated_at = NOW() WHERE id = ${current.id} RETURNING id, nombre`,
+      const [updated] = await tx.$queryRaw<CategoriaRow[]>(
+        Prisma.sql`UPDATE categoria_gasto SET nombre = ${nombre}, updated_at = NOW() WHERE id = ${current.id} RETURNING id, nombre, sistema`,
       );
       if (current.nombre !== nombre)
         await tx.gasto.updateMany({
@@ -175,6 +272,7 @@ export class ExpensesService {
 
   async deleteCategory(id: string) {
     const category = await this.findCategory(id);
+    this.exigirCategoriaEditable(category);
     const count = await this.prisma.gasto.count({ where: { categoria: category.nombre } });
     if (count)
       throw new ConflictException(
@@ -184,6 +282,18 @@ export class ExpensesService {
       Prisma.sql`DELETE FROM categoria_gasto WHERE id = ${category.id}`,
     );
     return { id: category.id.toString() };
+  }
+
+  /**
+   * Las categorías del sistema son parte de la lógica, no del catálogo editable:
+   * "Pago a trabajador" es la que activa el campo de beneficiario en el formulario de
+   * gasto, así que renombrarla o borrarla dejaría gastos huérfanos de esa regla.
+   */
+  private exigirCategoriaEditable(category: CategoriaRow) {
+    if (category.sistema)
+      throw new ConflictException(
+        `La categoría "${category.nombre}" es fija del sistema: no se puede editar ni eliminar`,
+      );
   }
 
   private parseId(id: string): bigint {
@@ -202,8 +312,8 @@ export class ExpensesService {
 
   private async findCategory(id: string) {
     try {
-      const [row] = await this.prisma.$queryRaw<Array<{ id: bigint; nombre: string }>>(
-        Prisma.sql`SELECT id, nombre FROM categoria_gasto WHERE id = ${BigInt(id)}`,
+      const [row] = await this.prisma.$queryRaw<CategoriaRow[]>(
+        Prisma.sql`SELECT id, nombre, sistema FROM categoria_gasto WHERE id = ${BigInt(id)}`,
       );
       if (row) return row;
     } catch {
@@ -212,13 +322,13 @@ export class ExpensesService {
     throw new NotFoundException('Categoría de gasto no encontrada');
   }
 
-  private categoryView(row: { id: bigint; nombre: string }) {
-    return { id: row.id.toString(), nombre: row.nombre };
+  private categoryView(row: CategoriaRow) {
+    return { id: row.id.toString(), nombre: row.nombre, sistema: row.sistema };
   }
 
   private async findCategoryByName(nombre: string) {
-    const [row] = await this.prisma.$queryRaw<Array<{ id: bigint; nombre: string }>>(
-      Prisma.sql`SELECT id, nombre FROM categoria_gasto WHERE nombre = ${nombre}`,
+    const [row] = await this.prisma.$queryRaw<CategoriaRow[]>(
+      Prisma.sql`SELECT id, nombre, sistema FROM categoria_gasto WHERE nombre = ${nombre}`,
     );
     return row;
   }
@@ -234,9 +344,16 @@ export class ExpensesService {
       observaciones: row.observaciones,
       proveedorId: row.proveedorId?.toString() ?? null,
       proveedor: row.proveedor?.razonSocial ?? null,
+      trabajadorId: row.trabajadorId?.toString() ?? null,
       registradoPor: row.trabajador
         ? `${row.trabajador.nombres} ${row.trabajador.apellidos}`
         : null,
+      beneficiarioId: row.beneficiarioId?.toString() ?? null,
+      beneficiario: row.beneficiario
+        ? `${row.beneficiario.nombres} ${row.beneficiario.apellidos}`
+        : null,
+      metodoPagoId: row.metodoPagoId?.toString() ?? null,
+      metodoPago: row.metodoPago ? etiquetaMetodoPago(row.metodoPago) : null,
     };
   }
 }

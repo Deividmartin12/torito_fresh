@@ -1,6 +1,6 @@
 'use client';
 
-import { HandCoins, PackageCheck, ReceiptText, RefreshCw } from 'lucide-react';
+import { HandCoins, PackageCheck, ReceiptText } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { DeliverySummary, getDeliverySummary } from '../../../lib/dashboard';
@@ -40,14 +40,6 @@ export function DeliveryDashboard() {
             {data ? fechaCorta(data.fecha) : ''}
           </span>
         </div>
-        <button
-          type="button"
-          className="btn-secondary"
-          onClick={() => void load()}
-          disabled={loading}
-        >
-          <RefreshCw size={16} className={loading ? 'dashboard-spinning' : ''} /> Actualizar
-        </button>
       </div>
 
       {loading && !data ? (

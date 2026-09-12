@@ -19,7 +19,7 @@ export default function LoginPage() {
     try {
       const result = await api<{ accessToken: string; user: any }>('/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ email: identificador, password }),
+        body: JSON.stringify({ email: identificador.trim(), password }),
       });
       guardarSesion(result.accessToken, result.user);
       router.replace('/dashboard');
@@ -52,6 +52,7 @@ export default function LoginPage() {
               className="control mt-1"
               type="text"
               autoComplete="username"
+              maxLength={150}
               value={identificador}
               onChange={(event) => setIdentificador(event.target.value)}
               required
@@ -63,6 +64,7 @@ export default function LoginPage() {
               className="control mt-1"
               type="password"
               autoComplete="current-password"
+              maxLength={100}
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               required

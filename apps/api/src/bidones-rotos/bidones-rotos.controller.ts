@@ -1,6 +1,8 @@
 import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { RoleName } from '@prisma/client';
+import { CurrentUser } from '../auth/current-user.decorator';
 import { Roles } from '../auth/roles.decorator';
+import { AuthUser } from '../common/auth-user';
 import { BidonesRotosService } from './bidones-rotos.service';
 import { CreateBidonRotoDto } from './bidones-rotos.dto';
 
@@ -15,7 +17,7 @@ export class BidonesRotosController {
   }
 
   @Post()
-  create(@Body() dto: CreateBidonRotoDto) {
-    return this.bidonesRotos.create(dto);
+  create(@CurrentUser() user: AuthUser, @Body() dto: CreateBidonRotoDto) {
+    return this.bidonesRotos.create(dto, user);
   }
 }

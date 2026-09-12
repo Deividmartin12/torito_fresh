@@ -95,7 +95,6 @@ export default function BidonesRotosPage() {
         <div>
           <span className="operation-eyebrow">Distribución</span>
           <h1>Bidones rotos</h1>
-          <p>Registra cuántos bidones se rompen cada día y revisa el total por período.</p>
         </div>
         <button
           className="btn-primary operation-primary-action"

@@ -126,7 +126,7 @@ button {
 }
 .sidebar-brand {
   display: flex;
-  min-height: 67px;
+  min-height: 64px;
   align-items: center;
   gap: 10px;
   border-bottom: 1px solid var(--border);
@@ -157,7 +157,7 @@ button {
   color: white;
 }
 .sidebar-nav {
-  height: calc(100vh - 67px);
+  height: calc(100vh - 64px);
   overflow-y: auto;
   padding: 10px 9px 20px;
   scrollbar-width: thin;
@@ -195,7 +195,8 @@ button {
   color: var(--accent-soft-text);
 }
 .admin-bar {
-  position: relative;
+  position: sticky;
+  top: 0;
   z-index: 30;
   display: flex;
   min-height: 64px;
@@ -422,6 +423,12 @@ button {
   padding: 9px;
   color: var(--text-muted);
   font-size: 12px;
+}
+/* Línea sutil entre la opción fija (p. ej. "NO REGISTRADO") y los resultados. */
+.searchable-select-separator {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--border);
 }
 .glass-table {
   overflow-x: auto;
@@ -1551,6 +1558,21 @@ body {
   padding-inline: 19px;
 }
 
+/* Título del período activo (Día / Semana / Mes / Año / personalizado) en las listas
+ * de Ventas y Gastos, para que se lea con todo el nombre del día y del mes. */
+.operation-period-caption {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 8px !important;
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--text) !important;
+  font-size: 13px !important;
+  font-weight: 500;
+}
+
 .operations-filters {
   justify-content: space-between;
   border: 1px solid var(--border);
@@ -1845,6 +1867,14 @@ body {
   font-size: 12px !important;
 }
 
+/* Aclaración bajo un campo: explica para qué sirve, sin ser un error. */
+.field-hint {
+  display: block;
+  margin: 5px 2px 0;
+  color: var(--text-muted) !important;
+  font-size: 12px !important;
+}
+
 /* Input con un botón de acción al lado (por ejemplo "Buscar" en DNI / RUC). */
 .field-with-action {
   display: flex;
@@ -1927,6 +1957,7 @@ body {
 html[data-theme='dark']
   :where(
     .operations-filters,
+    .period-filter,
     .module-tools:has(.pill-search),
     .operation-section,
     .table-loading,
@@ -2015,6 +2046,9 @@ html[data-theme='dark']
 }
 
 .business-chart-card {
+  /* Contenedor de consulta: las marcas del eje X esconden su línea de contexto (el nombre del
+     día, el número de semana) cuando la tarjeta se hace angosta y dejan solo la fecha. */
+  container-type: inline-size;
   min-width: 0;
   border: 1px solid var(--border);
   border-radius: 17px;
@@ -2113,6 +2147,24 @@ html[data-theme='dark']
 .chart-date-label {
   fill: var(--text-muted);
   font-size: 10px;
+}
+
+/* Línea de contexto de la marca del eje X: "Viernes" sobre 11/09, "Sem. 2" sobre 08-14. */
+.chart-tick-top {
+  fill: var(--text-muted);
+  font-size: 9px;
+  opacity: 0.85;
+}
+.comparison-column .chart-tick-top {
+  display: block;
+  color: var(--text-muted);
+  font-size: 9px;
+  opacity: 0.85;
+}
+@container (max-width: 520px) {
+  .chart-tick-top {
+    display: none;
+  }
 }
 
 .chart-area {
@@ -2369,17 +2421,191 @@ html[data-theme='dark']
   align-items: flex-end !important;
 }
 
-.report-date-filter {
+/* Resumen diario: los dos filtros (rango y agrupación) presentados como pasos rotulados,
+   uno junto al otro en una sola fila; el segundo se empuja a la derecha. */
+.summary-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 16px 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  padding: 16px 18px;
+}
+
+.summary-filter-step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.summary-filter-step + .summary-filter-step {
+  margin-left: 12px;
+  padding-left: 16px;
+  border-left: 1px solid var(--border);
+}
+
+.summary-filter-label {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Control segmentado (estilo iOS): riel en cápsula con una pastilla azul que se desliza
+   hasta el segmento activo. `--seg-count` y `--seg-active` los fija el componente. */
+.segmented {
+  position: relative;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  width: max-content;
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  padding: 3px;
+}
+
+.segmented-thumb {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc((100% - 6px) / var(--seg-count));
+  border-radius: 999px;
+  background: var(--accent);
+  transform: translateX(calc(var(--seg-active) * 100%));
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.segmented button {
+  position: relative;
+  z-index: 1;
+  min-height: 34px;
+  border: 0;
+  background: transparent;
+  padding: 0 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: color 0.2s ease;
+}
+
+.segmented button.is-active {
+  color: #fff;
+}
+
+.segmented button:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+/* Barra de filtro de fechas: segmentado + divisor + navegador «‹ etiqueta ›». */
+.period-filter {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 16px 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  background: var(--surface);
+  padding: 10px 12px;
+  box-shadow: var(--shadow);
+}
+
+.period-filter-rail {
+  display: flex;
+  min-width: 0;
+}
+
+.period-filter-sep {
+  align-self: stretch;
+  width: 1px;
+  background: var(--border);
+}
+
+.period-nav {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.period-nav-arrow {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  transition:
+    background 0.2s ease,
+    color 0.2s ease;
+}
+
+.period-nav-arrow:hover:not(:disabled) {
+  background: var(--surface-soft);
+  color: var(--text);
+}
+
+.period-nav-arrow:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.period-nav-label {
+  min-width: 210px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  padding: 7px 12px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  transition: background 0.2s ease;
+}
+
+.period-nav-label:hover {
+  background: var(--surface-soft);
+}
+
+.period-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  z-index: 40;
+  display: grid;
+  min-width: 230px;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  padding: 12px;
+  box-shadow: var(--shadow);
+  transform: translateX(-50%);
+}
+
+.period-popover-field {
   display: grid;
   gap: 4px;
 }
 
-.report-date-filter span {
+.period-popover-field span {
   color: var(--text-muted);
   font-size: 10px;
 }
 
-.report-date-filter input {
+.period-popover :is(input, select) {
+  width: 100%;
   height: 42px;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -2389,12 +2615,198 @@ html[data-theme='dark']
   font-size: 12px;
 }
 
-.report-range-hint {
-  align-self: flex-end;
-  padding-bottom: 11px;
+.period-popover-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.period-popover-actions button {
+  height: 36px;
+  padding: 0 16px;
+  font-size: 12px;
+}
+
+@media (max-width: 700px) {
+  .period-filter {
+    gap: 8px;
+  }
+
+  .period-filter-rail {
+    width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .period-filter-rail::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* El riel no debe encoger la cápsula: si lo hace, los segmentos dejan de medir lo mismo
+     y la pastilla deslizante ya no coincide con el segmento activo. */
+  .period-filter-rail .segmented {
+    flex: none;
+    max-width: none;
+  }
+
+  .period-filter .segmented button {
+    padding: 0 10px;
+    font-size: 11px;
+  }
+
+  .period-filter-sep {
+    display: none;
+  }
+
+  .period-nav {
+    width: 100%;
+  }
+
+  .period-nav-label {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .period-popover {
+    left: 0;
+    right: 0;
+    transform: none;
+  }
+}
+
+/* PeriodFilter trae sus propios márgenes; adentro de la tarjeta de filtros sobran. */
+.summary-filters .period-filter {
+  margin: 0;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  box-shadow: none;
+}
+
+.summary-readout {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 14px;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.summary-readout-count {
+  border-radius: 999px;
+  background: var(--surface-soft);
+  padding: 3px 10px;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 12px;
+}
+
+.summary-readout .report-export-button {
+  margin-left: auto;
+}
+
+/* Resumen diario en matriz: bloques fijos (período, total de ventas, total de gastos,
+   producción) y, entre ellos, dos tiras desplazables independientes con las categorías de
+   ventas y de gastos. Cada bloque es una tablita alineada por alto de fila. */
+.summary-grid {
+  display: flex;
+  align-items: flex-start;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius);
+  background: var(--surface);
+}
+
+.summary-grid > * + * {
+  border-left: 1px solid var(--border);
+}
+
+/* Todos los bloques crecen para llenar el ancho: contraídos, las 4 columnas de total se
+   reparten la tabla; al desplegar, la tira de categorías se lleva la mayor parte. */
+.summary-grid .sg-fixed {
+  flex: 1 1 0;
+  background: var(--surface-soft);
+}
+
+.summary-grid .sg-scroll {
+  flex: 4 1 0;
+  min-width: 140px;
+  overflow-x: auto;
+}
+
+.summary-grid table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.summary-grid th,
+.summary-grid td {
+  height: 44px;
+  padding: 0 14px;
+  text-align: right;
   white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+}
+
+.summary-grid th {
+  height: 42px;
+  background: var(--surface-soft);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.summary-grid .sg-periodo,
+.summary-grid th.sg-periodo {
+  text-align: left;
+}
+
+/* Cabecera de total: botón que despliega/oculta las categorías. */
+.summary-grid .sg-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  color: var(--text);
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+}
+
+.summary-grid .sg-toggle svg {
+  color: var(--text-muted);
+  transition: transform 0.15s ease;
+}
+
+.summary-grid .sg-toggle svg.rotated {
+  transform: rotate(180deg);
+}
+
+.summary-grid td.soft {
+  color: var(--text-muted);
+}
+
+.summary-grid td.strong {
+  font-weight: 600;
+}
+
+.summary-grid tfoot td {
+  border-bottom: 0;
+  border-top: 1px solid var(--border);
+  font-weight: 600;
+}
+
+.report-period-shortcuts button:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.report-period-shortcuts button:disabled:hover {
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
 }
 
 .report-clear-filter {
@@ -2607,7 +3019,7 @@ html[data-theme='dark'] :where(.report-nav, .report-metric) {
   background: var(--surface);
 }
 
-html[data-theme='dark'] .report-date-filter input {
+html[data-theme='dark'] .period-popover :is(input, select) {
   border-color: var(--border);
   background: var(--surface-soft);
   color: var(--text);
@@ -3278,7 +3690,8 @@ html[data-theme='dark'] .client-debt-link small.client-debt-overdue {
   text-align: left;
 }
 
-.searchable-select-menu button.searchable-select-action:hover {
+.searchable-select-menu button.searchable-select-action:hover,
+.searchable-select-menu button.searchable-select-action.selected {
   background: var(--surface-hover);
 }
 
@@ -3549,6 +3962,179 @@ html[data-theme='dark'] .client-debt-link small.client-debt-overdue {
 
 .expense-detail-hero .status {
   flex: none;
+}
+
+/* Detalle de venta (OperationDetailDialog) */
+.sale-detail-modal {
+  width: min(100%, 620px);
+}
+.sale-detail-body {
+  display: grid;
+  gap: 14px;
+  padding: 16px 18px;
+}
+.sale-detail-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  border-radius: 14px;
+  background: var(--surface-soft);
+  padding: 14px 16px;
+}
+.sale-detail-hero small {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.sale-detail-hero strong {
+  display: block;
+  margin-top: 3px;
+  color: var(--text);
+  font-size: 26px;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.sale-detail-hero span:not(.status) {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.sale-detail-hero .status {
+  flex: none;
+}
+.sale-detail-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.sale-detail-facts {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+.sale-detail-facts > div {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-soft);
+  padding: 9px 11px;
+}
+.sale-detail-facts small {
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.sale-detail-facts strong {
+  display: block;
+  margin-top: 3px;
+  color: var(--text);
+  font-size: 13px;
+}
+.sale-detail-facts > div > span {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.sale-detail-kardex {
+  display: inline-block;
+  margin-top: 3px;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.sale-detail-kardex:hover {
+  text-decoration: underline;
+}
+.sale-detail-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.sale-detail-items .detail-line:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.sale-detail-totals {
+  display: grid;
+  gap: 6px;
+  border-radius: 12px;
+  background: var(--surface-soft);
+  padding: 12px 14px;
+}
+.sale-detail-totals span {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+}
+.sale-detail-totals em {
+  color: var(--text-muted);
+  font-style: normal;
+}
+.sale-detail-totals b {
+  color: var(--text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.sale-detail-total-row {
+  margin-top: 2px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.sale-detail-total-row em,
+.sale-detail-total-row b {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 700;
+}
+.sale-detail-balance-row b {
+  font-size: 14px;
+}
+.sale-detail-balance-row.pending b {
+  color: var(--status-amber-text);
+}
+.sale-detail-payments {
+  display: grid;
+  gap: 2px;
+}
+.sale-detail-payments > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+  padding: 7px 4px;
+  font-size: 12px;
+}
+.sale-detail-payments > div:last-child {
+  border-bottom: 0;
+}
+.sale-detail-payments strong {
+  font-variant-numeric: tabular-nums;
+}
+.sale-detail-actions {
+  border-top: 1px solid var(--border);
+  padding: 14px 18px;
+}
+@media (max-width: 560px) {
+  .sale-detail-facts {
+    grid-template-columns: 1fr;
+  }
+  .sale-detail-hero strong {
+    font-size: 22px;
+  }
 }
 
 .operation-review-facts small,
@@ -4456,7 +5042,7 @@ body {
 }
 
 .desktop-sidebar.collapsed .sidebar-brand {
-  min-height: 67px;
+  min-height: 64px;
   justify-content: center;
   padding: 9px;
 }
@@ -4929,6 +5515,16 @@ html[data-theme='dark'] :where(.auto-table-toolbar, .table-pagination) {
   color: var(--text);
 }
 
+.desktop-sidebar:not(.collapsed) .sidebar-single-link {
+  text-decoration: none;
+}
+
+.desktop-sidebar:not(.collapsed) .sidebar-single-link.active,
+.desktop-sidebar:not(.collapsed) .sidebar-single-link.active:hover {
+  background: var(--accent-soft);
+  color: var(--accent-soft-text);
+}
+
 .desktop-sidebar:not(.collapsed) .sidebar-group-chevron {
   width: 14px;
   height: 14px;
@@ -5034,6 +5630,10 @@ html[data-theme='dark'] :where(.auto-table-toolbar, .table-pagination) {
   background: transparent;
   color: var(--text-muted);
   box-shadow: none;
+}
+
+.desktop-sidebar.collapsed .sidebar-single-link {
+  text-decoration: none;
 }
 
 .desktop-sidebar.collapsed .sidebar-group-trigger:hover,
@@ -5432,6 +6032,57 @@ html[data-theme='dark'] .operation-page-head {
   border-color: var(--accent);
   background: var(--accent);
   color: #fff;
+}
+
+/* Pestañas del reporte por trabajador: mismo lenguaje visual que los atajos de período,
+ * pero subrayadas en vez de píldoras, para que se lean como secciones y no como filtros. */
+.report-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 18px 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.report-tabs button {
+  min-height: 40px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 10px 10px 0 0;
+  background: none;
+  padding: 0 14px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.report-tabs button:hover {
+  background: var(--surface-hover);
+  color: var(--accent);
+}
+
+.report-tabs button.active {
+  border-bottom-color: var(--accent);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+/* Celda sin movimiento en las tablas cruzadas trabajador × método. */
+.report-cell-empty {
+  color: var(--text-muted);
+}
+
+.report-tab-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  background: var(--surface);
+  padding: 28px 18px;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
 }
 
 html[data-theme='dark']

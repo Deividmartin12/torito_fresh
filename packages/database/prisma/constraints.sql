@@ -6,6 +6,17 @@ ON "stock_almacen" (
   "estado_inventario_id"
 );
 
+-- Un mismo método de cobro no se puede repetir para el mismo dueño: el Yape 953323112 del
+-- repartidor 1 va una sola vez. Prisma no puede expresarlo con @@unique porque Postgres
+-- trata cada NULL como distinto, y entonces dos "Efectivo global" (referencia y trabajador
+-- en null) no chocarían. Con COALESCE los nulos se comparan como iguales.
+CREATE UNIQUE INDEX IF NOT EXISTS "metodo_pago_unico_por_dueno"
+ON "metodo_pago" (
+  COALESCE("categoria_id", 0),
+  COALESCE("referencia", ''),
+  COALESCE("trabajador_id", 0)
+);
+
 -- Se recrean porque versiones anteriores mezclaban devolución con el estado
 -- principal de la operación.
 ALTER TABLE "venta" DROP CONSTRAINT IF EXISTS "venta_estado_valido";

@@ -1,6 +1,8 @@
 import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
 import { RoleName } from '@prisma/client';
+import { CurrentUser } from '../auth/current-user.decorator';
 import { Roles } from '../auth/roles.decorator';
+import { AuthUser } from '../common/auth-user';
 import { CreateProductionOrderDto, UpdateProductionOrderDto } from './production.dto';
 import { ProductionService } from './production.service';
 
@@ -15,8 +17,11 @@ export class ProductionController {
   @Get('orders') orders() {
     return this.production.orders();
   }
-  @Post('orders') create(@Body() dto: CreateProductionOrderDto) {
-    return this.production.create(dto);
+  @Post('orders') create(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: CreateProductionOrderDto,
+  ) {
+    return this.production.create(dto, user);
   }
   @Patch('orders/:id') update(@Param('id') id: string, @Body() dto: UpdateProductionOrderDto) {
     return this.production.update(id, dto);

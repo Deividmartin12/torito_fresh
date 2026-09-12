@@ -1,37 +1,11 @@
 'use client';
 
-import { Pencil, Plus, Search, UserCheck, UserX, X } from 'lucide-react';
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { Pencil, Plus, Search, UserCheck, UserX } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Pagination } from '../../../components/Pagination';
-import { api } from '../../../lib/api';
-import { consultarDni, consultarRuc } from '../../../lib/consulta-documento';
-
-type Proveedor = {
-  id: string;
-  ruc: string;
-  razonSocial: string;
-  nombreComercial: string;
-  telefono: string;
-  correo: string;
-  direccion: string;
-  estado: boolean;
-};
-
-type ProveedorForm = Pick<
-  Proveedor,
-  'ruc' | 'razonSocial' | 'nombreComercial' | 'telefono' | 'correo' | 'direccion'
->;
-type FormErrors = Partial<Record<keyof ProveedorForm, string>>;
-
-const emptyForm: ProveedorForm = {
-  ruc: '',
-  razonSocial: '',
-  nombreComercial: '',
-  telefono: '',
-  correo: '',
-  direccion: '',
-};
+import { ProveedorFormModal } from '../../../components/ProveedorFormModal';
+import { getProveedores, Proveedor, updateProveedor } from '../../../lib/proveedores';
 
 export default function ProveedoresPage() {
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
@@ -41,17 +15,13 @@ export default function ProveedoresPage() {
   const [pageSize, setPageSize] = useState(10);
   const [modal, setModal] = useState(false);
   const [editando, setEditando] = useState<Proveedor | null>(null);
-  const [form, setForm] = useState<ProveedorForm>(emptyForm);
-  const [fieldErrors, setFieldErrors] = useState<FormErrors>({});
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [buscando, setBuscando] = useState(false);
   const [processingId, setProcessingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setProveedores(await api<Proveedor[]>('/proveedores'));
+      setProveedores(await getProveedores());
     } catch (requestError) {
       toast.error(
         requestError instanceof Error
@@ -87,113 +57,24 @@ export default function ProveedoresPage() {
 
   function abrir(item?: Proveedor) {
     setEditando(item ?? null);
-    setForm(
-      item
-        ? {
-            ruc: item.ruc,
-            razonSocial: item.razonSocial,
-            nombreComercial: item.nombreComercial,
-            telefono: item.telefono,
-            correo: item.correo,
-            direccion: item.direccion,
-          }
-        : emptyForm,
-    );
-    setFieldErrors({});
     setModal(true);
   }
 
-  function updateField(field: keyof ProveedorForm, value: string) {
-    setForm((current) => ({ ...current, [field]: value }));
-    setFieldErrors((current) => ({ ...current, [field]: undefined }));
-  }
-
-  // Un proveedor puede ser empresa (RUC de 11 dígitos) o persona natural (se busca por su
-  // DNI de 8 dígitos y el RUC "10..." se calcula en el API). El botón infiere cuál es por
-  // el largo de lo que se tecleó.
-  async function buscarDocumento() {
-    const numero = form.ruc.trim();
-    if (numero.length !== 8 && numero.length !== 11) {
-      toast.error('Ingresa un DNI (8 dígitos) o un RUC (11 dígitos).');
-      return;
-    }
-    setBuscando(true);
-    try {
-      if (numero.length === 8) {
-        const persona = await consultarDni(numero);
-        setForm((current) => ({
-          ...current,
-          ruc: persona.rucSugerido,
-          razonSocial: persona.nombreCompleto,
-        }));
-      } else {
-        const empresa = await consultarRuc(numero);
-        setForm((current) => ({
-          ...current,
-          razonSocial: empresa.razonSocial,
-          direccion: empresa.direccion || current.direccion,
-        }));
-      }
-      setFieldErrors((current) => ({ ...current, ruc: undefined, razonSocial: undefined }));
-      toast.success('Datos encontrados.');
-    } catch (requestError) {
-      toast.error(
-        requestError instanceof Error ? requestError.message : 'No se pudo consultar el documento',
-      );
-    } finally {
-      setBuscando(false);
-    }
-  }
-
-  function validate() {
-    const next: FormErrors = {};
-    if (!/^\d{11}$/.test(form.ruc.trim())) next.ruc = 'Ingresa un RUC de 11 digitos.';
-    if (!form.razonSocial.trim()) next.razonSocial = 'Ingresa la razón social.';
-    if (form.correo.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.correo.trim()))
-      next.correo = 'Ingresa un correo valido.';
-    setFieldErrors(next);
-    return Object.keys(next).length === 0;
-  }
-
-  async function guardar(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!validate()) return;
-    setSaving(true);
-    const payload = Object.fromEntries(
-      Object.entries(form).map(([key, value]) => [key, value.trim()]),
+  function handleSaved(saved: Proveedor) {
+    setProveedores((current) =>
+      (current.some((item) => item.id === saved.id)
+        ? current.map((item) => (item.id === saved.id ? saved : item))
+        : [...current, saved]
+      ).sort((left, right) => left.razonSocial.localeCompare(right.razonSocial, 'es')),
     );
-    try {
-      const saved = await api<Proveedor>(
-        editando ? `/proveedores/${editando.id}` : '/proveedores',
-        {
-          method: editando ? 'PATCH' : 'POST',
-          body: JSON.stringify(payload),
-        },
-      );
-      setProveedores((current) =>
-        (editando
-          ? current.map((item) => (item.id === saved.id ? saved : item))
-          : [...current, saved]
-        ).sort((left, right) => left.razonSocial.localeCompare(right.razonSocial, 'es')),
-      );
-      setModal(false);
-    } catch (requestError) {
-      toast.error(
-        requestError instanceof Error ? requestError.message : 'No se pudo guardar el proveedor',
-      );
-    } finally {
-      setSaving(false);
-    }
+    setModal(false);
   }
 
   async function cambiarEstado(item: Proveedor) {
     if (item.estado && !window.confirm(`¿Desactivar a ${item.razonSocial}?`)) return;
     setProcessingId(item.id);
     try {
-      const updated = await api<Proveedor>(`/proveedores/${item.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ estado: !item.estado }),
-      });
+      const updated = await updateProveedor(item.id, { estado: !item.estado });
       setProveedores((current) => current.map((row) => (row.id === updated.id ? updated : row)));
     } catch (requestError) {
       toast.error(
@@ -350,125 +231,11 @@ export default function ProveedoresPage() {
         </>
       )}
       {modal ? (
-        <div
-          className="modal-backdrop"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget && !saving) setModal(false);
-          }}
-        >
-          <section
-            className="crud-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="supplier-modal-title"
-          >
-            <div className="modal-top">
-              <h2 id="supplier-modal-title">
-                {editando ? 'Editar proveedor' : 'Agregar proveedor'}
-              </h2>
-              <button
-                type="button"
-                className="modal-close"
-                onClick={() => setModal(false)}
-                aria-label="Cerrar modal"
-                disabled={saving}
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <form className="modal-form" onSubmit={guardar} noValidate>
-              <label>
-                <span>RUC o DNI</span>
-                <div className="field-with-action">
-                  <input
-                    value={form.ruc}
-                    onChange={(event) =>
-                      updateField('ruc', event.target.value.replace(/\D/g, '').slice(0, 11))
-                    }
-                    inputMode="numeric"
-                    pattern="\d{11}"
-                    maxLength={11}
-                    required
-                    autoFocus
-                  />
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    onClick={() => void buscarDocumento()}
-                    disabled={
-                      buscando || (form.ruc.trim().length !== 8 && form.ruc.trim().length !== 11)
-                    }
-                  >
-                    {buscando ? 'Buscando...' : 'Buscar'}
-                  </button>
-                </div>
-                {fieldErrors.ruc ? <small className="field-error">{fieldErrors.ruc}</small> : null}
-              </label>
-              <label>
-                <span>Razon social</span>
-                <input
-                  value={form.razonSocial}
-                  onChange={(event) => updateField('razonSocial', event.target.value)}
-                  maxLength={150}
-                  required
-                />
-                {fieldErrors.razonSocial ? (
-                  <small className="field-error">{fieldErrors.razonSocial}</small>
-                ) : null}
-              </label>
-              <label>
-                <span>Nombre comercial</span>
-                <input
-                  value={form.nombreComercial}
-                  onChange={(event) => updateField('nombreComercial', event.target.value)}
-                  maxLength={150}
-                />
-              </label>
-              <label>
-                <span>Teléfono</span>
-                <input
-                  value={form.telefono}
-                  onChange={(event) => updateField('telefono', event.target.value)}
-                  inputMode="tel"
-                  maxLength={20}
-                />
-              </label>
-              <label>
-                <span>Correo</span>
-                <input
-                  type="email"
-                  value={form.correo}
-                  onChange={(event) => updateField('correo', event.target.value)}
-                  maxLength={150}
-                />
-                {fieldErrors.correo ? (
-                  <small className="field-error">{fieldErrors.correo}</small>
-                ) : null}
-              </label>
-              <label>
-                <span>Dirección</span>
-                <input
-                  value={form.direccion}
-                  onChange={(event) => updateField('direccion', event.target.value)}
-                  maxLength={250}
-                />
-              </label>
-              <div className="modal-actions">
-                <button
-                  className="btn-secondary"
-                  type="button"
-                  onClick={() => setModal(false)}
-                  disabled={saving}
-                >
-                  Cancelar
-                </button>
-                <button className="btn-primary" disabled={saving}>
-                  {saving ? 'Guardando...' : editando ? 'Guardar cambios' : 'Registrar proveedor'}
-                </button>
-              </div>
-            </form>
-          </section>
-        </div>
+        <ProveedorFormModal
+          editando={editando}
+          onClose={() => setModal(false)}
+          onSaved={handleSaved}
+        />
       ) : null}
     </div>
   );

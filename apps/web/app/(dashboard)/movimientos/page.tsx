@@ -132,7 +132,6 @@ function MovimientosView() {
       <div className="module-head">
         <div className="module-title">
           <h1>Kardex de inventario</h1>
-          <span>Historial de entradas y salidas de stock, trazable por documento.</span>
         </div>
       </div>
 

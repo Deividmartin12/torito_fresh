@@ -9,7 +9,7 @@ export type ProductionProduct = {
   controlaLote: boolean;
   retornable: boolean;
 };
-export type ProductionWarehouse = { id: string; codigo: string; nombre: string; tipo: string };
+export type ProductionWarehouse = { id: string; codigo: string; nombre: string };
 export type ProductionCatalogs = {
   productosTerminados: ProductionProduct[];
   insumos: ProductionProduct[];
@@ -31,6 +31,8 @@ export type ProductionOrder = {
   fechaFin: string | null;
   estado: string;
   lote: string | null;
+  // El lote ya tiene ventas/devoluciones: al editar solo se pueden corregir las fechas.
+  loteMovido?: boolean;
   responsable: string;
   kardexId: string | null;
   kardexRef: string | null;

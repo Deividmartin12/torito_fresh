@@ -1,20 +1,13 @@
 'use client';
 
-import { Banknote, CreditCard, Pencil, Plus, Search, Smartphone, X } from 'lucide-react';
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { Banknote, CreditCard, Pencil, Plus, Search, Smartphone } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import {
-  createPaymentMethod,
-  getPaymentMethods,
-  PaymentMethod,
-  PaymentMethodPayload,
-  updatePaymentMethod,
-} from '../../../lib/payment-methods';
+import { PaymentMethodFormModal } from '../../../components/PaymentMethodFormModal';
+import { api } from '../../../lib/api';
+import { getPaymentMethods, PaymentMethod } from '../../../lib/payment-methods';
 
-const emptyForm = (): PaymentMethodPayload => ({
-  nombre: '',
-  estado: true,
-});
+type TrabajadorOption = { id: string; nombre: string };
 
 function MethodIcon({ name }: { name: string }) {
   const normalized = name.toUpperCase();
@@ -28,12 +21,11 @@ function MethodIcon({ name }: { name: string }) {
 
 export default function MetodosPagoPage() {
   const [methods, setMethods] = useState<PaymentMethod[]>([]);
+  const [trabajadores, setTrabajadores] = useState<TrabajadorOption[]>([]);
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<PaymentMethod | null>(null);
-  const [form, setForm] = useState<PaymentMethodPayload>(emptyForm);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -51,42 +43,41 @@ export default function MetodosPagoPage() {
   useEffect(() => {
     void load();
   }, [load]);
+  useEffect(() => {
+    api<{ id: string; nombres: string; apellidos: string; estado: boolean }[]>('/trabajadores')
+      .then((rows) =>
+        setTrabajadores(
+          rows
+            .filter((row) => row.estado)
+            .map((row) => ({ id: row.id, nombre: `${row.nombres} ${row.apellidos}` })),
+        ),
+      )
+      .catch(() => undefined);
+  }, []);
 
-  const visible = useMemo(
-    () => methods.filter((item) => item.nombre.toLowerCase().includes(search.toLowerCase())),
-    [methods, search],
-  );
+  const visible = useMemo(() => {
+    const term = search.toLowerCase();
+    return methods.filter(
+      (item) =>
+        item.nombre.toLowerCase().includes(term) ||
+        (item.categoria ?? '').toLowerCase().includes(term),
+    );
+  }, [methods, search]);
   function close() {
     setOpen(false);
     setEditing(null);
-    setForm(emptyForm());
   }
   function openForm(method?: PaymentMethod) {
     setEditing(method ?? null);
-    setForm(method ? { nombre: method.nombre, estado: method.estado } : emptyForm());
     setOpen(true);
   }
-  async function save(event: FormEvent) {
-    event.preventDefault();
-    setSaving(true);
-    try {
-      const saved = editing
-        ? await updatePaymentMethod(editing.id, form)
-        : await createPaymentMethod(form);
-      setMethods((current) =>
-        editing
-          ? current.map((item) => (item.id === saved.id ? saved : item))
-          : [...current, saved].sort((a, b) => a.nombre.localeCompare(b.nombre)),
-      );
-      toast.success(editing ? 'Método de pago actualizado.' : 'Método de pago registrado.');
-      close();
-    } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : 'No se pudo guardar el método de pago', {
-        action: { label: 'Reintentar', onClick: () => void load() },
-      });
-    } finally {
-      setSaving(false);
-    }
+  function handleSaved(saved: PaymentMethod) {
+    setMethods((current) =>
+      current.some((item) => item.id === saved.id)
+        ? current.map((item) => (item.id === saved.id ? saved : item))
+        : [...current, saved].sort((a, b) => a.nombre.localeCompare(b.nombre)),
+    );
+    close();
   }
 
   return (
@@ -126,6 +117,8 @@ export default function MetodosPagoPage() {
             <thead>
               <tr>
                 <th>Método</th>
+                <th>Tipo</th>
+                <th>Dueño</th>
                 <th>Estado</th>
                 <th>Acciones</th>
               </tr>
@@ -136,10 +129,12 @@ export default function MetodosPagoPage() {
                   <tr key={item.id}>
                     <td>
                       <div className="flex items-center gap-2">
-                        <MethodIcon name={item.nombre} />
+                        <MethodIcon name={item.categoria ?? item.nombre} />
                         <strong>{item.nombre}</strong>
                       </div>
                     </td>
+                    <td>{item.categoria ?? '—'}</td>
+                    <td>{item.trabajador ?? 'Todos'}</td>
                     <td>
                       <span className={`status ${item.estado ? 'status-green' : 'status-red'}`}>
                         {item.estado ? 'Activo' : 'Inactivo'}
@@ -159,7 +154,7 @@ export default function MetodosPagoPage() {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={3}>
+                  <td colSpan={5}>
                     <div className="table-empty">
                       No hay métodos de pago que coincidan.
                       <button type="button" onClick={() => setSearch('')}>
@@ -174,62 +169,12 @@ export default function MetodosPagoPage() {
         </div>
       )}
       {open ? (
-        <div className="modal-backdrop">
-          <section
-            className="crud-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label={editing ? 'Editar método' : 'Agregar método'}
-          >
-            <div className="modal-top">
-              <h2>{editing ? 'Editar método de pago' : 'Agregar método de pago'}</h2>
-              <button
-                className="modal-close"
-                type="button"
-                onClick={close}
-                disabled={saving}
-                aria-label="Cerrar modal"
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <form className="modal-form" onSubmit={(event) => void save(event)}>
-              <label className="field-wide">
-                <span>Nombre</span>
-                <input
-                  value={form.nombre}
-                  maxLength={50}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, nombre: event.target.value }))
-                  }
-                  placeholder="Ej. EFECTIVO, YAPE o TARJETA"
-                  required
-                  autoFocus
-                />
-              </label>
-              {editing ? (
-                <label className="check-field field-wide">
-                  <input
-                    type="checkbox"
-                    checked={form.estado}
-                    onChange={(event) =>
-                      setForm((current) => ({ ...current, estado: event.target.checked }))
-                    }
-                  />
-                  <span>Método activo</span>
-                </label>
-              ) : null}
-              <div className="modal-actions">
-                <button className="btn-secondary" type="button" onClick={close} disabled={saving}>
-                  Cancelar
-                </button>
-                <button className="btn-primary" disabled={saving}>
-                  {saving ? 'Guardando...' : editing ? 'Guardar cambios' : 'Registrar método'}
-                </button>
-              </div>
-            </form>
-          </section>
-        </div>
+        <PaymentMethodFormModal
+          editando={editing}
+          trabajadores={trabajadores}
+          onClose={close}
+          onSaved={handleSaved}
+        />
       ) : null}
     </div>
   );

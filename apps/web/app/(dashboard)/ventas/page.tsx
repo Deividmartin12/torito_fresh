@@ -9,6 +9,7 @@ import { OperationDetailDialog } from '../../../components/operations/OperationD
 import { RegisterCollectionModal } from '../../../components/operations/RegisterCollectionModal';
 import { SaleReceipt } from '../../../components/operations/SaleReceipt';
 import { Pagination } from '../../../components/Pagination';
+import { PeriodFilter } from '../../../components/PeriodFilter';
 import { fechaHora, moneda } from '../../../lib/format';
 import {
   getOperationalAccounts,
@@ -34,6 +35,7 @@ export default function VentasPage() {
   const [ventas, setVentas] = useState<Sale[]>([]);
   const [buscar, setBuscar] = useState('');
   const [pago, setPago] = useState('Todos');
+  const [rango, setRango] = useState<{ from: string; to: string } | null>(null);
   const [pagina, setPagina] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [detalle, setDetalle] = useState<Sale | null>(null);
@@ -83,18 +85,25 @@ export default function VentasPage() {
     void load();
   }, [load]);
 
+  const handlePeriod = useCallback((from: string, to: string) => {
+    setRango({ from, to });
+    setPagina(1);
+  }, []);
+
   // Se cargan todas las ventas (más nuevas primero, orden del servidor); aquí solo se
-  // refina por tipo de pago y texto.
+  // refina por período, tipo de pago y texto.
   const filtradas = useMemo(
     () =>
       ventas.filter(
         (item) =>
           (pago === 'Todos' || item.pago === pago) &&
+          (!rango ||
+            (item.fecha.slice(0, 10) >= rango.from && item.fecha.slice(0, 10) <= rango.to)) &&
           `${item.codigo} ${item.cliente} ${item.almacen}`
             .toLowerCase()
             .includes(buscar.toLowerCase()),
       ),
-    [buscar, pago, ventas],
+    [buscar, pago, rango, ventas],
   );
   const pages = Math.max(1, Math.ceil(filtradas.length / pageSize));
   const visibles = filtradas.slice((pagina - 1) * pageSize, pagina * pageSize);
@@ -111,7 +120,6 @@ export default function VentasPage() {
         <div>
           <span className="operation-eyebrow">Operaciones</span>
           <h1>Ventas</h1>
-          <p>Consulta ventas, pagos y salidas de inventario.</p>
         </div>
         <Link className="btn-primary operation-primary-action" href="/ventas/nueva">
           <Plus size={18} /> Nueva venta
@@ -140,6 +148,8 @@ export default function VentasPage() {
           <strong>{confirmed.filter((item) => item.kardexId).length}</strong>
         </div>
       </div>
+
+      <PeriodFilter defaultPeriod="month" onChange={handlePeriod} />
 
       <div className="module-tools operations-filters">
         <label className="pill-search">
@@ -317,22 +327,7 @@ export default function VentasPage() {
 
       {detalle ? (
         <OperationDetailDialog
-          title={detalle.codigo}
-          partyLabel="Cliente"
-          party={detalle.cliente}
-          warehouseLabel="Almacén origen"
-          warehouse={detalle.almacen}
-          status={detalle.estado}
-          total={detalle.total}
-          netTotal={detalle.totalNeto}
-          paid={detalle.pagado}
-          balance={detalle.saldo}
-          paymentStatus={detalle.estadoPago}
-          dueDate={detalle.fechaVencimiento}
-          returnStatus={detalle.estadoDevolucion}
-          kardexId={detalle.kardexId}
-          kardexRef={detalle.kardexRef}
-          items={detalle.items}
+          sale={detalle}
           onClose={() => setDetalle(null)}
           onEdit={
             editable && esEditable(detalle)

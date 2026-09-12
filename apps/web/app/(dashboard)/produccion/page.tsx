@@ -1,9 +1,10 @@
 'use client';
 
-import { Eye, Factory, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
+import { AlertCircle, Eye, Factory, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import Link from 'next/link';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import { AlmacenCreado, AlmacenFormModal } from '../../../components/AlmacenFormModal';
 import { SearchableSelect } from '../../../components/SearchableSelect';
 import { fechaCorta } from '../../../lib/format';
 import {
@@ -13,6 +14,7 @@ import {
   ProductionCatalogs,
   ProductionOrder,
   updateProductionOrder,
+  UpdateProductionPayload,
 } from '../../../lib/production';
 
 const emptyCatalogs: ProductionCatalogs = { productosTerminados: [], insumos: [], almacenes: [] };
@@ -33,6 +35,7 @@ export default function ProductionPage() {
   const [catalogs, setCatalogs] = useState(emptyCatalogs);
   const [orders, setOrders] = useState<ProductionOrder[]>([]);
   const [formOpen, setFormOpen] = useState(false);
+  const [almacenModal, setAlmacenModal] = useState(false);
   const [editing, setEditing] = useState<ProductionOrder | null>(null);
   const [detail, setDetail] = useState<ProductionOrder | null>(null);
   const [loading, setLoading] = useState(true);
@@ -40,6 +43,8 @@ export default function ProductionPage() {
   const [search, setSearch] = useState('');
   const [form, setForm] = useState(emptyForm);
   const [inputs, setInputs] = useState<{ productoId: string; cantidad: number }[]>([]);
+  // El lote de esta producción ya se vendió/movió: solo se pueden corregir las fechas.
+  const edicionLimitada = Boolean(editing?.loteMovido);
 
   async function load() {
     const [catalogData, orderData] = await Promise.all([
@@ -52,10 +57,7 @@ export default function ProductionPage() {
       ...current,
       productoId: current.productoId || catalogData.productosTerminados[0]?.id || '',
       almacenProductoTerminadoId:
-        current.almacenProductoTerminadoId ||
-        catalogData.almacenes.find((item) => item.tipo === 'PRODUCTO_TERMINADO')?.id ||
-        catalogData.almacenes[0]?.id ||
-        '',
+        current.almacenProductoTerminadoId || catalogData.almacenes[0]?.id || '',
     }));
   }
   useEffect(() => {
@@ -101,6 +103,19 @@ export default function ProductionPage() {
     setForm(emptyForm());
     setInputs([]);
   }
+  // Almacén creado desde el combo de producción: lo sumamos al catálogo y lo dejamos elegido.
+  function handleAlmacenCreado(almacen: AlmacenCreado) {
+    setCatalogs((current) => ({
+      ...current,
+      almacenes: [
+        ...current.almacenes,
+        { id: almacen.id, nombre: almacen.nombre, codigo: almacen.codigo },
+      ].sort((a, b) => a.nombre.localeCompare(b.nombre)),
+    }));
+    setForm((current) => ({ ...current, almacenProductoTerminadoId: almacen.id }));
+    setAlmacenModal(false);
+  }
+
   function updateInput(index: number, patch: Partial<{ productoId: string; cantidad: number }>) {
     setInputs((current) =>
       current.map((item, position) => (position === index ? { ...item, ...patch } : item)),
@@ -108,22 +123,37 @@ export default function ProductionPage() {
   }
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (inputs.some((item) => !item.productoId || item.cantidad <= 0)) {
+    if (!edicionLimitada && inputs.some((item) => !item.productoId || item.cantidad <= 0)) {
       toast.error('Completa o elimina los insumos agregados.');
       return;
     }
     setSaving(true);
     try {
-      const payload = {
-        almacenProductoTerminadoId: form.almacenProductoTerminadoId || undefined,
-        cantidadPlanificada: Number(form.cantidadPlanificada),
-        fechaPlanificada: form.fechaPlanificada,
-        fechaVencimiento: form.fechaVencimiento || undefined,
-        insumos: inputs,
-      };
+      // Con el lote ya movido solo se corrigen fechas: no se manda cantidad, almacén ni
+      // insumos para no chocar con las validaciones del backend.
+      const updatePayload: UpdateProductionPayload = edicionLimitada
+        ? {
+            cantidadPlanificada: editing!.cantidadPlanificada,
+            fechaPlanificada: form.fechaPlanificada,
+            fechaVencimiento: form.fechaVencimiento || undefined,
+          }
+        : {
+            almacenProductoTerminadoId: form.almacenProductoTerminadoId || undefined,
+            cantidadPlanificada: Number(form.cantidadPlanificada),
+            fechaPlanificada: form.fechaPlanificada,
+            fechaVencimiento: form.fechaVencimiento || undefined,
+            insumos: inputs,
+          };
       const done = editing
-        ? await updateProductionOrder(editing.id, payload)
-        : await createProductionOrder({ ...payload, productoId: form.productoId });
+        ? await updateProductionOrder(editing.id, updatePayload)
+        : await createProductionOrder({
+            productoId: form.productoId,
+            almacenProductoTerminadoId: form.almacenProductoTerminadoId || undefined,
+            cantidadPlanificada: Number(form.cantidadPlanificada),
+            fechaPlanificada: form.fechaPlanificada,
+            fechaVencimiento: form.fechaVencimiento || undefined,
+            insumos: inputs,
+          });
       closeForm();
       toast.success(
         editing
@@ -158,7 +188,6 @@ export default function ProductionPage() {
         <div>
           <span className="operation-eyebrow">Planta y envasado</span>
           <h1>Producción diaria</h1>
-          <p>Registra cuánto producto terminado se produce cada día.</p>
         </div>
         <button className="btn-primary operation-primary-action" onClick={openCreate}>
           <Plus size={17} /> Registrar producción
@@ -289,7 +318,9 @@ export default function ProductionPage() {
                 </h2>
                 <small>
                   {editing
-                    ? 'Se revierte el movimiento de inventario anterior y se rehace con los datos nuevos. El producto terminado no cambia.'
+                    ? edicionLimitada
+                      ? 'Este lote ya tiene ventas o movimientos de inventario. Solo puedes corregir la fecha de producción y el vencimiento.'
+                      : 'Se revierte el movimiento de inventario anterior y se rehace con los datos nuevos. El producto terminado no cambia.'
                     : 'El código de orden, lote y almacén de origen se generan automáticamente.'}
                 </small>
               </div>
@@ -303,6 +334,19 @@ export default function ProductionPage() {
               </button>
             </div>
             <form className="modal-form" onSubmit={(event) => void submit(event)}>
+              {edicionLimitada ? (
+                <div className="operation-warning field-wide">
+                  <AlertCircle size={18} />
+                  <div>
+                    <strong>Edición limitada</strong>
+                    <span>
+                      Este lote ya tiene ventas o movimientos de inventario. Solo puedes ajustar la
+                      fecha de producción y el vencimiento; la cantidad, el almacén y los insumos
+                      quedan bloqueados.
+                    </span>
+                  </div>
+                </div>
+              ) : null}
               <label>
                 <span>Fecha de producción</span>
                 <input
@@ -323,6 +367,7 @@ export default function ProductionPage() {
                   onChange={(event) =>
                     setForm({ ...form, cantidadPlanificada: event.target.value })
                   }
+                  disabled={edicionLimitada}
                   required
                 />
               </label>
@@ -345,19 +390,18 @@ export default function ProductionPage() {
               </label>
               <label>
                 <span>Almacén destino (opcional)</span>
-                <select
+                <SearchableSelect
                   value={form.almacenProductoTerminadoId}
-                  onChange={(event) =>
-                    setForm({ ...form, almacenProductoTerminadoId: event.target.value })
-                  }
-                >
-                  <option value="">Automático</option>
-                  {catalogs.almacenes.map((item) => (
-                    <option value={item.id} key={item.id}>
-                      {item.codigo} · {item.nombre}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(value) => setForm({ ...form, almacenProductoTerminadoId: value })}
+                  options={catalogs.almacenes.map((item) => ({
+                    value: item.id,
+                    label: item.codigo ? `${item.codigo} · ${item.nombre}` : item.nombre,
+                  }))}
+                  placeholder="Automático"
+                  actionLabel="+ Agregar almacén"
+                  onAction={() => setAlmacenModal(true)}
+                  disabled={edicionLimitada}
+                />
               </label>
               <label>
                 <span>Vencimiento (opcional)</span>
@@ -367,73 +411,85 @@ export default function ProductionPage() {
                   onChange={(event) => setForm({ ...form, fechaVencimiento: event.target.value })}
                 />
               </label>
-              <details className="production-advanced field-wide">
-                <summary>Opciones avanzadas: materia prima e insumos</summary>
-                <p>
-                  Úsalas solo si deseas descontar y valorizar la materia prima usada. Si no agregas
-                  insumos, se registra únicamente la producción diaria.
-                </p>
-                <div className="production-inputs">
-                  <div className="lines-head">
-                    <div>
-                      <strong>Materia prima y envases</strong>
-                      <small>Se tomarán del almacén de origen automático.</small>
-                    </div>
-                    <button
-                      type="button"
-                      className="btn-secondary"
-                      onClick={() =>
-                        setInputs((current) => [
-                          ...current,
-                          { productoId: '', cantidad: Number(form.cantidadPlanificada) || 0 },
-                        ])
-                      }
-                    >
-                      <Plus size={15} /> Agregar insumo
-                    </button>
-                  </div>
-                  {inputs.map((item, index) => (
-                    <div className="production-input-line" key={index}>
-                      <label>
-                        <span>Insumo</span>
-                        <SearchableSelect
-                          value={item.productoId}
-                          onChange={(value) => updateInput(index, { productoId: value })}
-                          options={catalogs.insumos.map((product) => ({
-                            value: product.id,
-                            label: `${product.codigo} · ${product.nombre}`,
-                          }))}
-                          placeholder="Seleccionar insumo"
-                        />
-                      </label>
-                      <label>
-                        <span>Cantidad</span>
-                        <input
-                          type="number"
-                          min="0.001"
-                          step="0.001"
-                          value={item.cantidad}
-                          onChange={(event) =>
-                            updateInput(index, { cantidad: Number(event.target.value) })
-                          }
-                        />
-                      </label>
+              {edicionLimitada ? (
+                <div className="production-advanced field-wide">
+                  <p>
+                    Insumos registrados:{' '}
+                    {editing?.insumos.length
+                      ? editing.insumos.map((input) => input.producto).join(', ')
+                      : 'ninguno'}{' '}
+                    (no editables).
+                  </p>
+                </div>
+              ) : (
+                <details className="production-advanced field-wide">
+                  <summary>Opciones avanzadas: materia prima e insumos</summary>
+                  <p>
+                    Úsalas solo si deseas descontar y valorizar la materia prima usada. Si no
+                    agregas insumos, se registra únicamente la producción diaria.
+                  </p>
+                  <div className="production-inputs">
+                    <div className="lines-head">
+                      <div>
+                        <strong>Materia prima y envases</strong>
+                        <small>Se tomarán del almacén de origen automático.</small>
+                      </div>
                       <button
                         type="button"
-                        className="line-remove"
+                        className="btn-secondary"
                         onClick={() =>
-                          setInputs((current) =>
-                            current.filter((_, position) => position !== index),
-                          )
+                          setInputs((current) => [
+                            ...current,
+                            { productoId: '', cantidad: Number(form.cantidadPlanificada) || 0 },
+                          ])
                         }
-                        aria-label="Quitar insumo"
                       >
-                        <Trash2 size={16} />
+                        <Plus size={15} /> Agregar insumo
                       </button>
                     </div>
-                  ))}
-                </div>
-              </details>
+                    {inputs.map((item, index) => (
+                      <div className="production-input-line" key={index}>
+                        <label>
+                          <span>Insumo</span>
+                          <SearchableSelect
+                            value={item.productoId}
+                            onChange={(value) => updateInput(index, { productoId: value })}
+                            options={catalogs.insumos.map((product) => ({
+                              value: product.id,
+                              label: `${product.codigo} · ${product.nombre}`,
+                            }))}
+                            placeholder="Seleccionar insumo"
+                          />
+                        </label>
+                        <label>
+                          <span>Cantidad</span>
+                          <input
+                            type="number"
+                            min="0.001"
+                            step="0.001"
+                            value={item.cantidad}
+                            onChange={(event) =>
+                              updateInput(index, { cantidad: Number(event.target.value) })
+                            }
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          className="line-remove"
+                          onClick={() =>
+                            setInputs((current) =>
+                              current.filter((_, position) => position !== index),
+                            )
+                          }
+                          aria-label="Quitar insumo"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
               <div className="modal-actions">
                 <button
                   type="button"
@@ -451,6 +507,10 @@ export default function ProductionPage() {
             </form>
           </section>
         </div>
+      ) : null}
+
+      {almacenModal ? (
+        <AlmacenFormModal onClose={() => setAlmacenModal(false)} onSaved={handleAlmacenCreado} />
       ) : null}
 
       {detail ? (

@@ -103,6 +103,7 @@ const groups = [
     links: [
       { href: '/reportes/resumen', label: 'Resumen diario', icon: BarChart3 },
       { href: '/reportes/ventas', label: 'Reporte de ventas', icon: ReceiptText },
+      { href: '/reportes/trabajadores', label: 'Reporte por trabajador', icon: UserRoundCog },
       { href: '/reportes/gastos', label: 'Reporte de gastos', icon: Truck },
       { href: '/reportes/stock', label: 'Stock actual', icon: Boxes },
     ],
@@ -255,6 +256,34 @@ export function AppShell({ children }: { children: ReactNode }) {
             const groupActive = group.links.some(
               ({ href }) => pathname === href || pathname.startsWith(`${href}/`),
             );
+            // Grupos con un solo destino: sin acordeón, enlace directo.
+            if (group.links.length === 1) {
+              const single = group.links[0];
+              const SingleIcon = single.icon;
+              const singleActive =
+                pathname === single.href || pathname.startsWith(`${single.href}/`);
+              return (
+                <section
+                  className={`sidebar-group sidebar-single${singleActive ? ' active' : ''}`}
+                  key={group.label}
+                >
+                  <Link
+                    className={`sidebar-group-trigger sidebar-single-link${singleActive ? ' active' : ''}`}
+                    href={single.href}
+                    aria-current={singleActive ? 'page' : undefined}
+                    aria-label={sidebarCollapsed ? single.label : undefined}
+                    title={sidebarCollapsed ? single.label : undefined}
+                    onClick={(event) => {
+                      setFlyoutSuppressed(true);
+                      event.currentTarget.blur();
+                    }}
+                  >
+                    <SingleIcon size={18} />
+                    <strong>{single.label}</strong>
+                  </Link>
+                </section>
+              );
+            }
             const expanded = expandedGroup === group.label;
             const GroupIcon = group.icon;
             return (

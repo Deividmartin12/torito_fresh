@@ -5,6 +5,15 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Pagination } from '../../../components/Pagination';
 import { api } from '../../../lib/api';
+import {
+  soloAlfanumerico,
+  soloDigitos,
+  soloLetras,
+  validarCelular,
+  validarDocumento,
+  validarEmail,
+  validarNombrePersona,
+} from '../../../lib/validacion';
 
 const CARGOS = ['Administrador', 'Almacenero', 'Vendedor', 'Repartidor'] as const;
 
@@ -113,13 +122,15 @@ export default function TrabajadoresPage() {
 
   function validate() {
     const next: FormErrors = {};
-    if (!form.numeroDocumento.trim()) next.numeroDocumento = 'Ingresa el número de documento.';
-    if (!form.nombres.trim()) next.nombres = 'Ingresa los nombres.';
-    if (!form.apellidos.trim()) next.apellidos = 'Ingresa los apellidos.';
-    if (form.correo.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.correo.trim()))
-      next.correo = 'Ingresa un correo valido.';
+    next.numeroDocumento = validarDocumento(form.tipoDocumento, form.numeroDocumento, {
+      requerido: true,
+    });
+    next.nombres = validarNombrePersona(form.nombres, 'nombres');
+    next.apellidos = validarNombrePersona(form.apellidos, 'apellidos');
+    next.telefono = validarCelular(form.telefono);
+    next.correo = validarEmail(form.correo);
     setFieldErrors(next);
-    return Object.keys(next).length === 0;
+    return Object.values(next).every((mensaje) => !mensaje);
   }
 
   async function guardar(event: FormEvent<HTMLFormElement>) {
@@ -358,7 +369,18 @@ export default function TrabajadoresPage() {
                 <span>Tipo de documento</span>
                 <select
                   value={form.tipoDocumento}
-                  onChange={(event) => updateField('tipoDocumento', event.target.value)}
+                  onChange={(event) => {
+                    const tipo = event.target.value;
+                    setForm((current) => ({
+                      ...current,
+                      tipoDocumento: tipo,
+                      numeroDocumento:
+                        tipo === 'DNI'
+                          ? soloDigitos(current.numeroDocumento, 8)
+                          : soloAlfanumerico(current.numeroDocumento, 15),
+                    }));
+                    setFieldErrors((current) => ({ ...current, numeroDocumento: undefined }));
+                  }}
                 >
                   <option>DNI</option>
                   <option>CE</option>
@@ -368,8 +390,16 @@ export default function TrabajadoresPage() {
                 <span>Número de documento</span>
                 <input
                   value={form.numeroDocumento}
-                  onChange={(event) => updateField('numeroDocumento', event.target.value)}
-                  maxLength={20}
+                  onChange={(event) =>
+                    updateField(
+                      'numeroDocumento',
+                      form.tipoDocumento === 'DNI'
+                        ? soloDigitos(event.target.value, 8)
+                        : soloAlfanumerico(event.target.value, 15),
+                    )
+                  }
+                  inputMode={form.tipoDocumento === 'DNI' ? 'numeric' : 'text'}
+                  maxLength={15}
                   required
                   autoFocus
                 />
@@ -381,7 +411,7 @@ export default function TrabajadoresPage() {
                 <span>Nombres</span>
                 <input
                   value={form.nombres}
-                  onChange={(event) => updateField('nombres', event.target.value)}
+                  onChange={(event) => updateField('nombres', soloLetras(event.target.value))}
                   maxLength={100}
                   required
                 />
@@ -393,7 +423,7 @@ export default function TrabajadoresPage() {
                 <span>Apellidos</span>
                 <input
                   value={form.apellidos}
-                  onChange={(event) => updateField('apellidos', event.target.value)}
+                  onChange={(event) => updateField('apellidos', soloLetras(event.target.value))}
                   maxLength={100}
                   required
                 />
@@ -413,10 +443,13 @@ export default function TrabajadoresPage() {
                 <span>Teléfono</span>
                 <input
                   value={form.telefono}
-                  onChange={(event) => updateField('telefono', event.target.value)}
-                  inputMode="tel"
-                  maxLength={20}
+                  onChange={(event) => updateField('telefono', soloDigitos(event.target.value, 9))}
+                  inputMode="numeric"
+                  maxLength={9}
                 />
+                {fieldErrors.telefono ? (
+                  <small className="field-error">{fieldErrors.telefono}</small>
+                ) : null}
               </label>
               <label>
                 <span>Correo</span>

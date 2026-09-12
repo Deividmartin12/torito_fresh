@@ -63,10 +63,6 @@ export default function RecargasPage() {
         <div>
           <span className="operation-eyebrow">Ventas</span>
           <h1>Frecuencia de recarga</h1>
-          <p>
-            Cada cuánto vuelve a comprar cada cliente y cuánto paga. Se calcula con el intervalo
-            entre sus ventas confirmadas.
-          </p>
         </div>
       </div>
       <div className="summary-row">

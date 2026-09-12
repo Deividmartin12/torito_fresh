@@ -1,14 +1,21 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
+import { AuthUser } from '../common/auth-user';
+import { etiquetaMetodoPago } from '../common/payment-method-label';
 import { accountState as deriveAccountState, limaTodayKey } from '../common/receivables';
 import { nextSequentialCode } from '../common/next-code';
+import { resolverTrabajadorAutor } from '../common/worker-context';
+import { PaymentMethodsService } from '../payment-methods/payment-methods.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   CreateOperationalProductDto,
   CreateOperationalSaleDto,
   CreateOperationalWarehouseDto,
+  CreateOwnPaymentMethodDto,
+  CreateProductTypeDto,
   CreateReturnDto,
   RegisterOperationalPaymentDto,
+  UpdateLoteDto,
   UpdateOperationalProductDto,
   UpdateOperationalSaleDto,
   UpdateReceivableDueDateDto,
@@ -59,14 +66,17 @@ type MovementsFilter = {
 
 @Injectable()
 export class OperationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly paymentMethodsService: PaymentMethodsService,
+  ) {}
 
-  async catalogs() {
-    const [clientes, almacenes, productos, trabajador, estadosInventario] = await Promise.all([
+  async catalogs(actor: AuthUser) {
+    const [clientes, almacenes, productos, trabajadores, estadosInventario] = await Promise.all([
       this.prisma.cliente.findMany({ where: { estado: true }, orderBy: { nombreLegal: 'asc' } }),
       this.prisma.almacen.findMany({ where: { estado: true }, orderBy: { nombre: 'asc' } }),
       this.prisma.producto.findMany({ where: { estado: true }, orderBy: { nombre: 'asc' } }),
-      this.prisma.trabajador.findFirst({ where: { estado: true }, orderBy: { id: 'asc' } }),
+      this.prisma.trabajador.findMany({ where: { estado: true }, orderBy: { nombres: 'asc' } }),
       this.prisma.estadoInventario.findMany({
         where: { estado: true },
         orderBy: { nombre: 'asc' },
@@ -111,7 +121,16 @@ export class OperationsService {
         nombre: item.nombre,
         codigo: item.codigo,
       })),
-      preparado: Boolean(trabajador && almacenes.length && productos.length),
+      // Para el selector "Registrado por" que solo ve el admin.
+      trabajadores: trabajadores.map((item) => ({
+        id: item.id.toString(),
+        nombre: `${item.nombres} ${item.apellidos}`,
+        codigo: item.cargo,
+      })),
+      trabajadorActualId: actor.trabajadorId,
+      // Antes bastaba con que existiera *algún* trabajador. Ahora la venta se atribuye al del
+      // usuario logueado, así que sin ese vínculo el formulario no puede registrar nada.
+      preparado: Boolean(actor.trabajadorId && almacenes.length && productos.length),
     };
   }
 
@@ -145,7 +164,52 @@ export class OperationsService {
       take: 500,
       include: { producto: true, stocks: true },
     });
-    return rows.map((row) => ({
+    return rows.map((row) => this.mapLot(row));
+  }
+
+  /**
+   * Corrige a mano un lote existente: sus fechas de producción/vencimiento y su estado
+   * (bloquearlo o reactivarlo). El código y el costo unitario no se editan porque el kardex
+   * y los reportes de costo ya están calculados con esos valores.
+   */
+  async updateLot(id: string, dto: UpdateLoteDto) {
+    const loteId = BigInt(id);
+    const lote = await this.prisma.lote.findUnique({ where: { id: loteId } });
+    if (!lote) throw new NotFoundException('El lote no existe');
+
+    const toDay = (value?: string | null) =>
+      value ? new Date(`${value.slice(0, 10)}T00:00:00.000Z`) : null;
+
+    const data: Prisma.LoteUpdateInput = {};
+    if (dto.fechaProduccion !== undefined) data.fechaProduccion = toDay(dto.fechaProduccion);
+    if (dto.fechaVencimiento !== undefined) data.fechaVencimiento = toDay(dto.fechaVencimiento);
+    if (dto.estado !== undefined) data.estado = dto.estado;
+
+    const produccion =
+      data.fechaProduccion !== undefined
+        ? (data.fechaProduccion as Date | null)
+        : lote.fechaProduccion;
+    const vencimiento =
+      data.fechaVencimiento !== undefined
+        ? (data.fechaVencimiento as Date | null)
+        : lote.fechaVencimiento;
+    if (produccion && vencimiento && vencimiento < produccion)
+      throw new BadRequestException(
+        'La fecha de vencimiento no puede ser anterior a la de producción',
+      );
+
+    const updated = await this.prisma.lote.update({
+      where: { id: loteId },
+      data,
+      include: { producto: true, stocks: true },
+    });
+    return this.mapLot(updated);
+  }
+
+  private mapLot(
+    row: Prisma.LoteGetPayload<{ include: { producto: true; stocks: true } }>,
+  ) {
+    return {
       id: row.id.toString(),
       codigo: row.codigoLote,
       producto: row.producto.nombre,
@@ -158,7 +222,7 @@ export class OperationsService {
         0,
       ),
       estado: row.estado,
-    }));
+    };
   }
 
   async productTypes() {
@@ -167,6 +231,21 @@ export class OperationsService {
       orderBy: { nombre: 'asc' },
     });
     return rows.map((item) => ({ id: item.id.toString(), nombre: item.nombre }));
+  }
+
+  /**
+   * Alta de un tipo de producto desde el combo "+ Agregar tipo" del formulario de producto.
+   * Si el nombre ya existía (aunque estuviera inactivo) se reutiliza y se reactiva, para no
+   * chocar con el índice único.
+   */
+  async createProductType(dto: CreateProductTypeDto) {
+    const nombre = dto.nombre.trim();
+    const row = await this.prisma.tipoProducto.upsert({
+      where: { nombre },
+      update: { estado: true },
+      create: { nombre },
+    });
+    return { id: row.id.toString(), nombre: row.nombre };
   }
 
   async createProduct(dto: CreateOperationalProductDto) {
@@ -249,7 +328,6 @@ export class OperationsService {
       id: item.id.toString(),
       codigo: item.codigo,
       nombre: item.nombre,
-      tipo: item.tipo,
       direccion: item.direccion ?? '',
       responsable: item.responsable
         ? `${item.responsable.nombres} ${item.responsable.apellidos}`
@@ -273,7 +351,6 @@ export class OperationsService {
       data: {
         codigo,
         nombre: dto.nombre.trim(),
-        tipo: dto.tipo.trim().toUpperCase(),
         direccion: dto.direccion?.trim() || null,
       },
     });
@@ -281,7 +358,6 @@ export class OperationsService {
       id: warehouse.id.toString(),
       codigo: warehouse.codigo,
       nombre: warehouse.nombre,
-      tipo: warehouse.tipo,
       direccion: warehouse.direccion ?? '',
       activo: warehouse.estado,
     };
@@ -310,15 +386,19 @@ export class OperationsService {
     return this.saleView(await this.findSale(this.prisma, BigInt(id)));
   }
 
-  async sales(from?: string, to?: string) {
+  async sales(from?: string, to?: string, trabajadorId?: string) {
     const range = this.listDateRange(from, to);
     const rows = await this.prisma.venta.findMany({
-      where: range ? { fecha: range } : undefined,
+      where: {
+        ...(range ? { fecha: range } : {}),
+        ...(trabajadorId ? { trabajadorId: BigInt(trabajadorId) } : {}),
+      },
       orderBy: { fecha: 'desc' },
       take: 1000,
       include: {
         cliente: true,
         almacenOrigen: true,
+        trabajador: true,
         detalles: {
           include: {
             producto: true,
@@ -350,7 +430,6 @@ export class OperationsService {
       codigo: row.producto.codigo,
       categoria: row.producto.tipoProducto.nombre,
       almacen: row.almacen.nombre,
-      almacenTipo: row.almacen.tipo,
       lote: row.lote?.codigoLote ?? 'Sin lote',
       estado: row.estadoInventario.codigo,
       vendible: row.estadoInventario.estado && row.estadoInventario.permiteVenta,
@@ -361,15 +440,52 @@ export class OperationsService {
     }));
   }
 
-  async paymentMethods() {
+  /**
+   * Métodos que puede usar un trabajador al cobrar: los globales (Efectivo) más los suyos
+   * (su Yape). Nunca los de otro repartidor. El admin puede pedir los de otro pasando
+   * `trabajadorId`, para registrar una venta a nombre de él.
+   */
+  async paymentMethods(actor: AuthUser, trabajadorId?: string) {
+    const efectivo = await resolverTrabajadorAutor(this.prisma, actor, trabajadorId);
     const rows = await this.prisma.metodoPago.findMany({
-      where: { estado: true },
-      orderBy: { nombre: 'asc' },
+      where: {
+        estado: true,
+        categoria: { estado: true },
+        OR: [{ trabajadorId: null }, { trabajadorId: efectivo }],
+      },
+      include: { categoria: true },
+      orderBy: [{ categoria: { nombre: 'asc' } }, { referencia: 'asc' }],
     });
     return rows.map((row) => ({
       id: row.id.toString(),
-      nombre: row.nombre,
+      // Se mantiene el campo `nombre` con la etiqueta ya armada para no cambiar la forma
+      // que consumen el formulario de venta y el modal de cobro.
+      nombre: etiquetaMetodoPago(row),
+      categoria: row.categoria?.nombre ?? null,
+      referencia: row.referencia,
+      propio: row.trabajadorId !== null,
     }));
+  }
+
+  /** Categorías activas para el combo "+ Agregar método de pago" de venta y cobro. */
+  async paymentMethodCategories() {
+    const categorias = await this.paymentMethodsService.categories();
+    return categorias.filter((categoria) => categoria.estado);
+  }
+
+  /**
+   * Alta de un método de pago desde los combos de venta y cobro. Cualquier operador puede
+   * usarlo, pero el método queda siempre a su propio nombre: `resolverTrabajadorAutor`
+   * ignora un `trabajadorId` ajeno salvo que quien registra sea ADMIN.
+   */
+  async createOwnPaymentMethod(actor: AuthUser, dto: CreateOwnPaymentMethodDto) {
+    const trabajadorId = await resolverTrabajadorAutor(this.prisma, actor, dto.trabajadorId);
+    return this.paymentMethodsService.create({
+      categoriaId: dto.categoriaId,
+      referencia: dto.referencia,
+      nombre: dto.nombre,
+      trabajadorId: trabajadorId.toString(),
+    });
   }
 
   async accounts(clienteId?: string) {
@@ -388,12 +504,19 @@ export class OperationsService {
     return rows.map((row) => this.receivableView(row));
   }
 
-  async registerAccountPayment(dto: RegisterOperationalPaymentDto, userId?: string) {
+  async registerAccountPayment(dto: RegisterOperationalPaymentDto, actor: AuthUser) {
     return this.prisma.$transaction(async (tx) => {
-      const workerId = await this.workerId(tx, userId);
-      const method = await tx.metodoPago.findUnique({ where: { id: BigInt(dto.metodoPagoId) } });
-      if (!method || !method.estado)
+      const workerId = await resolverTrabajadorAutor(tx, actor, dto.trabajadorId);
+      const method = await tx.metodoPago.findUnique({
+        where: { id: BigInt(dto.metodoPagoId) },
+        include: { categoria: true },
+      });
+      if (!method || !method.estado || method.categoria?.estado === false)
         throw new BadRequestException('El método de pago no está disponible');
+      if (method.trabajadorId !== null && method.trabajadorId !== workerId)
+        throw new BadRequestException(
+          `El método ${etiquetaMetodoPago(method)} pertenece a otro trabajador`,
+        );
       if (dto.fechaPago && dto.fechaPago.slice(0, 10) > limaTodayKey())
         throw new BadRequestException('La fecha del pago no puede estar en el futuro');
       const paidAt = dto.fechaPago ? new Date(dto.fechaPago) : new Date();
@@ -491,10 +614,10 @@ export class OperationsService {
     };
   }
 
-  async createReturn(type: string, dto: CreateReturnDto, userId?: string) {
+  async createReturn(type: string, dto: CreateReturnDto, actor: AuthUser) {
     if (type !== 'venta') throw new BadRequestException('Tipo de devolución inválido');
     const id = await this.prisma.$transaction(async (tx) => {
-      const workerId = await this.workerId(tx, userId);
+      const workerId = await resolverTrabajadorAutor(tx, actor, dto.trabajadorId);
       return this.createSaleReturnTx(tx, dto, workerId);
     });
     // Se devuelve solo la devolución recién creada. Antes se recargaba la lista completa
@@ -751,16 +874,16 @@ export class OperationsService {
   // Registrar una venta es un solo paso: nace ya CONFIRMADA (descuenta stock y genera kardex
   // + cuenta por cobrar de inmediato), sin un estado intermedio BORRADOR que requiera una
   // confirmación aparte — mismo patrón que ya se usa en ProductionService.create().
-  async createSale(dto: CreateOperationalSaleDto, userId?: string) {
+  async createSale(dto: CreateOperationalSaleDto, actor: AuthUser) {
     return this.prisma.$transaction(async (tx) => {
-      const trabajadorId = await this.workerId(tx, userId);
+      const trabajadorId = await resolverTrabajadorAutor(tx, actor, dto.trabajadorId);
       const warehouse = dto.almacenId
         ? await tx.almacen.findUnique({ where: { id: BigInt(dto.almacenId) } })
         : await tx.almacen.findFirst({ where: { estado: true }, orderBy: { id: 'asc' } });
       if (!warehouse || !warehouse.estado)
         throw new BadRequestException('No existe un almacén activo para registrar la venta');
       const totals = this.totals(dto.items, dto.descuento, false);
-      const terms = await this.paymentTerms(tx, dto, totals.total);
+      const terms = await this.paymentTerms(tx, dto, totals.total, trabajadorId);
       await this.validarProductosDeVenta(tx, dto.items);
       const sale = await tx.venta.create({
         data: {
@@ -830,7 +953,7 @@ export class OperationsService {
    * bloquea la edición es un cobro hecho después desde Cobranzas o una devolución confirmada:
    * cambiar el total ahí dejaría descuadrada la cuenta del cliente.
    */
-  async updateSale(id: string, dto: UpdateOperationalSaleDto) {
+  async updateSale(id: string, dto: UpdateOperationalSaleDto, actor: AuthUser) {
     return this.prisma.$transaction(async (tx) => {
       const saleId = BigInt(id);
       const sale = await tx.venta.findUnique({
@@ -838,6 +961,11 @@ export class OperationsService {
         include: { cuentaCobrar: true, devoluciones: true },
       });
       if (!sale) throw new NotFoundException('Venta no encontrada');
+      // Solo un admin puede corregir a quién se le atribuye la venta; si no viene nada en el
+      // DTO se conserva el vendedor original (editar no debe robarle la venta a quien la hizo).
+      const trabajadorId = dto.trabajadorId
+        ? await resolverTrabajadorAutor(tx, actor, dto.trabajadorId)
+        : sale.trabajadorId;
       // El medio centavo de margen evita que un redondeo del decimal marque falso positivo.
       const cobrado = Number(sale.cuentaCobrar?.montoPagado ?? 0);
       if (cobrado > Number(sale.montoInicial) + 0.005)
@@ -874,13 +1002,14 @@ export class OperationsService {
       if (!warehouse || !warehouse.estado)
         throw new BadRequestException('No existe un almacén activo para registrar la venta');
       const totals = this.totals(dto.items, dto.descuento, false);
-      const terms = await this.paymentTerms(tx, dto, totals.total);
+      const terms = await this.paymentTerms(tx, dto, totals.total, trabajadorId);
       await this.validarProductosDeVenta(tx, dto.items);
       await tx.venta.update({
         where: { id: saleId },
         data: {
           clienteId: BigInt(dto.clienteId),
           almacenOrigenId: warehouse.id,
+          trabajadorId,
           tipoPago: dto.tipoPago,
           ...(nuevaFecha ? { fecha: nuevaFecha.venta } : {}),
           // Referencia rápida al método principal; el desglose real vive en PagoCliente.
@@ -924,10 +1053,12 @@ export class OperationsService {
             estado: 'PENDIENTE',
           },
         });
+        // Los cobros se recrean a nombre del trabajador vigente. El kardex no: los
+        // `MovimientoInventario` ya escritos son historia y no se reescriben.
         await this.applyInitialPayments(
           tx,
           { id: sale.cuentaCobrar.id, montoOriginal: totals.total },
-          sale.trabajadorId,
+          trabajadorId,
           terms.payments,
         );
         const estadoPago =
@@ -1396,6 +1527,7 @@ export class OperationsService {
       fechaVencimiento?: string;
     },
     total: number,
+    trabajadorId: bigint,
   ) {
     if (total <= 0) throw new BadRequestException('El total de la operación debe ser mayor a cero');
     const lines = dto.pagosIniciales ?? [];
@@ -1424,32 +1556,28 @@ export class OperationsService {
     const payments: { methodId: bigint; monto: number }[] = [];
     if (dto.tipoPago !== 'CREDITO' && lines.length > 0) {
       const ids = [...new Set(lines.map((line) => BigInt(line.metodoPagoId)))];
-      const methods = await tx.metodoPago.findMany({ where: { id: { in: ids } } });
+      const methods = await tx.metodoPago.findMany({
+        where: { id: { in: ids } },
+        include: { categoria: true },
+      });
       for (const line of lines) {
         const monto = Math.round(Number(line.monto) * 100) / 100;
         if (monto <= 0)
           throw new BadRequestException('Cada método de pago debe tener un monto mayor a cero');
         const method = methods.find((row) => row.id === BigInt(line.metodoPagoId));
-        if (!method?.estado)
+        if (!method?.estado || method.categoria?.estado === false)
           throw new BadRequestException('Uno de los métodos de pago no está disponible');
+        // Un método con dueño (el Yape de un repartidor) solo lo puede usar ese trabajador;
+        // los que tienen `trabajadorId` en null (Efectivo) son de todos.
+        if (method.trabajadorId !== null && method.trabajadorId !== trabajadorId)
+          throw new BadRequestException(
+            `El método ${etiquetaMetodoPago(method)} pertenece a otro trabajador`,
+          );
         payments.push({ methodId: method.id, monto });
       }
     }
 
     return { payments, initial: abonado, dueDate };
-  }
-
-  private async workerId(tx: Transaction, userId?: string) {
-    if (userId) {
-      const linked = await tx.trabajador.findFirst({ where: { userId, estado: true } });
-      if (linked) return linked.id;
-    }
-    const worker = await tx.trabajador.findFirst({
-      where: { estado: true },
-      orderBy: { id: 'asc' },
-    });
-    if (!worker) throw new BadRequestException('Registre un trabajador activo antes de operar');
-    return worker.id;
   }
 
   private async availableState(tx: Transaction) {
@@ -1558,6 +1686,7 @@ export class OperationsService {
         include: {
           cliente: true,
           almacenOrigen: true,
+          trabajador: true,
           detalles: {
             include: {
               producto: true,
@@ -1565,7 +1694,12 @@ export class OperationsService {
             },
           },
           cuentaCobrar: {
-            include: { pagos: { include: { metodoPago: true }, orderBy: { id: 'asc' } } },
+            include: {
+              pagos: {
+                include: { metodoPago: { include: { categoria: true } } },
+                orderBy: { id: 'asc' },
+              },
+            },
           },
           devoluciones: true,
           movimientosInventario: { orderBy: { id: 'asc' } },
@@ -1633,6 +1767,10 @@ export class OperationsService {
       clienteTipoDocumento: row.cliente.tipoDocumento,
       almacenId: row.almacenOrigenId.toString(),
       almacen: row.almacenOrigen.nombre,
+      trabajadorId: row.trabajadorId.toString(),
+      registradoPor: row.trabajador
+        ? `${row.trabajador.nombres} ${row.trabajador.apellidos}`
+        : null,
       pago: row.tipoPago,
       observaciones: row.observaciones,
       subtotal: Number(row.subtotal),
@@ -1644,7 +1782,7 @@ export class OperationsService {
       pagosIniciales:
         row.cuentaCobrar?.pagos?.map((pago: any) => ({
           metodoPagoId: pago.metodoPagoId.toString(),
-          metodo: pago.metodoPago?.nombre ?? '',
+          metodo: pago.metodoPago ? etiquetaMetodoPago(pago.metodoPago) : '',
           monto: Number(pago.monto),
         })) ?? [],
       fechaVencimiento: row.cuentaCobrar?.fechaVencimiento ?? row.fechaVencimientoPago,

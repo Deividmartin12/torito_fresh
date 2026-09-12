@@ -10,6 +10,9 @@ import {
   OperationalPaymentMethod,
   registerOperationalPayment,
 } from '../../lib/operations';
+import { PaymentMethod } from '../../lib/payment-methods';
+import { PaymentMethodFormModal } from '../PaymentMethodFormModal';
+import { SearchableSelect } from '../SearchableSelect';
 
 const today = () => {
   const date = new Date();
@@ -37,7 +40,10 @@ export function RegisterCollectionModal({
   const cobrar = tipo === 'cobrar';
   const dialogRef = useRef<HTMLElement>(null);
   const [cuentaId, setCuentaId] = useState(cuenta.id);
+  // Lista local para poder sumar métodos creados con "+ Agregar método de pago" sin recargar.
+  const [metodoList, setMetodoList] = useState<OperationalPaymentMethod[]>(metodos);
   const [metodoId, setMetodoId] = useState(metodos[0]?.id ?? '');
+  const [metodoModal, setMetodoModal] = useState(false);
   const [monto, setMonto] = useState('');
   const [fechaPago, setFechaPago] = useState(today);
   const [observaciones, setObservaciones] = useState('');
@@ -97,6 +103,16 @@ export function RegisterCollectionModal({
     }
   }
 
+  function handleMetodoCreado(method: PaymentMethod) {
+    setMetodoList((current) =>
+      current.some((item) => item.id === method.id)
+        ? current
+        : [...current, { id: method.id, nombre: method.nombre }],
+    );
+    setMetodoId(method.id);
+    setMetodoModal(false);
+  }
+
   const saldoDespues = Math.max(seleccionada.saldo - (Number(monto) || 0), 0);
 
   return (
@@ -135,13 +151,15 @@ export function RegisterCollectionModal({
           {opciones.length > 1 ? (
             <label className="field-wide">
               <span>{cobrar ? 'Comprobante' : 'Cuenta'}</span>
-              <select value={cuentaId} onChange={(e) => setCuentaId(e.target.value)}>
-                {opciones.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.tercero} · {item.comprobante} · {moneda(item.saldo)}
-                  </option>
-                ))}
-              </select>
+              <SearchableSelect
+                value={cuentaId}
+                onChange={setCuentaId}
+                options={opciones.map((item) => ({
+                  value: item.id,
+                  label: `${item.tercero} · ${item.comprobante} · ${moneda(item.saldo)}`,
+                }))}
+                placeholder={cobrar ? 'Buscar comprobante' : 'Buscar cuenta'}
+              />
             </label>
           ) : (
             <div className="field-wide collection-fixed-account">
@@ -154,13 +172,14 @@ export function RegisterCollectionModal({
 
           <label>
             <span>Método de pago</span>
-            <select value={metodoId} onChange={(e) => setMetodoId(e.target.value)}>
-              {metodos.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.nombre}
-                </option>
-              ))}
-            </select>
+            <SearchableSelect
+              value={metodoId}
+              onChange={setMetodoId}
+              options={metodoList.map((item) => ({ value: item.id, label: item.nombre }))}
+              placeholder="Seleccionar método"
+              actionLabel="+ Agregar método de pago"
+              onAction={() => setMetodoModal(true)}
+            />
           </label>
 
           <label>
@@ -223,6 +242,14 @@ export function RegisterCollectionModal({
           </div>
         </form>
       </section>
+
+      {metodoModal ? (
+        <PaymentMethodFormModal
+          inline
+          onClose={() => setMetodoModal(false)}
+          onSaved={handleMetodoCreado}
+        />
+      ) : null}
     </div>
   );
 }

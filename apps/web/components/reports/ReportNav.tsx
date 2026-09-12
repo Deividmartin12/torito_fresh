@@ -1,50 +1,27 @@
 'use client';
 
-import { BarChart3, Boxes, Minus, ShoppingCart, TrendingDown, TrendingUp, Truck } from 'lucide-react';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { Minus, TrendingDown, TrendingUp } from 'lucide-react';
 import { Variacion } from '../../lib/format';
-
-const reports = [
-  { href: '/reportes/resumen', label: 'Resumen', icon: BarChart3 },
-  { href: '/reportes/ventas', label: 'Ventas', icon: ShoppingCart },
-  { href: '/reportes/gastos', label: 'Gastos', icon: Truck },
-  { href: '/reportes/stock', label: 'Stock actual', icon: Boxes },
-];
-
-export function ReportNav() {
-  const pathname = usePathname();
-  return (
-    <nav className="report-nav" aria-label="Tipos de reporte">
-      {reports.map(({ href, label, icon: Icon }) => (
-        <Link key={href} href={href} className={pathname === href ? 'active' : ''}>
-          <Icon size={17} /> {label}
-        </Link>
-      ))}
-    </nav>
-  );
-}
 
 export function ReportHeader({
   eyebrow,
   title,
-  description,
+  caption,
 }: {
   eyebrow: string;
   title: string;
-  description: string;
+  /** Período activo, escrito completo ("Septiembre de 2026"), para que se lea de un vistazo
+   *  con qué filtro está armado el reporte. */
+  caption?: string;
 }) {
   return (
-    <>
-      <div className="report-page-head">
-        <div>
-          <span className="operation-eyebrow">{eyebrow}</span>
-          <h1>{title}</h1>
-          <p>{description}</p>
-        </div>
+    <div className="report-page-head">
+      <div>
+        <span className="operation-eyebrow">{eyebrow}</span>
+        <h1>{title}</h1>
+        {caption ? <p className="operation-period-caption">{caption}</p> : null}
       </div>
-      <ReportNav />
-    </>
+    </div>
   );
 }
 

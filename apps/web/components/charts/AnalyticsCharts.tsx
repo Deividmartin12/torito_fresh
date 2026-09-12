@@ -2,21 +2,25 @@
 
 import { BarChart3, CalendarClock, MapPinned, TrendingUp } from 'lucide-react';
 import { useId, useMemo } from 'react';
-import { AnalyticsPeriod, AnalyticsRanking, HeatmapPoint } from '../../lib/analytics';
+import { AnalyticsRanking, HeatmapPoint } from '../../lib/analytics';
+import { ChartPoint } from '../../lib/chart-axis';
 import { moneda } from '../../lib/format';
+import { AxisTick, ColumnTick, tickEvery } from './AxisTick';
 
 export function ComparisonBarChart({
   data,
   title = 'Ventas vs gastos',
   subtitle = 'Importes registrados por mes',
 }: {
-  data: AnalyticsPeriod[];
+  data: ChartPoint[];
   title?: string;
   subtitle?: string;
 }) {
-  const rows = data.slice(-31);
+  const rows = data.slice(-32);
   const max = Math.max(1, ...rows.flatMap((row) => [row.sales, row.expenses]));
   const showValues = rows.length <= 8;
+  // Con muchas columnas las etiquetas se encimarían, así que se escribe una de cada tantas.
+  const labelEvery = tickEvery(rows.length, 16);
   return (
     <ChartCard
       icon={<BarChart3 size={18} />}
@@ -31,7 +35,7 @@ export function ComparisonBarChart({
     >
       {rows.length ? (
         <div className={`comparison-chart${showValues ? ' comparison-chart-labeled' : ''}`}>
-          {rows.map((row) => (
+          {rows.map((row, index) => (
             <div className="comparison-column" key={row.key}>
               {showValues ? (
                 <div className="comparison-values">
@@ -43,17 +47,21 @@ export function ComparisonBarChart({
                 <span
                   className="comparison-sales"
                   style={{ height: `${Math.max(row.sales ? 4 : 0, (row.sales / max) * 100)}%` }}
-                  title={`Ventas: ${moneda(row.sales)}`}
+                  title={`${row.tooltip} · Ventas: ${moneda(row.sales)}`}
                 />
                 <span
                   className="comparison-purchases"
                   style={{
                     height: `${Math.max(row.expenses ? 4 : 0, (row.expenses / max) * 100)}%`,
                   }}
-                  title={`Gastos: ${moneda(row.expenses)}`}
+                  title={`${row.tooltip} · Gastos: ${moneda(row.expenses)}`}
                 />
               </div>
-              <small>{row.label}</small>
+              {index % labelEvery === 0 || index === rows.length - 1 ? (
+                <ColumnTick label={row.label} labelTop={row.labelTop} />
+              ) : (
+                <small />
+              )}
             </div>
           ))}
         </div>
@@ -117,14 +125,15 @@ export function MarginChart({
   data,
   subtitle = 'Venta sin IGV menos costo de inventario',
 }: {
-  data: AnalyticsPeriod[];
+  data: ChartPoint[];
   subtitle?: string;
 }) {
   const gradientId = useId().replace(/:/g, '');
-  const rows = data.slice(-31);
+  const rows = data.slice(-32);
   const width = 680;
   const height = 230;
-  const padding = { top: 22, right: 14, bottom: 34, left: 58 };
+  // El fondo deja sitio para las dos líneas de la marca de eje (nombre del día + fecha).
+  const padding = { top: 22, right: 14, bottom: 46, left: 58 };
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
   const values = rows.map((row) => row.margin);
@@ -139,7 +148,7 @@ export function MarginChart({
   const areaPoints = rows.length
     ? `${x(0)},${zeroY} ${linePoints} ${x(rows.length - 1)},${zeroY}`
     : '';
-  const labelEvery = Math.max(1, Math.ceil(rows.length / 6));
+  const labelEvery = tickEvery(rows.length);
 
   return (
     <ChartCard icon={<TrendingUp size={18} />} title="Evolución del margen" subtitle={subtitle}>
@@ -203,17 +212,15 @@ export function MarginChart({
                   cy={y(row.margin)}
                   r="4"
                 >
-                  <title>{`${row.label}: ${moneda(row.margin)}`}</title>
+                  <title>{`${row.tooltip}: ${moneda(row.margin)}`}</title>
                 </circle>
                 {index % labelEvery === 0 || index === rows.length - 1 ? (
-                  <text
-                    className="chart-date-label"
+                  <AxisTick
                     x={x(index)}
                     y={height - 14}
-                    textAnchor="middle"
-                  >
-                    {row.label}
-                  </text>
+                    label={row.label}
+                    labelTop={row.labelTop}
+                  />
                 ) : null}
               </g>
             ))}

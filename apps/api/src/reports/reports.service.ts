@@ -9,7 +9,7 @@ export class ReportsService {
   async business(from?: string, to?: string) {
     const dateRange = this.dateRange(from, to);
     const expenseRange = this.expenseDateRange(from, to);
-    const [sales, expenses, productionOrders, stocks] = await Promise.all([
+    const [sales, expenses, productionOrders, stocks, paymentMethodRows] = await Promise.all([
       this.prisma.venta.findMany({
         where: { estado: 'CONFIRMADA', fecha: dateRange },
         orderBy: { fecha: 'asc' },
@@ -40,8 +40,25 @@ export class ReportsService {
         where: { estado: true },
         include: { stocks: { where: { estadoInventario: { codigo: 'DISPONIBLE' } } } },
       }),
+      // Método de pago -> su categoría (YAPE, EFECTIVO...), para agrupar las ventas por
+      // forma de cobro. Se agrupa por categoría porque puede haber varios Yape (uno por
+      // repartidor) que en el reporte deben sumar juntos.
+      this.prisma.metodoPago.findMany({
+        select: { id: true, nombre: true, categoria: { select: { nombre: true } } },
+      }),
     ]);
 
+    // id del método -> nombre con el que se muestra en el reporte (su categoría, o su
+    // etiqueta libre si no tiene categoría).
+    const paymentMethodLabel = new Map<string, string>();
+    for (const method of paymentMethodRows) {
+      paymentMethodLabel.set(
+        method.id.toString(),
+        method.categoria?.nombre ?? method.nombre ?? 'Otro',
+      );
+    }
+
+    type Breakdown = Record<string, { amount: number; count: number }>;
     type Period = {
       key: string;
       label: string;
@@ -51,6 +68,9 @@ export class ReportsService {
       margin: number;
       orders: number;
       production: number;
+      // Desglose de la fila: ventas por forma de cobro y gastos por categoría.
+      salesByPayment: Breakdown;
+      expensesByCategory: Breakdown;
     };
     type Ranking = { id: string; name: string; value: number; count: number };
     type ProductRanking = {
@@ -63,10 +83,19 @@ export class ReportsService {
     };
     const months = new Map<string, Period>();
     const days = new Map<string, Period>();
+    // La serie por hora solo se arma para rangos cortos (la vista "Día" y los personalizados de
+    // hasta dos días): es la única que la necesita, y en un rango largo serían miles de filas.
+    const hours = new Map<string, Period>();
+    const withHours = dateRange.lt.getTime() - dateRange.gte.getTime() <= 2 * 86_400_000;
     const products = new Map<string, ProductRanking>();
     const zones = new Map<string, Ranking>();
     const clients = new Map<string, Ranking>();
     const expenseCategories = new Map<string, Ranking>();
+    // Forma de cobro -> cuántas ventas y cuánto se facturó con ella.
+    const paymentMethods = new Map<
+      string,
+      { id: string; name: string; sales: number; amount: number }
+    >();
     const heatmap = new Map<
       string,
       { day: number; dayLabel: string; hour: number; orders: number; sales: number }
@@ -134,18 +163,47 @@ export class ReportsService {
       }
       totalSales += netSale;
       totalCost += saleCost;
-      this.addPeriod(days, this.dayKey(sale.fecha), this.dayLabel(sale.fecha), {
+
+      // Cada venta cuenta una sola vez, bajo la forma de cobro de su pago inicial. Las
+      // ventas al crédito (sin pago inicial) van juntas en "Crédito".
+      const paymentName =
+        sale.metodoPagoInicialId != null
+          ? (paymentMethodLabel.get(sale.metodoPagoInicialId.toString()) ?? 'Otro')
+          : sale.tipoPago === 'CREDITO'
+            ? 'Crédito'
+            : 'Sin registrar';
+
+      const daySale = this.addPeriod(days, this.dayKey(sale.fecha), this.dayLabel(sale.fecha), {
         sales: netSale,
         cost: saleCost,
         margin: netSale - saleCost,
         orders: counts,
       });
-      this.addPeriod(months, this.monthKey(sale.fecha), this.monthLabel(sale.fecha), {
-        sales: netSale,
-        cost: saleCost,
-        margin: netSale - saleCost,
-        orders: counts,
-      });
+      const monthSale = this.addPeriod(
+        months,
+        this.monthKey(sale.fecha),
+        this.monthLabel(sale.fecha),
+        { sales: netSale, cost: saleCost, margin: netSale - saleCost, orders: counts },
+      );
+      if (netSale > 0) {
+        this.bumpBreakdown(daySale.salesByPayment, paymentName, netSale);
+        this.bumpBreakdown(monthSale.salesByPayment, paymentName, netSale);
+      }
+      if (withHours) {
+        const hourSale = this.addPeriod(
+          hours,
+          this.hourKey(sale.fecha),
+          this.hourLabel(sale.fecha),
+          {
+            sales: netSale,
+            cost: saleCost,
+            margin: netSale - saleCost,
+            orders: counts,
+          },
+        );
+        if (netSale > 0) this.bumpBreakdown(hourSale.salesByPayment, paymentName, netSale);
+      }
+
       this.addRanking(
         zones,
         sale.cliente.direccion?.trim() || 'Sin zona registrada',
@@ -153,6 +211,16 @@ export class ReportsService {
         netSale,
       );
       this.addRanking(clients, sale.cliente.nombreLegal, sale.clienteId.toString(), netSale);
+
+      const paymentRow = paymentMethods.get(paymentName) ?? {
+        id: paymentName,
+        name: paymentName,
+        sales: 0,
+        amount: 0,
+      };
+      paymentRow.sales += 1;
+      paymentRow.amount += netSale;
+      paymentMethods.set(paymentName, paymentRow);
       const local = this.localParts(sale.fecha);
       const heatKey = `${local.weekday}-${local.hour}`;
       const heat = heatmap.get(heatKey) ?? {
@@ -172,13 +240,35 @@ export class ReportsService {
       totalExpenses += amount;
       // `Gasto.fecha` es una columna de solo fecha (guardada a medianoche UTC); se agrupa por
       // su fecha de calendario en UTC para que no se corra al día anterior, como pasaría en Lima.
-      this.addPeriod(days, this.utcDayKey(expense.fecha), this.utcDayLabel(expense.fecha), {
-        expenses: amount,
-      });
-      this.addPeriod(months, this.utcMonthKey(expense.fecha), this.utcMonthLabel(expense.fecha), {
-        expenses: amount,
-      });
+      const dayExpense = this.addPeriod(
+        days,
+        this.utcDayKey(expense.fecha),
+        this.utcDayLabel(expense.fecha),
+        { expenses: amount },
+      );
+      const monthExpense = this.addPeriod(
+        months,
+        this.utcMonthKey(expense.fecha),
+        this.utcMonthLabel(expense.fecha),
+        { expenses: amount },
+      );
+      this.bumpBreakdown(dayExpense.expensesByCategory, expense.categoria, amount);
+      this.bumpBreakdown(monthExpense.expensesByCategory, expense.categoria, amount);
       this.addRanking(expenseCategories, expense.categoria, expense.categoria, amount);
+      if (withHours) {
+        // `Gasto.fecha` no guarda hora, así que la hora sale de `createdAt`, y solo si ese registro
+        // cayó en el mismo día calendario del gasto; si no (un gasto de ayer registrado hoy) va a
+        // las 00, para que las canastas horarias siempre sumen el total del día.
+        const sameDay = this.dayKey(expense.createdAt) === this.utcDayKey(expense.fecha);
+        const hour = sameDay ? this.localParts(expense.createdAt).hour : 0;
+        const hourExpense = this.addPeriod(
+          hours,
+          `${this.utcDayKey(expense.fecha)}T${this.padHour(hour)}`,
+          `${this.padHour(hour)}:00`,
+          { expenses: amount },
+        );
+        this.bumpBreakdown(hourExpense.expensesByCategory, expense.categoria, amount);
+      }
     }
 
     for (const order of productionOrders) {
@@ -192,6 +282,11 @@ export class ReportsService {
       this.addPeriod(months, this.monthKey(order.fechaFin), this.monthLabel(order.fechaFin), {
         production: produced,
       });
+      if (withHours) {
+        this.addPeriod(hours, this.hourKey(order.fechaFin), this.hourLabel(order.fechaFin), {
+          production: produced,
+        });
+      }
     }
 
     const lowStockByProduct = new Map<
@@ -251,11 +346,22 @@ export class ReportsService {
         expenseCount: expenses.length,
         averageExpense: expenses.length ? totalExpenses / expenses.length : 0,
       },
-      daily: [...days.values()].sort((a, b) => a.key.localeCompare(b.key)),
-      monthly: [...months.values()].sort((a, b) => a.key.localeCompare(b.key)),
+      daily: [...days.values()]
+        .sort((a, b) => a.key.localeCompare(b.key))
+        .map((row) => this.serializePeriod(row)),
+      monthly: [...months.values()]
+        .sort((a, b) => a.key.localeCompare(b.key))
+        .map((row) => this.serializePeriod(row)),
+      // Vacía cuando el rango es largo: solo los rangos de hasta dos días la necesitan.
+      hourly: [...hours.values()]
+        .sort((a, b) => a.key.localeCompare(b.key))
+        .map((row) => this.serializePeriod(row)),
       topProducts: [...products.values()].sort((a, b) => b.cantidad - a.cantidad).slice(0, 10),
       zones: [...zones.values()].sort((a, b) => b.value - a.value).slice(0, 10),
       topClients: [...clients.values()].sort((a, b) => b.value - a.value).slice(0, 10),
+      paymentMethods: [...paymentMethods.values()].sort(
+        (a, b) => b.sales - a.sales || b.amount - a.amount,
+      ),
       expenseCategories: [...expenseCategories.values()]
         .sort((a, b) => b.value - a.value)
         .slice(0, 10),
@@ -268,13 +374,207 @@ export class ReportsService {
   }
 
   /**
+   * Reporte por trabajador: qué vendió (desglosado por forma de cobro), cuánto se le pagó
+   * y cuánto gasto cargó al sistema, todo dentro del período.
+   *
+   * Las tres cifras vienen de sitios distintos a propósito: las ventas por `Venta.trabajadorId`,
+   * los pagos recibidos por `Gasto.beneficiarioId` (solo la categoría fija de pago a
+   * trabajador la llena) y los gastos registrados por `Gasto.trabajadorId`, que es el autor.
+   */
+  async workers(from?: string, to?: string) {
+    const dateRange = this.dateRange(from, to);
+    const expenseRange = this.expenseDateRange(from, to);
+    const [sales, expenses, paymentMethodRows, trabajadores] = await Promise.all([
+      this.prisma.venta.findMany({
+        where: { estado: 'CONFIRMADA', fecha: dateRange },
+        select: {
+          trabajadorId: true,
+          total: true,
+          tipoPago: true,
+          metodoPagoInicialId: true,
+          devoluciones: { where: { estado: 'CONFIRMADA' }, select: { total: true } },
+        },
+      }),
+      this.prisma.gasto.findMany({
+        where: { fecha: expenseRange },
+        select: {
+          trabajadorId: true,
+          beneficiarioId: true,
+          categoria: true,
+          monto: true,
+          metodoPagoId: true,
+        },
+      }),
+      this.prisma.metodoPago.findMany({
+        select: { id: true, nombre: true, categoria: { select: { nombre: true } } },
+      }),
+      this.prisma.trabajador.findMany({
+        orderBy: [{ nombres: 'asc' }, { apellidos: 'asc' }],
+        select: { id: true, nombres: true, apellidos: true, cargo: true, estado: true },
+      }),
+    ]);
+
+    // Mismo criterio que el reporte general: un método se muestra por su categoría (YAPE,
+    // EFECTIVO) para que los varios Yape de los repartidores sumen en una sola columna.
+    const paymentLabel = new Map<string, string>();
+    for (const method of paymentMethodRows) {
+      paymentLabel.set(method.id.toString(), method.categoria?.nombre ?? method.nombre ?? 'Otro');
+    }
+
+    type Breakdown = Record<string, { amount: number; count: number }>;
+    type WorkerRow = {
+      id: string;
+      nombre: string;
+      cargo: string;
+      activo: boolean;
+      ventas: { count: number; total: number };
+      ventasPorMetodo: Breakdown;
+      pagosRecibidos: { count: number; total: number };
+      pagosPorMetodo: Breakdown;
+      gastosRegistrados: { count: number; total: number };
+      gastosPorCategoria: Breakdown;
+    };
+
+    const workers = new Map<string, WorkerRow>();
+    for (const row of trabajadores) {
+      workers.set(row.id.toString(), {
+        id: row.id.toString(),
+        nombre: `${row.nombres} ${row.apellidos}`.trim(),
+        cargo: row.cargo,
+        activo: row.estado,
+        ventas: { count: 0, total: 0 },
+        ventasPorMetodo: {},
+        pagosRecibidos: { count: 0, total: 0 },
+        pagosPorMetodo: {},
+        gastosRegistrados: { count: 0, total: 0 },
+        gastosPorCategoria: {},
+      });
+    }
+    // Un trabajador borrado del catálogo no debe hacer desaparecer sus operaciones del
+    // reporte: se le arma una fila mínima para que sus montos sigan sumando.
+    const workerOf = (id: bigint | null) => {
+      if (id == null) return null;
+      const key = id.toString();
+      let row = workers.get(key);
+      if (!row) {
+        row = {
+          id: key,
+          nombre: `Trabajador ${key}`,
+          cargo: '—',
+          activo: false,
+          ventas: { count: 0, total: 0 },
+          ventasPorMetodo: {},
+          pagosRecibidos: { count: 0, total: 0 },
+          pagosPorMetodo: {},
+          gastosRegistrados: { count: 0, total: 0 },
+          gastosPorCategoria: {},
+        };
+        workers.set(key, row);
+      }
+      return row;
+    };
+
+    const metodosVenta = new Set<string>();
+    const metodosPago = new Set<string>();
+    const categoriasGasto = new Set<string>();
+
+    for (const sale of sales) {
+      const worker = workerOf(sale.trabajadorId);
+      if (!worker) continue;
+      // Neto de devoluciones confirmadas, igual que en el reporte general: lo devuelto no
+      // es venta del trabajador.
+      const returned = sale.devoluciones.reduce((sum, item) => sum + Number(item.total), 0);
+      const netSale = Math.max(Number(sale.total) - returned, 0);
+      const metodo =
+        sale.metodoPagoInicialId != null
+          ? (paymentLabel.get(sale.metodoPagoInicialId.toString()) ?? 'Otro')
+          : sale.tipoPago === 'CREDITO'
+            ? 'Crédito'
+            : 'Sin registrar';
+      worker.ventas.count += 1;
+      worker.ventas.total += netSale;
+      this.bumpBreakdown(worker.ventasPorMetodo, metodo, netSale);
+      metodosVenta.add(metodo);
+    }
+
+    for (const expense of expenses) {
+      const amount = Number(expense.monto);
+      const metodo =
+        expense.metodoPagoId != null
+          ? (paymentLabel.get(expense.metodoPagoId.toString()) ?? 'Otro')
+          : 'Sin registrar';
+
+      const beneficiario = workerOf(expense.beneficiarioId);
+      if (beneficiario) {
+        beneficiario.pagosRecibidos.count += 1;
+        beneficiario.pagosRecibidos.total += amount;
+        this.bumpBreakdown(beneficiario.pagosPorMetodo, metodo, amount);
+        metodosPago.add(metodo);
+      }
+
+      const autor = workerOf(expense.trabajadorId);
+      if (autor) {
+        autor.gastosRegistrados.count += 1;
+        autor.gastosRegistrados.total += amount;
+        this.bumpBreakdown(autor.gastosPorCategoria, expense.categoria, amount);
+        categoriasGasto.add(expense.categoria);
+      }
+    }
+
+    const toList = (bucket: Breakdown) =>
+      Object.entries(bucket)
+        .map(([name, value]) => ({ name, amount: value.amount, count: value.count }))
+        .sort((a, b) => b.amount - a.amount);
+
+    const rows = [...workers.values()].map((row) => ({
+      ...row,
+      ventasPorMetodo: toList(row.ventasPorMetodo),
+      pagosPorMetodo: toList(row.pagosPorMetodo),
+      gastosPorCategoria: toList(row.gastosPorCategoria),
+    }));
+    const totals = rows.reduce(
+      (acc, row) => {
+        acc.ventas += row.ventas.count;
+        acc.montoVendido += row.ventas.total;
+        acc.pagosRecibidos += row.pagosRecibidos.count;
+        acc.montoPagado += row.pagosRecibidos.total;
+        acc.gastosRegistrados += row.gastosRegistrados.count;
+        acc.montoGastos += row.gastosRegistrados.total;
+        return acc;
+      },
+      {
+        ventas: 0,
+        montoVendido: 0,
+        pagosRecibidos: 0,
+        montoPagado: 0,
+        gastosRegistrados: 0,
+        montoGastos: 0,
+      },
+    );
+
+    const porNombre = (a: string, b: string) => a.localeCompare(b, 'es');
+    return {
+      range: { from: dateRange.gte, to: dateRange.lt },
+      metodosVenta: [...metodosVenta].sort(porNombre),
+      metodosPago: [...metodosPago].sort(porNombre),
+      categoriasGasto: [...categoriasGasto].sort(porNombre),
+      totals,
+      workers: rows.sort(
+        (a, b) => b.ventas.total - a.ventas.total || a.nombre.localeCompare(b.nombre, 'es'),
+      ),
+    };
+  }
+
+  /**
    * Panel del repartidor: las ventas que registró hoy (America/Lima) más los totales
    * del día. `cobrado` es lo que se pagó en el momento de la venta (`montoInicial`).
    */
   async deliverySummary(userId: string) {
     const { gte, lt } = this.todayRange();
     const fecha = gte.toISOString().slice(0, 10);
-    const trabajador = await this.prisma.trabajador.findFirst({ where: { userId } });
+    const trabajador = await this.prisma.trabajador.findFirst({
+      where: { userId, estado: true },
+    });
     if (!trabajador) {
       return { fecha, totales: { ventas: 0, monto: 0, cobrado: 0 }, items: [] };
     }
@@ -372,9 +672,37 @@ export class ReportsService {
       margin: 0,
       orders: 0,
       production: 0,
+      salesByPayment: {},
+      expensesByCategory: {},
     };
     for (const [field, value] of Object.entries(values)) row[field] += value ?? 0;
     target.set(key, row);
+    return row;
+  }
+
+  /** Suma un monto (y una ocurrencia) a un desglose por nombre: forma de cobro o categoría. */
+  private bumpBreakdown(
+    bucket: Record<string, { amount: number; count: number }>,
+    name: string,
+    amount: number,
+  ) {
+    const current = bucket[name] ?? { amount: 0, count: 0 };
+    current.amount += amount;
+    current.count += 1;
+    bucket[name] = current;
+  }
+
+  /** Convierte los desgloses del período (objetos) en listas ordenadas por monto desc. */
+  private serializePeriod(row: any) {
+    const toList = (bucket: Record<string, { amount: number; count: number }>) =>
+      Object.entries(bucket)
+        .map(([name, value]) => ({ name, amount: value.amount, count: value.count }))
+        .sort((a, b) => b.amount - a.amount);
+    return {
+      ...row,
+      salesByPayment: toList(row.salesByPayment),
+      expensesByCategory: toList(row.expensesByCategory),
+    };
   }
 
   private addRanking(
@@ -399,6 +727,16 @@ export class ReportsService {
   }
   private monthKey(date: Date) {
     return this.dayKey(date).slice(0, 7);
+  }
+  private padHour(hour: number) {
+    return String(hour).padStart(2, '0');
+  }
+  /** Clave de hora calendario en Lima: "2026-09-11T14". */
+  private hourKey(date: Date) {
+    return `${this.dayKey(date)}T${this.padHour(this.localParts(date).hour)}`;
+  }
+  private hourLabel(date: Date) {
+    return `${this.padHour(this.localParts(date).hour)}:00`;
   }
   private dayLabel(date: Date) {
     return new Intl.DateTimeFormat('es-PE', {

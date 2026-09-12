@@ -15,6 +15,13 @@ export class ReportsController {
     return this.reports.business(from, to);
   }
 
+  // Ventas por trabajador (desglosadas por forma de cobro), pagos que recibió y gastos
+  // que registró, todo dentro del período.
+  @Get('workers')
+  workers(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.reports.workers(from, to);
+  }
+
   // Panel simple para el repartidor: sus ventas registradas hoy.
   @Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.WAREHOUSE, RoleName.DELIVERY)
   @Get('delivery-summary')

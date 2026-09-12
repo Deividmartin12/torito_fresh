@@ -17,6 +17,7 @@ import { ProveedoresModule } from './proveedores/proveedores.module';
 import { RecargasModule } from './recargas/recargas.module';
 import { ReportsModule } from './reports/reports.module';
 import { TrabajadoresModule } from './trabajadores/trabajadores.module';
+import { UsersModule } from './users/users.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { TrabajadoresModule } from './trabajadores/trabajadores.module';
     BidonesRotosModule,
     ReportsModule,
     TrabajadoresModule,
+    UsersModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

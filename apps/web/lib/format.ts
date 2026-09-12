@@ -12,6 +12,18 @@ export function cantidad(value: unknown) {
   return new Intl.NumberFormat('es-PE', { maximumFractionDigits: 3 }).format(amount);
 }
 
+/**
+ * Normaliza un texto para compararlo en una búsqueda: saca acentos y diacríticos, pasa a
+ * minúsculas y recorta los espacios. Así "Almacén" matchea "almacen" y viceversa.
+ */
+export function normalizarBusqueda(texto: string) {
+  return texto
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+    .trim();
+}
+
 /** Fecha y hora en formato dd/mm/aaaa hh:mm. */
 export function fechaHora(value: string | Date | null | undefined) {
   if (!value) return '-';

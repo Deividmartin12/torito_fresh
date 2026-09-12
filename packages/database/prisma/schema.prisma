@@ -148,8 +148,12 @@ model Trabajador {
   almacenesResponsables Almacen[]
   movimientosInventario MovimientoInventario[]
   ordenesProduccion     OrdenProduccion[]
-  gastos                Gasto[]
+  gastos                Gasto[]                @relation("GastosRegistrados")
+  // Gastos de categoría "Pago a trabajador" cuyo beneficiario es este trabajador. Son los
+  // pagos que RECIBIÓ, no los que registró: por eso son una relación aparte de `gastos`.
+  pagosRecibidos        Gasto[]                @relation("GastosRecibidos")
   bidonesRotos          BidonRoto[]
+  metodosPago           MetodoPago[]
 
   @@map("trabajador")
 }
@@ -181,22 +185,34 @@ model Gasto {
   monto         Decimal     @db.Decimal(12, 2)
   comprobante   String?     @db.VarChar(50)
   observaciones String?
-  trabajadorId  BigInt?     @map("trabajador_id")
-  proveedorId   BigInt?     @map("proveedor_id")
-  createdAt     DateTime    @default(now()) @map("created_at")
-  updatedAt     DateTime    @updatedAt @map("updated_at")
-  trabajador    Trabajador? @relation(fields: [trabajadorId], references: [id])
-  proveedor     Proveedor?  @relation(fields: [proveedorId], references: [id])
+  // Quién REGISTRÓ el gasto (su autor). Se muestra como "Registrado por".
+  trabajadorId   BigInt?     @map("trabajador_id")
+  // A quién se le PAGA. Solo se usa en los gastos de la categoría "Pago a trabajador":
+  // es lo que permite que el pago aparezca en el reporte de ese trabajador.
+  beneficiarioId BigInt?     @map("beneficiario_id")
+  proveedorId    BigInt?     @map("proveedor_id")
+  metodoPagoId   BigInt?     @map("metodo_pago_id")
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+  trabajador     Trabajador? @relation("GastosRegistrados", fields: [trabajadorId], references: [id])
+  beneficiario   Trabajador? @relation("GastosRecibidos", fields: [beneficiarioId], references: [id])
+  proveedor      Proveedor?  @relation(fields: [proveedorId], references: [id])
+  metodoPago     MetodoPago? @relation(fields: [metodoPagoId], references: [id])
 
   @@index([fecha])
   @@index([categoria])
   @@index([proveedorId])
+  @@index([trabajadorId, fecha])
+  @@index([beneficiarioId, fecha])
   @@map("gasto")
 }
 
 model CategoriaGasto {
-  id        BigInt   @id @default(autoincrement())
-  nombre    String   @unique @db.VarChar(100)
+  id     BigInt @id @default(autoincrement())
+  nombre String @unique @db.VarChar(100)
+  // Categoría fija del sistema: no se puede renombrar ni eliminar desde la UI. Hoy solo
+  // la usa "Pago a trabajador", que es la que enlaza el gasto con su beneficiario.
+  sistema   Boolean  @default(false)
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -283,13 +299,42 @@ model Lote {
   @@map("lote")
 }
 
-model MetodoPago {
-  id           BigInt        @id @default(autoincrement())
-  nombre       String        @unique @db.VarChar(50)
-  estado       Boolean       @default(true)
-  createdAt    DateTime      @default(now()) @map("created_at")
-  pagosCliente PagoCliente[]
+// Familia de un método de cobro: YAPE, EFECTIVO, PLIN... Sirve para que puedan
+// convivir varios Yape (uno por repartidor) y aun así sumarlos juntos en los reportes.
+model CategoriaMetodoPago {
+  id                 BigInt       @id @default(autoincrement())
+  nombre             String       @unique @db.VarChar(50)
+  icono              String?      @db.VarChar(30)
+  // Yape o una transferencia no sirven sin el número/cuenta; el efectivo sí.
+  requiereReferencia Boolean      @default(false) @map("requiere_referencia")
+  estado             Boolean      @default(true)
+  createdAt          DateTime     @default(now()) @map("created_at")
+  updatedAt          DateTime     @updatedAt @map("updated_at")
+  metodos            MetodoPago[]
 
+  @@map("categoria_metodo_pago")
+}
+
+// Un método concreto: la categoría (Yape) + su referencia (el número) + su dueño.
+// `trabajadorId` en null significa que lo puede usar cualquiera (caso típico: Efectivo).
+model MetodoPago {
+  id           BigInt               @id @default(autoincrement())
+  categoriaId  BigInt?              @map("categoria_id")
+  // Etiqueta libre opcional ("Yape del negocio"). Si va en null, el nombre visible se arma
+  // con categoría + referencia. Se conserva la columna para no perder los nombres actuales.
+  nombre       String?              @db.VarChar(50)
+  referencia   String?              @db.VarChar(50)
+  trabajadorId BigInt?              @map("trabajador_id")
+  estado       Boolean              @default(true)
+  createdAt    DateTime             @default(now()) @map("created_at")
+  updatedAt    DateTime             @default(now()) @updatedAt @map("updated_at")
+  categoria    CategoriaMetodoPago? @relation(fields: [categoriaId], references: [id])
+  trabajador   Trabajador?          @relation(fields: [trabajadorId], references: [id])
+  pagosCliente PagoCliente[]
+  gastos       Gasto[]
+
+  @@index([trabajadorId, estado])
+  @@index([categoriaId])
   @@map("metodo_pago")
 }
 
@@ -297,7 +342,9 @@ model Almacen {
   id                 BigInt                        @id @default(autoincrement())
   codigo             String                        @unique @db.VarChar(30)
   nombre             String                        @db.VarChar(100)
-  tipo               String                        @db.VarChar(20)
+  // Se conserva la columna (nullable) para no perder los valores históricos, pero ya no se
+  // pide ni se muestra: un almacén es solo un lugar donde hay stock.
+  tipo               String?                       @db.VarChar(20)
   direccion          String?                       @db.VarChar(250)
   responsableId      BigInt?                       @map("responsable_id")
   estado             Boolean                       @default(true)

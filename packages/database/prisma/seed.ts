@@ -90,6 +90,68 @@ async function main() {
       },
     });
   }
+
+  await sembrarMetodosDePago();
+  await sembrarCategoriasDeGasto();
+}
+
+/**
+ * "Pago a trabajador" es una categoría fija del sistema: es la que exige un beneficiario en
+ * el gasto y hace que ese pago aparezca en el reporte del trabajador. La migración ya la
+ * crea; acá se reafirma para que una base sembrada desde cero también la tenga.
+ */
+async function sembrarCategoriasDeGasto() {
+  await prisma.categoriaGasto.upsert({
+    where: { nombre: 'Pago a trabajador' },
+    update: { sistema: true },
+    create: { nombre: 'Pago a trabajador', sistema: true },
+  });
+}
+
+/**
+ * Categorías de cobro y el Efectivo global. Una instalación nueva arranca solo con el
+ * Efectivo (disponible para todos) para poder registrar una venta sin configurar nada;
+ * cada repartidor se agrega después su propio Yape/Plin desde la app, y esos métodos
+ * concretos ya no se siembran acá.
+ */
+async function sembrarMetodosDePago() {
+  const categorias = [
+    { nombre: 'EFECTIVO', icono: 'banknote', requiereReferencia: false },
+    { nombre: 'YAPE', icono: 'smartphone', requiereReferencia: true },
+    { nombre: 'PLIN', icono: 'smartphone', requiereReferencia: true },
+    { nombre: 'TRANSFERENCIA', icono: 'landmark', requiereReferencia: true },
+    { nombre: 'TARJETA', icono: 'credit-card', requiereReferencia: false },
+  ];
+
+  const creadas = await Promise.all(
+    categorias.map((categoria) =>
+      prisma.categoriaMetodoPago.upsert({
+        where: { nombre: categoria.nombre },
+        update: {},
+        create: categoria,
+      }),
+    ),
+  );
+
+  const porNombre = Object.fromEntries(creadas.map((categoria) => [categoria.nombre, categoria]));
+
+  // Único método sembrado: el efectivo lo cobra cualquiera, así que va sin dueño ni
+  // referencia. El resto de categorías queda disponible para que el admin arme sus Yape,
+  // Plin, etc. desde la pantalla de Métodos de pago.
+  await crearMetodoSiFalta(porNombre.EFECTIVO.id, null, null);
+}
+
+/** `MetodoPago` ya no tiene campo único, así que el upsert se hace a mano. */
+async function crearMetodoSiFalta(
+  categoriaId: bigint,
+  referencia: string | null,
+  trabajadorId: bigint | null,
+) {
+  const existente = await prisma.metodoPago.findFirst({
+    where: { categoriaId, referencia, trabajadorId },
+  });
+  if (existente) return;
+  await prisma.metodoPago.create({ data: { categoriaId, referencia, trabajadorId } });
 }
 
 main()

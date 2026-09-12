@@ -1,6 +1,8 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { RoleName } from '@prisma/client';
+import { CurrentUser } from '../auth/current-user.decorator';
 import { Roles } from '../auth/roles.decorator';
+import { AuthUser } from '../common/auth-user';
 import {
   CreateExpenseCategoryDto,
   CreateExpenseDto,
@@ -15,8 +17,13 @@ export class ExpensesController {
   constructor(private readonly expenses: ExpensesService) {}
 
   @Get()
-  list(@Query('from') from?: string, @Query('to') to?: string) {
-    return this.expenses.list(from, to);
+  list(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('trabajadorId') trabajadorId?: string,
+    @Query('beneficiarioId') beneficiarioId?: string,
+  ) {
+    return this.expenses.list(from, to, trabajadorId, beneficiarioId);
   }
 
   @Get('categories')
@@ -40,12 +47,12 @@ export class ExpensesController {
   }
 
   @Post()
-  create(@Body() dto: CreateExpenseDto) {
-    return this.expenses.create(dto);
+  create(@CurrentUser() user: AuthUser, @Body() dto: CreateExpenseDto) {
+    return this.expenses.create(dto, user);
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateExpenseDto) {
-    return this.expenses.update(id, dto);
+  update(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: UpdateExpenseDto) {
+    return this.expenses.update(id, dto, user);
   }
 }

@@ -35,16 +35,22 @@ export default function ContainersPage() {
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    const cantidad = Math.abs(Number(form.cantidad));
+    if (!form.clientId) {
+      toast.error('Selecciona un cliente.');
+      return;
+    }
+    if (!Number.isInteger(cantidad) || cantidad < 1) {
+      toast.error('La cantidad debe ser un número entero mayor a 0.');
+      return;
+    }
     try {
-      const signedQuantity =
-        form.movementType === 'RETORNO'
-          ? -Math.abs(Number(form.cantidad))
-          : Math.abs(Number(form.cantidad));
+      const signedQuantity = form.movementType === 'RETORNO' ? -cantidad : cantidad;
       await api('/containers/adjust', {
         method: 'POST',
         body: JSON.stringify({
           clientId: form.clientId,
-          cantidad: signedQuantity,
+          quantity: signedQuantity,
           notes:
             form.notes ||
             (form.movementType === 'RETORNO'
@@ -102,8 +108,10 @@ export default function ContainersPage() {
             className="control mt-1"
             type="number"
             min="1"
+            step="1"
             value={form.cantidad}
             onChange={(e) => setForm({ ...form, cantidad: Number(e.target.value) })}
+            required
           />
         </label>
         <label>

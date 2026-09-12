@@ -1,5 +1,7 @@
 import { api } from './api';
 
+// Una línea del desglose de una fila del resumen: forma de cobro o categoría de gasto.
+export type PeriodBreakdownItem = { name: string; amount: number; count: number };
 export type AnalyticsPeriod = {
   key: string;
   label: string;
@@ -9,8 +11,12 @@ export type AnalyticsPeriod = {
   margin: number;
   orders: number;
   production: number;
+  // Desglose de la fila: ventas por forma de cobro y gastos por categoría.
+  salesByPayment: PeriodBreakdownItem[];
+  expensesByCategory: PeriodBreakdownItem[];
 };
 export type AnalyticsRanking = { id: string; name: string; value: number; count: number };
+export type PaymentMethodBreakdown = { id: string; name: string; sales: number; amount: number };
 export type AnalyticsProduct = {
   id: string;
   name: string;
@@ -52,9 +58,12 @@ export type BusinessAnalytics = {
   };
   daily: AnalyticsPeriod[];
   monthly: AnalyticsPeriod[];
+  /** Serie por hora (clave "YYYY-MM-DDTHH"). Solo llega con rangos de hasta dos días. */
+  hourly: AnalyticsPeriod[];
   topProducts: AnalyticsProduct[];
   zones: AnalyticsRanking[];
   topClients: AnalyticsRanking[];
+  paymentMethods: PaymentMethodBreakdown[];
   expenseCategories: AnalyticsRanking[];
   heatmap: HeatmapPoint[];
   lowStock: { id: string; name: string; available: number; minimum: number }[];
@@ -80,12 +89,50 @@ const monthLabelFormatter = new Intl.DateTimeFormat('es-PE', {
   year: '2-digit',
 });
 
-function emptyPeriod(key: string, label: string): AnalyticsPeriod {
-  return { key, label, sales: 0, expenses: 0, cost: 0, margin: 0, orders: 0, production: 0 };
+export function emptyPeriod(key: string, label: string): AnalyticsPeriod {
+  return {
+    key,
+    label,
+    sales: 0,
+    expenses: 0,
+    cost: 0,
+    margin: 0,
+    orders: 0,
+    production: 0,
+    salesByPayment: [],
+    expensesByCategory: [],
+  };
+}
+
+/** Suma el desglose `extra` dentro de `target` (mismo nombre = misma línea), ordenando por monto desc. */
+function mergeBreakdown(target: PeriodBreakdownItem[], extra: PeriodBreakdownItem[]) {
+  for (const item of extra) {
+    const found = target.find((row) => row.name === item.name);
+    if (found) {
+      found.amount += item.amount;
+      found.count += item.count;
+    } else {
+      target.push({ ...item });
+    }
+  }
+  target.sort((a, b) => b.amount - a.amount);
+}
+
+/** Suma la fila `row` dentro de `target` (totales y desgloses), para agrupar períodos. */
+export function addInto(target: AnalyticsPeriod, row: AnalyticsPeriod) {
+  target.sales += row.sales;
+  target.expenses += row.expenses;
+  target.cost += row.cost;
+  target.margin += row.margin;
+  target.orders += row.orders;
+  target.production += row.production;
+  mergeBreakdown(target.salesByPayment, row.salesByPayment);
+  mergeBreakdown(target.expensesByCategory, row.expensesByCategory);
+  return target;
 }
 
 /** Convierte un texto `YYYY-MM-DD` en una fecha a medianoche UTC, sin desfase por zona horaria. */
-function parseUtcDay(value: string): Date | null {
+export function parseUtcDay(value: string): Date | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (!match) return null;
   const [, y, m, d] = match;
@@ -106,6 +153,31 @@ export function fillDailySeries(
   for (const cursor = new Date(start); cursor <= end; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
     const key = cursor.toISOString().slice(0, 10);
     filled.push(byKey.get(key) ?? emptyPeriod(key, dayLabelFormatter.format(cursor)));
+  }
+  return filled;
+}
+
+/**
+ * Rellena las 24 horas de cada día de [from, to], para que la vista de un día tenga todos sus
+ * tramos aunque en varios no haya habido movimiento. Las claves son "YYYY-MM-DDTHH", igual que
+ * las que manda el backend.
+ */
+export function fillHourlySeries(
+  rows: AnalyticsPeriod[],
+  from: string,
+  to: string,
+): AnalyticsPeriod[] {
+  const start = parseUtcDay(from);
+  const end = parseUtcDay(to);
+  if (!start || !end || start > end) return rows;
+  const byKey = new Map(rows.map((row) => [row.key, row]));
+  const filled: AnalyticsPeriod[] = [];
+  for (const cursor = new Date(start); cursor <= end; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
+    const day = cursor.toISOString().slice(0, 10);
+    for (let hour = 0; hour < 24; hour += 1) {
+      const key = `${day}T${String(hour).padStart(2, '0')}`;
+      filled.push(byKey.get(key) ?? emptyPeriod(key, `${String(hour).padStart(2, '0')}:00`));
+    }
   }
   return filled;
 }
@@ -138,14 +210,7 @@ export function groupPeriodsByYear(rows: AnalyticsPeriod[]): AnalyticsPeriod[] {
   const years = new Map<string, AnalyticsPeriod>();
   for (const row of rows) {
     const year = row.key.slice(0, 4);
-    const current = years.get(year) ?? emptyPeriod(year, year);
-    current.sales += row.sales;
-    current.expenses += row.expenses;
-    current.cost += row.cost;
-    current.margin += row.margin;
-    current.orders += row.orders;
-    current.production += row.production;
-    years.set(year, current);
+    years.set(year, addInto(years.get(year) ?? emptyPeriod(year, year), row));
   }
   return [...years.values()].sort((a, b) => a.key.localeCompare(b.key));
 }
@@ -166,13 +231,7 @@ export function groupPeriodsByWeek(rows: AnalyticsPeriod[]): AnalyticsPeriod[] {
     monday.setUTCDate(date.getUTCDate() - isoWeekday);
     const key = monday.toISOString().slice(0, 10);
     const current = weeks.get(key) ?? emptyPeriod(key, `Sem. ${dayLabelFormatter.format(monday)}`);
-    current.sales += row.sales;
-    current.expenses += row.expenses;
-    current.cost += row.cost;
-    current.margin += row.margin;
-    current.orders += row.orders;
-    current.production += row.production;
-    weeks.set(key, current);
+    weeks.set(key, addInto(current, row));
   }
   return [...weeks.values()].sort((a, b) => a.key.localeCompare(b.key));
 }

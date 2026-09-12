@@ -9,9 +9,15 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Matches,
+  MaxLength,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
+import { EsNombreLibre } from '../common/validators';
+
+export const ESTADOS_LOTE = ['ACTIVO', 'VENCIDO', 'AGOTADO', 'BLOQUEADO'] as const;
 
 class OperationItemDto {
   @Type(() => Number)
@@ -57,6 +63,15 @@ class BaseOperationDto {
   @IsInt()
   @Min(1)
   almacenId: number;
+
+  // A nombre de quién queda la operación. Solo un ADMIN puede mandarlo; el resto siempre
+  // registra a su propio nombre. La regla vive en `resolverTrabajadorAutor`, no acá, porque
+  // class-validator no ve el rol del usuario.
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  trabajadorId?: number;
 
   @IsIn(['CONTADO', 'CREDITO', 'MIXTO'])
   tipoPago: string;
@@ -108,6 +123,13 @@ export class UpdateOperationalSaleDto {
   @Min(1)
   almacenId: number;
 
+  // Reasignar el vendedor al editar: solo ADMIN. Si no viene, se conserva el original.
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  trabajadorId?: number;
+
   @IsIn(['CONTADO', 'CREDITO', 'MIXTO'])
   tipoPago: string;
 
@@ -140,13 +162,15 @@ export class UpdateOperationalSaleDto {
 }
 
 export class CreateOperationalProductDto {
-  @IsString()
+  @EsNombreLibre(120)
   nombre: string;
 
   @IsString()
+  @MaxLength(50)
   tipo: string;
 
   @IsString()
+  @MaxLength(30)
   unidad: string;
 
   @IsOptional()
@@ -176,15 +200,17 @@ export class CreateOperationalProductDto {
 // el resto de datos sí. Todos los campos son opcionales: se actualiza solo lo que llega.
 export class UpdateOperationalProductDto {
   @IsOptional()
-  @IsString()
+  @EsNombreLibre(120)
   nombre?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(50)
   tipo?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(30)
   unidad?: string;
 
   @IsOptional()
@@ -214,15 +240,41 @@ export class UpdateOperationalProductDto {
   esRetornable?: boolean;
 }
 
-export class CreateOperationalWarehouseDto {
+export class CreateOwnPaymentMethodDto {
   @IsString()
-  nombre: string;
-
-  @IsString()
-  tipo: string;
+  @Matches(/\S/, { message: 'Selecciona la categoría del método de pago' })
+  categoriaId: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(50)
+  referencia?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  nombre?: string;
+
+  // Solo lo usa un ADMIN para registrar a nombre de otro; el resto siempre queda a su nombre.
+  @IsOptional()
+  @IsString()
+  trabajadorId?: string;
+}
+
+export class CreateProductTypeDto {
+  @IsString()
+  @Matches(/\S/, { message: 'El nombre del tipo de producto es obligatorio' })
+  @MaxLength(50)
+  nombre: string;
+}
+
+export class CreateOperationalWarehouseDto {
+  @EsNombreLibre(80)
+  nombre: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(250)
   direccion?: string;
 }
 
@@ -242,12 +294,20 @@ export class RegisterOperationalPaymentDto {
   @Min(0.01)
   monto: number;
 
+  // Quién cobra. Solo ADMIN puede cobrar a nombre de otro (p. ej. al Yape de un repartidor).
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  trabajadorId?: number;
+
   @IsOptional()
   @IsDateString()
   fechaPago?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(300)
   observaciones?: string;
 }
 
@@ -275,6 +335,7 @@ class ReturnItemDto {
   estadoDestinoId?: number;
 
   @IsOptional()
+  @IsBoolean()
   reintegraInventario?: boolean;
 }
 
@@ -285,10 +346,20 @@ export class CreateReturnDto {
   operacionId: number;
 
   @IsString()
+  @Matches(/\S/, { message: 'El motivo de la devolución es obligatorio' })
+  @MaxLength(300)
   motivo: string;
+
+  // Quién registra la devolución. Solo ADMIN puede hacerlo a nombre de otro.
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  trabajadorId?: number;
 
   @IsOptional()
   @IsString()
+  @MaxLength(300)
   observaciones?: string;
 
   @IsArray()
@@ -296,4 +367,24 @@ export class CreateReturnDto {
   @ValidateNested({ each: true })
   @Type(() => ReturnItemDto)
   items: ReturnItemDto[];
+}
+
+// Los lotes nacen automáticamente al completar una producción; esto solo permite corregir
+// sus fechas o bloquearlos/reactivarlos a mano. El código y el costo no se tocan porque el
+// kardex y los reportes ya están calculados con esos valores.
+export class UpdateLoteDto {
+  // `null` o cadena vacía = quitar la fecha.
+  @IsOptional()
+  @ValidateIf((_object, value) => value !== null && value !== '')
+  @IsDateString()
+  fechaProduccion?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_object, value) => value !== null && value !== '')
+  @IsDateString()
+  fechaVencimiento?: string | null;
+
+  @IsOptional()
+  @IsIn(ESTADOS_LOTE, { message: 'Selecciona un estado de lote válido' })
+  estado?: string;
 }

@@ -33,7 +33,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     // usuario o cambiarle el rol tiene efecto inmediato sin volver a iniciar sesión.
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
-      include: { role: true },
+      include: { role: true, trabajador: { select: { id: true, estado: true } } },
     });
 
     if (!user || !user.active) {
@@ -45,6 +45,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       email: user.email,
       name: user.name,
       role: user.role.name,
+      // Un trabajador dado de baja cuenta como "sin vincular": no debe poder seguir operando.
+      trabajadorId: user.trabajador?.estado ? user.trabajador.id.toString() : null,
     };
   }
 }
