@@ -1,10 +1,9 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { RoleName } from '@prisma/client';
-import { Roles } from '../auth/roles.decorator';
+import { Permisos } from '../auth/permisos.decorator';
 import { CreateProveedorDto, UpdateProveedorDto } from './proveedores.dto';
 import { ProveedoresService } from './proveedores.service';
 
-@Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.WAREHOUSE, RoleName.SOCIO)
+@Permisos('proveedores.ver')
 @Controller('proveedores')
 export class ProveedoresController {
   constructor(private readonly proveedores: ProveedoresService) {}
@@ -19,14 +18,15 @@ export class ProveedoresController {
     return this.proveedores.get(id);
   }
 
+  @Permisos('proveedores.crear')
   @Post()
   create(@Body() dto: CreateProveedorDto) {
     return this.proveedores.create(dto);
   }
 
-  // Mismos roles que el alta (el `@Roles` de la clase): quien puede dar de alta un proveedor
+  // Su propio permiso, separado del alta: quien puede dar de alta un proveedor
   // tiene que poder corregirle un RUC mal tipeado.
-  @Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.WAREHOUSE, RoleName.SOCIO)
+  @Permisos('proveedores.editar')
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: UpdateProveedorDto) {
     return this.proveedores.update(id, dto);

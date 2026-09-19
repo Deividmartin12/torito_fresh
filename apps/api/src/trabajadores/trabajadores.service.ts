@@ -305,7 +305,11 @@ export class TrabajadoresService {
             name: row.user.name,
             username: row.user.username,
             email: row.user.email,
-            role: row.user.role.name,
+            role: row.user.role.clave,
+            // El nombre visible viaja junto a la clave: la tabla de trabajadores lo muestra
+            // tal cual, y con roles creados desde el panel ya no hay una lista de etiquetas
+            // en el front de la que sacarlo.
+            rolNombre: row.user.role.nombre,
             active: row.user.active,
           }
         : null,

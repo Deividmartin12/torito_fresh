@@ -1,13 +1,12 @@
 import { Body, Controller, Get, Post, Query } from '@nestjs/common';
-import { RoleName } from '@prisma/client';
 import { CurrentUser } from '../auth/current-user.decorator';
-import { Roles } from '../auth/roles.decorator';
+import { Permisos } from '../auth/permisos.decorator';
 import { UnidadQuery } from '../auth/unidad-query.decorator';
 import { AuthUser } from '../common/auth-user';
 import { AdjustContainerDto } from './containers.dto';
 import { ContainersService } from './containers.service';
 
-@Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.DELIVERY, RoleName.WAREHOUSE, RoleName.SOCIO)
+@Permisos('envases.ver')
 @Controller('containers')
 export class ContainersController {
   constructor(private readonly containers: ContainersService) {}
@@ -26,7 +25,7 @@ export class ContainersController {
     return this.containers.movements(user, clientId, unidad);
   }
 
-  @Roles(RoleName.ADMIN, RoleName.WAREHOUSE, RoleName.DELIVERY, RoleName.SOCIO)
+  @Permisos('envases.ajustar')
   @Post('adjust')
   adjust(
     @CurrentUser() user: AuthUser,

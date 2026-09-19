@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
-import { Prisma, RoleName } from '@prisma/client';
-import { AuthUser } from './auth-user';
+import { Prisma } from '@prisma/client';
+import { AuthUser, tienePermiso } from './auth-user';
 
 /**
  * Quién registró cada operación.
@@ -44,23 +44,23 @@ export async function exigirTrabajadorId(
 }
 
 /**
- * Autoría de una operación, con la atribución opcional del admin.
+ * Autoría de una operación, con la atribución opcional a otra persona.
  *
  * - Sin `trabajadorIdSolicitado`: el trabajador del propio usuario.
- * - Con él y rol distinto de ADMIN: 403, nadie registra a nombre de otro.
- * - Con él y rol ADMIN: se valida que exista y esté activo.
+ * - Con él y sin el permiso `operaciones.atribuir`: 403, nadie registra a nombre de otro.
+ * - Con él y con el permiso: se valida que exista y esté activo.
  */
 export async function resolverTrabajadorAutor(
   db: ClienteTrabajador,
-  actor: Pick<AuthUser, 'userId' | 'role'>,
+  actor: Pick<AuthUser, 'userId' | 'accesoTotal' | 'permisos'>,
   trabajadorIdSolicitado?: string | number | null,
 ): Promise<bigint> {
   const solicitado = trabajadorIdSolicitado?.toString().trim();
   if (!solicitado) return exigirTrabajadorId(db, actor.userId);
 
-  if (actor.role !== RoleName.ADMIN) {
+  if (!tienePermiso(actor, 'operaciones.atribuir')) {
     throw new ForbiddenException(
-      'Solo un administrador puede registrar a nombre de otro trabajador',
+      'Tu rol no puede registrar una operación a nombre de otro trabajador',
     );
   }
 

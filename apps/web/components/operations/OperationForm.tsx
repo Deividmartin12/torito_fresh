@@ -40,7 +40,7 @@ import { PaymentMethodFormModal } from '../PaymentMethodFormModal';
 import { SearchableSelect } from '../SearchableSelect';
 import { PaymentMethod } from '../../lib/payment-methods';
 import { puede } from '../../lib/permissions';
-import { useRole } from '../../lib/useCurrentUser';
+import { usePermisos } from '../../lib/useCurrentUser';
 
 type FieldErrors = Partial<Record<'entity' | 'items' | 'payment' | 'dueDate', string>>;
 
@@ -139,7 +139,7 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
   const [almacenModal, setAlmacenModal] = useState(false);
   // Dar de alta un almacén no lo permite el API a todos los roles: al resto se le oculta la
   // acción inline en vez de dejar que reciba un error recién al guardar.
-  const puedeCrearAlmacen = puede(useRole(), 'almacenes.crear');
+  const puedeCrearAlmacen = puede(usePermisos(), 'almacenes.crear');
   // Fila de pago que abrió "+ Agregar método de pago" (null = modal cerrado).
   const [metodoModalRow, setMetodoModalRow] = useState<number | null>(null);
   const [warehouseId, setWarehouseId] = useState('');

@@ -1,134 +1,83 @@
 /**
- * Permisos por rol para el menú y las acciones de la app.
+ * Qué ve y qué puede hacer la persona que está usando la app.
  *
- * Un solo lugar, con dos mapas que responden preguntas distintas:
- *   - `RUTAS_POR_ROL` → qué PANTALLAS se ven.
- *   - `ACCIONES` → qué BOTONES funcionan.
+ * Antes acá vivían dos mapas escritos a mano —`RUTAS_POR_ROL` y `ACCIONES`— que había que
+ * mantener en espejo con los `@Roles` del API. Cada vez que se tocaba un permiso de un lado
+ * y no del otro, el usuario veía un botón que al guardar respondía "Forbidden resource".
  *
- * Son cosas distintas y hace falta separarlas: la pantalla de gastos es legítima para el
- * responsable de una unidad, pero su botón "+ Agregar trabajador" dispara `POST /trabajadores`,
- * que es solo de ADMIN. Mientras esto se adivinaba caso por caso en cada pantalla, el usuario
- * terminaba viendo "Forbidden resource" al guardar.
- *
- * Los dos mapas son un espejo de los `@Roles` del API. Cada acción lleva su endpoint anotado
- * al lado para que, al tocar un `@Roles`, se encuentre su par con un grep de la ruta. Ojo con
- * Nest: `getAllAndOverride` hace que el `@Roles` de un método REEMPLACE al de la clase, no que
- * se sume, así que al tocar uno hay que releer la lista completa.
+ * Ahora los permisos los manda el API: vienen en la sesión (`/auth/login` y `/auth/me`) como
+ * una lista de claves, y acá solo queda traducirlos a pantallas del menú. Los roles ya no se
+ * nombran en este archivo: un rol creado desde Configuración › Roles y permisos funciona sin
+ * tocar nada de esto, que es justamente lo que antes no se podía.
  */
-
-export type Role = 'ADMIN' | 'SELLER' | 'DELIVERY' | 'WAREHOUSE' | 'SOCIO';
 
 /**
- * Prefijos de ruta visibles por rol. Solo el ADMIN tiene `null` (sin restricción).
+ * Qué permiso hace falta para entrar a cada pantalla.
  *
- * Antes SELLER y WAREHOUSE también eran `null`, y eso era justamente la fuente de los
- * "Forbidden resource": el menú les ofrecía pantallas que el API les niega (Almacén entrando a
- * Gastos o a Clientes, Vendedor entrando a Métodos de pago o a Producción). Una pantalla entra
- * en esta lista solo si el rol puede hacer en ella lo que la pantalla sirve para hacer: no
- * alcanza con que pueda leerla.
+ * Es el único mapa que queda, y vive acá porque las rutas son cosa de la web: el API no sabe
+ * ni tiene por qué saber cómo se llaman sus pantallas. La clave es el prefijo de la ruta y el
+ * valor, la clave del permiso del catálogo (`apps/api/src/auth/permisos.ts`).
  */
-const RUTAS_POR_ROL: Record<Role, string[] | null> = {
-  ADMIN: null,
-  // Fuera: producción y métodos de pago (no los permite el API) y trabajadores y unidades de
-  // negocio, que son pantallas de gestión y solo el admin puede guardar en ellas.
-  SELLER: [
-    '/dashboard',
-    '/gastos',
-    '/categorias-gastos',
-    '/proveedores',
-    '/lotes',
-    '/clientes',
-    '/ventas',
-    '/recargas',
-    '/devoluciones',
-    '/envases',
-    '/bidones-rotos',
-    '/productos',
-    '/almacenes',
-    '/movimientos',
-    '/cobranzas',
-    '/reportes',
-  ],
-  // Almacén no toca dinero: ni gastos, ni cobranzas, ni clientes.
-  WAREHOUSE: [
-    '/dashboard',
-    '/proveedores',
-    '/produccion',
-    '/lotes',
-    '/ventas',
-    '/recargas',
-    '/devoluciones',
-    '/envases',
-    '/bidones-rotos',
-    '/productos',
-    '/almacenes',
-    '/movimientos',
-    '/reportes',
-  ],
-  DELIVERY: ['/dashboard', '/ventas', '/clientes', '/envases', '/productos'],
-  // El socio lleva su propio negocio: registra ventas y gastos, cobra y maneja sus clientes,
-  // sus proveedores y su stock. Fuera quedan el catálogo de productos y lotes, la producción,
-  // los almacenes, los métodos de pago, los trabajadores y las unidades de negocio: todo eso
-  // es compartido y lo administra la operación principal.
-  SOCIO: [
-    '/dashboard',
-    '/ventas',
-    '/clientes',
-    '/cobranzas',
-    '/devoluciones',
-    '/gastos',
-    '/proveedores',
-    '/envases',
-    '/productos',
-    '/movimientos',
-    '/reportes/resumen',
-    '/reportes/ventas',
-    '/reportes/gastos',
-    '/reportes/stock',
-  ],
+const PERMISO_POR_RUTA: Record<string, string> = {
+  '/dashboard': 'dashboard.ver',
+  '/gastos': 'gastos.ver',
+  '/categorias-gastos': 'gastos.categorias.editar',
+  '/proveedores': 'proveedores.ver',
+  '/produccion': 'produccion.gestionar',
+  '/lotes': 'lotes.ver',
+  '/clientes': 'clientes.ver',
+  '/ventas': 'ventas.ver',
+  '/recargas': 'recargas.ver',
+  '/devoluciones': 'devoluciones.ver',
+  '/envases': 'envases.ver',
+  '/bidones-rotos': 'bidonesRotos.ver',
+  '/productos': 'productos.ver',
+  '/almacenes': 'almacenes.ver',
+  '/movimientos': 'kardex.ver',
+  '/cobranzas': 'cobranzas.registrar',
+  '/cuentas-cobrar': 'cobranzas.registrar',
+  '/metodos-pago': 'metodosPago.administrar',
+  '/reportes/resumen': 'reportes.ver',
+  '/reportes/ventas': 'reportes.ver',
+  '/reportes/gastos': 'reportes.ver',
+  '/reportes/stock': 'reportes.ver',
+  '/reportes/trabajadores': 'reportes.trabajadores',
+  '/trabajadores': 'trabajadores.administrar',
+  '/unidades-negocio': 'unidades.administrar',
+  '/unidades-visibles': 'unidades.elegir',
+  '/roles': 'roles.administrar',
 };
 
 /**
- * Qué puede hacer cada rol, acción por acción, con el endpoint que la respalda.
+ * Las rutas ordenadas de la más específica a la más general.
  *
- * Es lo que deciden los botones de alta y edición —incluidos los "+ Agregar X" dentro de los
- * combos—, para que nadie vea un botón que va a fallar al guardar.
+ * El orden importa: `/reportes/trabajadores` tiene que ganarle a `/reportes`, porque si no
+ * un rol que puede ver los reportes del negocio entraría también al de desempeño ajeno.
  */
-export const ACCIONES = {
-  'trabajadores.crear': ['ADMIN'], // POST /trabajadores
-  'trabajadores.editar': ['ADMIN'], // PATCH /trabajadores/:id
-  'gastos.categoria.crear': ['ADMIN', 'SELLER', 'SOCIO'], // POST /expenses/categories
-  // Renombrar o borrar una categoría afecta los gastos de TODAS las unidades, por eso el
-  // socio puede crear pero no editar.
-  'gastos.categoria.editar': ['ADMIN', 'SELLER'], // PATCH|DELETE /expenses/categories/:id
-  'documento.consultar': ['ADMIN', 'SELLER', 'DELIVERY', 'WAREHOUSE', 'SOCIO'], // GET /consulta-documento/*
-  'clientes.crear': ['ADMIN', 'SELLER', 'DELIVERY', 'SOCIO'], // POST /clients
-  'clientes.editar': ['ADMIN', 'SELLER', 'SOCIO'], // PATCH /clients/:id
-  'proveedores.crear': ['ADMIN', 'SELLER', 'WAREHOUSE', 'SOCIO'], // POST /proveedores
-  'proveedores.editar': ['ADMIN', 'SELLER', 'WAREHOUSE', 'SOCIO'], // PATCH /proveedores/:id
-  'almacenes.crear': ['ADMIN', 'SELLER', 'WAREHOUSE'], // POST /operations/warehouses
-  'productos.editar': ['ADMIN', 'SELLER', 'WAREHOUSE'], // POST|PATCH|DELETE /operations/products
-  'cobranzas.registrar': ['ADMIN', 'SELLER', 'SOCIO'], // POST /operations/accounts/:type/payments
-  'envases.ajustar': ['ADMIN', 'WAREHOUSE', 'DELIVERY', 'SOCIO'], // POST /containers/adjust
-  'metodosPago.crear': ['ADMIN', 'SELLER', 'WAREHOUSE', 'DELIVERY', 'SOCIO'], // POST /operations/payment-methods
-  'metodosPago.administrar': ['ADMIN'], // /payment-methods (clase)
-  'unidades.administrar': ['ADMIN'], // /unidades (clase)
-  'produccion.registrar': ['ADMIN', 'WAREHOUSE'], // /production (clase)
-} as const satisfies Record<string, readonly Role[]>;
+const RUTAS_ORDENADAS = Object.keys(PERMISO_POR_RUTA).sort(
+  (izquierda, derecha) => derecha.length - izquierda.length,
+);
 
-export type Accion = keyof typeof ACCIONES;
+/** El permiso que pide una pantalla, o `null` si no pide ninguno. */
+function permisoDeRuta(href: string): string | null {
+  const ruta = RUTAS_ORDENADAS.find(
+    (prefijo) => href === prefijo || href.startsWith(`${prefijo}/`),
+  );
+  return ruta ? PERMISO_POR_RUTA[ruta] : null;
+}
 
-/** Si este rol puede ejecutar la acción sin que el API se la rechace. */
-export function puede(role: string | null | undefined, accion: Accion): boolean {
-  return !!role && (ACCIONES[accion] as readonly string[]).includes(role);
+/** Si esta persona tiene el permiso. */
+export function puede(permisos: string[] | null | undefined, clave: string): boolean {
+  return !!permisos?.includes(clave);
 }
 
 /**
  * Pantallas que sencillamente no existen en una unidad que no lleva inventario.
  *
- * Es una pregunta distinta de la del rol, y por eso va en su propio mapa: no es "esta persona
- * no puede", es "acá no hay tal cosa". Un puesto que solo registra ventas y gastos no produce,
- * no tiene lotes, no tiene almacenes que administrar y su kardex está vacío por definición.
+ * Es una pregunta distinta de la del permiso, y por eso va en su propio mapa: no es "esta
+ * persona no puede", es "acá no hay tal cosa". Un puesto que solo registra ventas y gastos no
+ * produce, no tiene lotes, no tiene almacenes que administrar y su kardex está vacío por
+ * definición.
  *
  * `/productos` NO entra: el puesto necesita el catálogo para elegir qué vende y a qué precio.
  */
@@ -142,20 +91,6 @@ const RUTAS_DE_INVENTARIO = [
 
 export type ContextoUnidad = { controlaInventario: boolean };
 
-/** Renombres de ítem de menú por rol. */
-const ALIAS_POR_ROL: Partial<Record<Role, Record<string, string>>> = {
-  DELIVERY: { '/productos': 'Productos disponibles' },
-  SOCIO: { '/productos': 'Productos disponibles' },
-};
-
-export function rutasPermitidas(role?: string | null): string[] | null {
-  if (!role) return null;
-  // Un rol desconocido (token viejo, dato corrupto) no debe caer en "ve todo": se le da el
-  // permiso más restrictivo que existe.
-  if (!(role in RUTAS_POR_ROL)) return RUTAS_POR_ROL.DELIVERY;
-  return RUTAS_POR_ROL[role as Role];
-}
-
 /** Si la pantalla aplica a esta unidad. Sin unidad (o con una que lleva stock) aplica todo. */
 export function aplicaAUnidad(href: string, unidad?: ContextoUnidad | null): boolean {
   if (!unidad || unidad.controlaInventario) return true;
@@ -167,37 +102,30 @@ export function aplicaAUnidad(href: string, unidad?: ContextoUnidad | null): boo
  *
  * El tercer parámetro es opcional a propósito: así una llamada que se olvide de pasarlo sigue
  * compilando y se comporta como antes, en vez de esconder media app por accidente.
+ *
+ * Con `permisos` en `null` —el primer render, antes de leer la sesión— devuelve `false`: la
+ * pantalla muestra su "Cargando..." en vez de parpadear con el menú completo.
  */
 export function puedeVer(
-  role: string | null | undefined,
+  permisos: string[] | null | undefined,
   href: string,
   unidad?: ContextoUnidad | null,
 ): boolean {
   if (!aplicaAUnidad(href, unidad)) return false;
-  const permitidas = rutasPermitidas(role);
-  if (!permitidas) return true;
-  return permitidas.some((ruta) => href === ruta || href.startsWith(`${ruta}/`));
+  const necesario = permisoDeRuta(href);
+  if (!necesario) return true;
+  return puede(permisos, necesario);
 }
 
-export function aliasRuta(role: string | null | undefined, href: string): string | null {
-  return role ? (ALIAS_POR_ROL[role as Role]?.[href] ?? null) : null;
-}
-
-/** DELIVERY solo crea y lee: sin editar, borrar, desactivar ni confirmar. */
-export function puedeEditar(role?: string | null): boolean {
-  return role !== 'DELIVERY';
-}
-
-/** Etiquetas legibles para el rol. `GET /users/roles` devuelve el enum crudo. */
-export const ETIQUETA_ROL: Record<Role, string> = {
-  ADMIN: 'Administrador',
-  SELLER: 'Vendedor',
-  DELIVERY: 'Repartidor',
-  WAREHOUSE: 'Almacén',
-  SOCIO: 'Responsable de unidad',
-};
-
-export function etiquetaRol(role?: string | null): string {
-  if (!role) return '';
-  return ETIQUETA_ROL[role as Role] ?? role;
+/**
+ * Renombres de ítem de menú.
+ *
+ * Quien solo puede mirar el catálogo ve "Productos disponibles": la pantalla le sirve para
+ * saber qué vender y a qué precio, no para administrar el catálogo, y el nombre lo dice.
+ */
+export function aliasRuta(permisos: string[] | null | undefined, href: string): string | null {
+  if (href === '/productos' && !puede(permisos, 'productos.editar')) {
+    return 'Productos disponibles';
+  }
+  return null;
 }

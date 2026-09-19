@@ -1,12 +1,11 @@
 import { Controller, Get } from '@nestjs/common';
-import { RoleName } from '@prisma/client';
 import { CurrentUser } from '../auth/current-user.decorator';
-import { Roles } from '../auth/roles.decorator';
+import { Permisos } from '../auth/permisos.decorator';
 import { UnidadQuery } from '../auth/unidad-query.decorator';
 import { AuthUser } from '../common/auth-user';
 import { RecargasService } from './recargas.service';
 
-@Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.WAREHOUSE)
+@Permisos('recargas.ver')
 @Controller('recargas')
 export class RecargasController {
   constructor(private readonly recargas: RecargasService) {}

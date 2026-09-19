@@ -9,8 +9,8 @@ import { Pagination } from '../../../components/Pagination';
 import { api } from '../../../lib/api';
 import { Cliente } from '../../../lib/clients';
 import { moneda } from '../../../lib/format';
-import { puedeEditar } from '../../../lib/permissions';
-import { useRole } from '../../../lib/useCurrentUser';
+import { puede } from '../../../lib/permissions';
+import { usePermisos } from '../../../lib/useCurrentUser';
 
 export default function ClientesPage() {
   const [clientes, setClientes] = useState<Cliente[]>([]);
@@ -20,7 +20,7 @@ export default function ClientesPage() {
   const [modal, setModal] = useState(false);
   const [editando, setEditando] = useState<Cliente | null>(null);
   const [loading, setLoading] = useState(true);
-  const editable = puedeEditar(useRole());
+  const editable = puede(usePermisos(), 'clientes.editar');
   const load = useCallback(async () => {
     try {
       setClientes(await api<Cliente[]>('/clients'));

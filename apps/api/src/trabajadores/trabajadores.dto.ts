@@ -46,6 +46,39 @@ export class CuentaTrabajadorDto {
   role: RoleName;
 }
 
+/**
+ * Cuenta de acceso del trabajador, dentro del mismo alta.
+ *
+ * Solo trae lo propio del login. El nombre y el correo de la cuenta NO viajan acá: salen de
+ * `nombres`/`apellidos`/`correo` del trabajador, para que no existan dos versiones del mismo
+ * dato que se puedan ir separando con el tiempo. Lo mismo el `active` de la cuenta, que
+ * sigue al `estado` del trabajador: dar de baja a alguien tiene que cerrarle el acceso.
+ *
+ * La contraseña es obligatoria cuando la cuenta se crea y opcional cuando se edita una que
+ * ya existe (sin valor = se queda con la que tenía).
+ */
+export class CuentaTrabajadorDto {
+  @IsString()
+  @MinLength(2, { message: 'El nombre de usuario es muy corto' })
+  @MaxLength(50)
+  @Matches(RE_USERNAME, {
+    message: 'El usuario solo puede tener letras, números, punto, guion y guion bajo',
+  })
+  username: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(4, { message: 'La contraseña debe tener al menos 4 caracteres' })
+  password?: string;
+
+  // La clave del rol (`ADMIN`, `SELLER`, o la de uno creado desde el panel). No se valida
+  // contra una lista fija porque los roles ahora son filas: que exista lo comprueba el
+  // servicio al resolver su id, y así un rol nuevo funciona sin tocar este archivo.
+  @IsString()
+  @MaxLength(40)
+  role: string;
+}
+
 export class CreateTrabajadorDto {
   @IsIn(TIPOS_DOCUMENTO, { message: 'Selecciona un tipo de documento válido' })
   tipoDocumento: string;

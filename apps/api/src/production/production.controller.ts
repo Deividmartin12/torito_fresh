@@ -1,13 +1,12 @@
 import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
-import { RoleName } from '@prisma/client';
 import { CurrentUser } from '../auth/current-user.decorator';
-import { Roles } from '../auth/roles.decorator';
+import { Permisos } from '../auth/permisos.decorator';
 import { UnidadQuery } from '../auth/unidad-query.decorator';
 import { AuthUser } from '../common/auth-user';
 import { CreateProductionOrderDto, UpdateProductionOrderDto } from './production.dto';
 import { ProductionService } from './production.service';
 
-@Roles(RoleName.ADMIN, RoleName.WAREHOUSE)
+@Permisos('produccion.gestionar')
 @Controller('production')
 export class ProductionController {
   constructor(private readonly production: ProductionService) {}

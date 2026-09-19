@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
-import { Prisma, RoleName } from '@prisma/client';
-import { AuthUser } from './auth-user';
+import { Prisma } from '@prisma/client';
+import { AuthUser, tienePermiso } from './auth-user';
 import { SIN_TRABAJADOR_VINCULADO } from './worker-context';
 
 /**
@@ -39,6 +39,15 @@ type ClientePreferencia = {
 type ClienteTrabajador = {
   trabajador: { findFirst: Prisma.TrabajadorDelegate['findFirst'] };
 };
+
+/**
+ * Lo que hace falta saber del actor para resolver su alcance.
+ *
+ * Lleva `accesoTotal` y `permisos` porque quién puede pararse en OTRA unidad ya no se deduce
+ * del rol sino del permiso `unidades.elegir`. Mientras era `role !== 'ADMIN'`, un rol creado
+ * desde el panel quedaba siempre encerrado en su propia unidad aunque se le marcara todo.
+ */
+type ActorUnidad = Pick<AuthUser, 'accesoTotal' | 'permisos' | 'unidadNegocioId' | 'userId'>;
 
 /**
  * Id de la unidad Principal. Se cachea en memoria porque es una fila que se crea en la
@@ -93,14 +102,14 @@ export async function unidadControlaInventario(
  * ningún aviso. "Dónde se registra" y "quién lo registró" son dos ejes distintos.
  *
  * `atribuidaA` es el segundo eje, y solo se valida cuando la operación se le adjudica a OTRA
- * persona (`dto.trabajadorId`, que solo un ADMIN puede mandar): ahí sí tiene que ser de la
+ * persona (`dto.trabajadorId`, que pide el permiso `operaciones.atribuir`): ahí sí tiene que ser de la
  * unidad destino, porque si no su reporte por trabajador mostraría ventas de un puesto al que
  * no pertenece. El trabajador del propio actor no se valida: es el autor, no el dueño.
  */
 export async function resolverUnidadDeEscritura(
   db: ClienteUnidad & ClienteTrabajador & ClientePreferencia,
   intencion: {
-    actor: Pick<AuthUser, 'role' | 'unidadNegocioId' | 'userId'>;
+    actor: ActorUnidad;
     unidadSolicitada?: string | null;
     atribuidaA?: bigint | null;
   },
@@ -123,18 +132,18 @@ export async function resolverUnidadDeEscritura(
 
 async function unidadDestino(
   db: ClienteUnidad & ClientePreferencia,
-  actor: Pick<AuthUser, 'role' | 'unidadNegocioId' | 'userId'>,
+  actor: ActorUnidad,
   unidadSolicitada?: string | null,
 ): Promise<bigint> {
   const solicitada = unidadSolicitada?.toString().trim();
   const propia = actor.unidadNegocioId ? BigInt(actor.unidadNegocioId) : null;
 
-  if (actor.role !== RoleName.ADMIN) {
+  if (!tienePermiso(actor, 'unidades.elegir')) {
     if (!propia) throw new ForbiddenException(SIN_TRABAJADOR_VINCULADO);
     return propia;
   }
 
-  // Sin unidad pedida manda lo que el administrador tenga elegido en Configuración: si está
+  // Sin unidad pedida manda lo que tenga elegido en Configuración: si está
   // mirando un solo puesto, ahí registra. Con varias o con todas no hay un destino único, así
   // que cae a la suya; el formulario avisa en cuál va a quedar antes de guardar.
   if (!solicitada) {
@@ -192,23 +201,23 @@ export async function alcanceGuardado(
 /**
  * Qué unidades puede LEER el actor.
  *
- * - Rol distinto de ADMIN: siempre la suya, se pida lo que se pida.
- * - ADMIN sin parámetro: lo que tenga guardado en Configuración (sin nada guardado, todas).
- * - ADMIN con `todas`: sin filtro, el consolidado.
- * - ADMIN con un id: se valida que la unidad exista.
+ * - Sin el permiso `unidades.elegir`: siempre la suya, se pida lo que se pida.
+ * - Con el permiso y sin parámetro: lo que tenga guardado en Configuración (sin nada, todas).
+ * - Con el permiso y `todas`: sin filtro, el consolidado.
+ * - Con el permiso y un id: se valida que la unidad exista.
  *
  * El parámetro sigue existiendo para las pantallas que necesitan mirar una unidad concreta sin
  * cambiarle la preferencia a nadie; la elección de fondo vive en la base.
  */
 export async function resolverAlcanceUnidad(
   db: ClienteUnidad & ClientePreferencia,
-  actor: Pick<AuthUser, 'role' | 'unidadNegocioId' | 'userId'>,
+  actor: ActorUnidad,
   unidadSolicitada?: string | null,
 ): Promise<AlcanceUnidad> {
   const solicitada = unidadSolicitada?.toString().trim();
 
-  if (actor.role !== RoleName.ADMIN) {
-    // Se IGNORA lo pedido en vez de rechazarlo: quien no es administrador no elige unidad, y
+  if (!tienePermiso(actor, 'unidades.elegir')) {
+    // Se IGNORA lo pedido en vez de rechazarlo: quien no elige unidad no la elige, y
     // un parámetro suelto solo puede venir de una pantalla que lo arrastró. Devolver la suya
     // no filtra nada, es el mismo valor que ya correspondía.
     if (!actor.unidadNegocioId) throw new ForbiddenException(SIN_TRABAJADOR_VINCULADO);

@@ -1,12 +1,11 @@
 import { Controller, Get, Query } from '@nestjs/common';
-import { RoleName } from '@prisma/client';
 import { CurrentUser } from '../auth/current-user.decorator';
-import { Roles } from '../auth/roles.decorator';
+import { Permisos } from '../auth/permisos.decorator';
 import { UnidadQuery } from '../auth/unidad-query.decorator';
 import { AuthUser } from '../common/auth-user';
 import { ReportsService } from './reports.service';
 
-@Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.WAREHOUSE, RoleName.SOCIO)
+@Permisos('reportes.ver')
 @Controller('reports')
 export class ReportsController {
   constructor(private readonly reports: ReportsService) {}
@@ -26,7 +25,7 @@ export class ReportsController {
 
   // Ventas por trabajador (desglosadas por forma de cobro), pagos que recibió y gastos
   // que registró, todo dentro del período.
-  @Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.WAREHOUSE)
+  @Permisos('reportes.trabajadores')
   @Get('workers')
   workers(
     @CurrentUser() user: AuthUser,
@@ -39,7 +38,7 @@ export class ReportsController {
 
   // Panel simple para el repartidor: sus ventas registradas hoy. No necesita filtro de
   // unidad porque ya está acotado al trabajador vinculado a la cuenta.
-  @Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.WAREHOUSE, RoleName.DELIVERY, RoleName.SOCIO)
+  @Permisos('reportes.reparto')
   @Get('delivery-summary')
   deliverySummary(@CurrentUser() user: AuthUser) {
     return this.reports.deliverySummary(user.userId);

@@ -1,19 +1,18 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { RoleName } from '@prisma/client';
 import { CurrentUser } from '../auth/current-user.decorator';
-import { Roles } from '../auth/roles.decorator';
+import { Permisos } from '../auth/permisos.decorator';
 import { UnidadQuery } from '../auth/unidad-query.decorator';
 import { AuthUser } from '../common/auth-user';
 import { CreateClientDto, UpdateClientDto } from './clients.dto';
 import { ClientsService } from './clients.service';
 
-@Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.SOCIO)
+@Permisos('clientes.editar')
 @Controller('clients')
 export class ClientsController {
   constructor(private readonly clients: ClientsService) {}
 
   // El rol DELIVERY puede leer y crear clientes, pero no editarlos ni desactivarlos.
-  @Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.DELIVERY, RoleName.SOCIO)
+  @Permisos('clientes.ver')
   @Get()
   list(
     @CurrentUser() user: AuthUser,
@@ -24,13 +23,13 @@ export class ClientsController {
     return this.clients.list(user, search, active, unidad);
   }
 
-  @Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.DELIVERY, RoleName.SOCIO)
+  @Permisos('clientes.ver')
   @Get(':id')
   get(@Param('id') id: string, @CurrentUser() user: AuthUser, @UnidadQuery() unidad?: string) {
     return this.clients.get(id, user, unidad);
   }
 
-  @Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.DELIVERY, RoleName.SOCIO)
+  @Permisos('clientes.crear')
   @Post()
   create(
     @Body() dto: CreateClientDto,

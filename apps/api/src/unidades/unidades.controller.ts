@@ -1,7 +1,6 @@
 import { Body, Controller, Get, Param, Patch, Post, Put } from '@nestjs/common';
-import { RoleName } from '@prisma/client';
 import { CurrentUser } from '../auth/current-user.decorator';
-import { Roles } from '../auth/roles.decorator';
+import { Permisos, SinPermiso } from '../auth/permisos.decorator';
 import { AuthUser } from '../common/auth-user';
 import {
   CreateUnidadNegocioDto,
@@ -10,27 +9,35 @@ import {
 } from './unidades.dto';
 import { UnidadesService } from './unidades.service';
 
-// El @Roles de clase es obligatorio: sin ninguno, RolesGuard deja pasar a cualquier
+// El @Permisos de clase es obligatorio: sin ninguno, PermisosGuard deja pasar a cualquier
 // autenticado y un socio podría crear unidades.
-@Roles(RoleName.ADMIN)
+@Permisos('unidades.administrar')
 @Controller('unidades')
 export class UnidadesController {
   constructor(private readonly unidades: UnidadesService) {}
 
-  // La única ruta abierta al resto de los roles: alimenta el selector de unidad. Cada quien
-  // recibe solo la suya, así que no filtra nada que no pueda ver igual.
-  @Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.WAREHOUSE, RoleName.DELIVERY, RoleName.SOCIO)
+  // La única ruta abierta a cualquier sesión: alimenta el indicador de unidad, que está en
+  // todas las pantallas. Cada quien recibe solo la suya, así que no filtra nada que no vea
+  // igual en la cabecera; y como no hay rol que pueda trabajar sin esto, no es un permiso.
+  @SinPermiso()
   @Get('mias')
   mias(@CurrentUser() user: AuthUser) {
     return this.unidades.propias(user);
   }
 
+  // Elegir qué unidades mirar es `unidades.elegir`, no `unidades.administrar`: son dos cosas
+  // distintas. Administrar es crear y editar las unidades del sistema; elegir es pararse en
+  // una u otra para trabajar. Con el permiso de la clase, un rol que pudiera elegir unidad
+  // veía el ítem en el menú y recibía un 403 al entrar.
+  //
   // Va antes de `:id` a propósito: si no, "visibles" entraría por ahí como si fuera un id.
+  @Permisos('unidades.elegir')
   @Get('visibles')
   visibles(@CurrentUser() user: AuthUser) {
     return this.unidades.visibles(user);
   }
 
+  @Permisos('unidades.elegir')
   @Put('visibles')
   guardarVisibles(@CurrentUser() user: AuthUser, @Body() dto: UnidadesVisiblesDto) {
     return this.unidades.guardarVisibles(user, dto);

@@ -8038,3 +8038,291 @@ input[type='radio'] {
     font-size: 12px !important;
   }
 }
+
+/* ===== Identidad al pie del menú =========================================
+   Quién está usando la app: nombre, cargo y unidad de negocio. Vivía en la
+   barra de arriba, donde competía por lugar con los botones y en el celular
+   no entraba; acá abajo tiene sitio para las tres líneas.
+
+   El sidebar pasa a ser una columna flex para que la nav se coma el alto que
+   sobra y este bloque quede pegado abajo sin números mágicos.
+   ====================================================================== */
+@media (min-width: 1024px) {
+  .desktop-sidebar {
+    display: flex;
+    flex-direction: column;
+  }
+}
+
+.desktop-sidebar .sidebar-nav,
+.desktop-sidebar.collapsed .sidebar-nav {
+  height: auto;
+  flex: 1 1 auto;
+  /* Sin esto un flex item no baja de su alto de contenido y el bloque de
+     identidad quedaría empujado fuera de la pantalla en menús largos. */
+  min-height: 0;
+}
+
+.sidebar-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+  border-top: 1px solid var(--border);
+  padding: 12px 14px;
+  background: var(--surface);
+}
+
+.sidebar-identity-avatar {
+  display: flex;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-control);
+  background: var(--accent-soft);
+  color: var(--accent-soft-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sidebar-identity-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.sidebar-identity-copy strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px !important;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-identity-copy span {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-identity-copy small {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-identity-copy small svg {
+  flex: 0 0 auto;
+}
+
+/* Compactado queda solo el avatar, centrado como el resto de los íconos. El
+   nombre completo sigue disponible en el title del bloque. */
+.desktop-sidebar.collapsed .sidebar-identity {
+  justify-content: center;
+  padding: 12px 9px;
+}
+
+.desktop-sidebar.collapsed .sidebar-identity-copy {
+  display: none;
+}
+
+/* En el celular el bloque abre el menú desplegable, así que va con el mismo
+   redondeo que las tarjetas y separado por abajo, no por arriba. */
+.app-menu .sidebar-identity {
+  margin-bottom: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius);
+  background: var(--surface-soft);
+}
+
+/* ===== Roles y permisos ==================================================
+   Tabla: las unidades donde trabaja la gente de cada rol, como chips.
+   ====================================================================== */
+.rol-unidades {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.rol-unidad {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  padding: 2px 9px;
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* El modal de rol es más ancho que el resto: la lista de permisos necesita
+   lugar para la etiqueta y su explicación en la misma línea. */
+.rol-modal {
+  width: min(100%, 820px);
+}
+
+.rol-permisos-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.rol-permisos-buscar {
+  max-width: 260px;
+  flex: 1 1 180px;
+}
+
+.rol-permisos {
+  display: flex;
+  max-height: 46vh;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius);
+  padding: 12px;
+  background: var(--surface-soft);
+  scrollbar-width: thin;
+}
+
+.rol-permiso-grupo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rol-permiso-grupo header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px 6px;
+}
+
+.rol-permiso-grupo header strong {
+  flex: 1;
+  color: var(--text);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.rol-permiso-grupo header small {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.rol-permiso-todos {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  padding: 2px 10px;
+  background: var(--surface);
+  color: var(--accent-soft-text);
+  font-size: 11px;
+  transition: background-color 0.15s ease;
+}
+
+.rol-permiso-todos:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.rol-permiso {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border-radius: 10px;
+  padding: 7px 8px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.rol-permiso:hover {
+  background: var(--surface-hover);
+}
+
+.rol-permiso input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  /* Cuadrado redondeado y no pill: es lo que hace que se lea como casilla. */
+  margin: 2px 0 0;
+  flex: 0 0 16px;
+  border-radius: 5px;
+  accent-color: var(--accent);
+}
+
+.rol-permiso > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.rol-permiso > span strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.rol-permiso > span small {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+@media (max-width: 700px) {
+  .rol-permisos {
+    max-height: none;
+  }
+
+  .rol-permisos-buscar {
+    max-width: none;
+  }
+}
+
+/* Tres acciones por fila (editar, activar, eliminar) no entran en el ancho que el navegador
+   le da a la columna con seis columnas en juego, y los botones se partían en dos líneas. */
+.rol-tabla .row-actions {
+  flex-wrap: nowrap;
+}
+
+.rol-tabla th:last-child,
+.rol-tabla td:last-child {
+  white-space: nowrap;
+}
+
+/* La etiqueta general de los modales (`.modal-form label > span`) pone en mayúsculas y en
+   bloque el texto de cada campo. Acá el span no es el rótulo de un campo sino el contenido de
+   la casilla —nombre del permiso y su explicación—, así que se le devuelve el formato normal.
+   Va con la misma clase del formulario para ganarle en especificidad, no con !important. */
+.modal-form .rol-permiso > span {
+  display: flex;
+  margin: 0;
+  flex-direction: column;
+  gap: 1px;
+  text-transform: none;
+}
+
+.modal-form .rol-permiso > span strong {
+  color: var(--text);
+  font-size: 13px !important;
+  text-transform: none;
+}
+
+.modal-form .rol-permiso > span small {
+  display: block;
+  color: var(--text-muted);
+  font-size: 12px !important;
+  line-height: 1.35;
+  text-transform: none;
+}

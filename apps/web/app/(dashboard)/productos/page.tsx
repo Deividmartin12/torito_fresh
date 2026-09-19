@@ -13,7 +13,7 @@ import { useUnidad } from '../../../components/UnidadProvider';
 import { api } from '../../../lib/api';
 import { puede } from '../../../lib/permissions';
 import { soloTextoNombre, validarMonto, validarNombreLibre } from '../../../lib/validacion';
-import { useRole } from '../../../lib/useCurrentUser';
+import { usePermisos } from '../../../lib/useCurrentUser';
 
 type Producto = {
   id: string;
@@ -46,7 +46,7 @@ export default function ProductosPage() {
   // El catálogo de productos es compartido entre unidades: solo lo edita quien administra la
   // operación. Antes bastaba con no ser repartidor, y el responsable de un puesto veía los
   // botones de crear y borrar aunque el API se los rechazara.
-  const editable = puede(useRole(), 'productos.editar');
+  const editable = puede(usePermisos(), 'productos.editar');
   const { controlaInventario } = useUnidad();
   useEffect(() => {
     api<Producto[]>('/operations/products')

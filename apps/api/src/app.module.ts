@@ -3,7 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
-import { RolesGuard } from './auth/roles.guard';
+import { PermisosGuard } from './auth/permisos.guard';
 import { BidonesRotosModule } from './bidones-rotos/bidones-rotos.module';
 import { ClientsModule } from './clients/clients.module';
 import { ConsultaDocumentoModule } from './consulta-documento/consulta-documento.module';
@@ -16,6 +16,7 @@ import { ProductionModule } from './production/production.module';
 import { ProveedoresModule } from './proveedores/proveedores.module';
 import { RecargasModule } from './recargas/recargas.module';
 import { ReportsModule } from './reports/reports.module';
+import { RolesModule } from './roles/roles.module';
 import { TrabajadoresModule } from './trabajadores/trabajadores.module';
 import { UnidadesModule } from './unidades/unidades.module';
 import { UsersModule } from './users/users.module';
@@ -36,13 +37,14 @@ import { UsersModule } from './users/users.module';
     RecargasModule,
     BidonesRotosModule,
     ReportsModule,
+    RolesModule,
     TrabajadoresModule,
     UnidadesModule,
     UsersModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
-    { provide: APP_GUARD, useClass: RolesGuard },
+    { provide: APP_GUARD, useClass: PermisosGuard },
   ],
 })
 export class AppModule {}
