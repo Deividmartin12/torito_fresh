@@ -8,6 +8,7 @@ import { PeriodFilter } from '../../../components/PeriodFilter';
 import { ProveedorFormModal } from '../../../components/ProveedorFormModal';
 import { SearchableSelect } from '../../../components/SearchableSelect';
 import { TrabajadorFormModal } from '../../../components/TrabajadorFormModal';
+import { cargarParcial, primerError } from '../../../lib/cargar';
 import { fechaCorta, moneda } from '../../../lib/format';
 import {
   CATEGORIA_PAGO_TRABAJADOR,
@@ -24,6 +25,7 @@ import {
 } from '../../../lib/expenses';
 import { getOperationalPaymentMethods, OperationalPaymentMethod } from '../../../lib/operations';
 import { Proveedor } from '../../../lib/proveedores';
+import { puede } from '../../../lib/permissions';
 import { getTrabajadores, nombreTrabajador, Trabajador } from '../../../lib/trabajadores';
 import { useRole } from '../../../lib/useCurrentUser';
 
@@ -32,7 +34,7 @@ const localDate = () =>
 const emptyForm = (): CreateExpensePayload => ({
   fecha: localDate(),
   concepto: '',
-  categoria: '',
+  categoriaId: '',
   monto: 0,
   comprobante: '',
   observaciones: '',
@@ -60,33 +62,38 @@ export default function GastosPage() {
   const [trabajadorModal, setTrabajadorModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
-  // Dar de alta un trabajador es exclusivo de ADMIN (`POST /trabajadores`), así que al
-  // resto se le oculta la acción inline en vez de dejar que reciba un 403.
-  const puedeCrearTrabajador = useRole() === 'ADMIN';
+  // Si el catálogo de categorías no llegó, la lista vacía no significa "no hay categorías"
+  // sino "no se pudieron cargar", y el formulario tiene que decir eso y no lo otro.
+  const [fallaronCategorias, setFallaronCategorias] = useState(false);
+  const rolActual = useRole();
+  const puedeCrearTrabajador = puede(rolActual, 'trabajadores.crear');
+  const puedeCrearCategoria = puede(rolActual, 'gastos.categoria.crear');
 
   const load = useCallback(async () => {
     setLoading(true);
-    try {
-      const [expenseData, categoryData, proveedorData, trabajadorData, metodoData] =
-        await Promise.all([
-          getExpenses(),
-          getExpenseCategories(),
-          getExpenseProveedores(),
-          getTrabajadores(true),
-          getOperationalPaymentMethods(),
-        ]);
-      setExpenses(expenseData);
-      setExpenseCategories(categoryData);
-      setProveedores(proveedorData);
-      setTrabajadores(trabajadorData);
-      setMetodos(metodoData);
-    } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : 'No se pudieron cargar los gastos', {
+    // Carga parcial a propósito: una petición que falle no puede dejar el formulario entero
+    // inservible. Con `Promise.all`, un 403 en cualquiera de las cinco vaciaba las categorías
+    // y apagaba el botón de guardar.
+    const [gastos, categorias, provs, trabs, pagos] = await cargarParcial([
+      getExpenses(),
+      getExpenseCategories(),
+      getExpenseProveedores(),
+      getTrabajadores(true),
+      getOperationalPaymentMethods(),
+    ] as const);
+    setExpenses(gastos.valor ?? []);
+    setExpenseCategories(categorias.valor ?? []);
+    setFallaronCategorias(Boolean(categorias.error));
+    setProveedores(provs.valor ?? []);
+    setTrabajadores(trabs.valor ?? []);
+    setMetodos(pagos.valor ?? []);
+    const fallo = primerError(gastos, categorias, provs, trabs, pagos);
+    if (fallo) {
+      toast.error(fallo.message || 'No se pudieron cargar los gastos', {
         action: { label: 'Reintentar', onClick: () => void load() },
       });
-    } finally {
-      setLoading(false);
     }
+    setLoading(false);
   }, []);
   useEffect(() => {
     void load();
@@ -101,6 +108,12 @@ export default function GastosPage() {
         ]),
       ].sort(),
     [expenseCategories, expenses],
+  );
+  // El formulario guarda el id de la categoría; el nombre sale del catálogo cuando hace
+  // falta, que es para decidir si la categoría es la de pago a trabajador.
+  const nombreCategoria = useCallback(
+    (id: string) => expenseCategories.find((item) => item.id === id)?.nombre ?? '',
+    [expenseCategories],
   );
   const handlePeriod = useCallback((from: string, to: string) => {
     setRango({ from, to });
@@ -130,7 +143,7 @@ export default function GastosPage() {
         ? {
             fecha: expense.fecha.slice(0, 10),
             concepto: expense.concepto,
-            categoria: expense.categoria,
+            categoriaId: expense.categoriaId,
             monto: expense.monto,
             comprobante: expense.comprobante ?? '',
             observaciones: expense.observaciones ?? '',
@@ -158,7 +171,11 @@ export default function GastosPage() {
       toast.error('El monto debe ser mayor a 0.');
       return;
     }
-    const esPago = esPagoTrabajador(form.categoria);
+    if (!form.categoriaId) {
+      toast.error('Selecciona la categoría del gasto.');
+      return;
+    }
+    const esPago = esPagoTrabajador(nombreCategoria(form.categoriaId));
     if (esPago && !form.beneficiarioId) {
       toast.error('Selecciona el trabajador al que se le está pagando.');
       return;
@@ -204,7 +221,7 @@ export default function GastosPage() {
         : [...current, categoria]
       ).sort((a, b) => a.nombre.localeCompare(b.nombre)),
     );
-    setForm((current) => ({ ...current, categoria: categoria.nombre }));
+    setForm((current) => ({ ...current, categoriaId: categoria.id }));
     setCategoriaModal(false);
   }
   function handleProveedorCreado(proveedor: Proveedor) {
@@ -563,32 +580,44 @@ export default function GastosPage() {
                 <label>
                   <span>Categoría</span>
                   <SearchableSelect
-                    value={form.categoria}
+                    value={form.categoriaId}
                     onChange={(value) =>
                       setForm((current) => ({
                         ...current,
-                        categoria: value,
+                        categoriaId: value,
                         // Al salir de "Pago a trabajador" el beneficiario deja de tener
                         // sentido y el API lo rechazaría.
-                        beneficiarioId: esPagoTrabajador(value) ? current.beneficiarioId : '',
+                        beneficiarioId: esPagoTrabajador(nombreCategoria(value))
+                          ? current.beneficiarioId
+                          : '',
                       }))
                     }
                     options={expenseCategories.map((item) => ({
-                      value: item.nombre,
+                      value: item.id,
                       label: item.nombre,
                     }))}
                     placeholder="Buscar categoría"
                     required
-                    actionLabel="+ Agregar categoría"
-                    onAction={() => setCategoriaModal(true)}
+                    actionLabel={puedeCrearCategoria ? '+ Agregar categoría' : undefined}
+                    onAction={puedeCrearCategoria ? () => setCategoriaModal(true) : undefined}
                   />
-                  {!expenseCategories.length ? (
+                  {/* Una lista vacía puede significar dos cosas muy distintas, y antes las dos
+                      decían lo mismo: que faltaba crear una categoría. Si la carga falló, lo
+                      que hace falta es reintentar, no crear nada. */}
+                  {fallaronCategorias ? (
+                    <small className="field-error">
+                      No se pudieron cargar las categorías.{' '}
+                      <button type="button" className="link-button" onClick={() => void load()}>
+                        Reintentar
+                      </button>
+                    </small>
+                  ) : !expenseCategories.length ? (
                     <small className="field-error">
                       Crea una categoría antes de registrar el gasto.
                     </small>
                   ) : null}
                 </label>
-                {esPagoTrabajador(form.categoria) ? (
+                {esPagoTrabajador(nombreCategoria(form.categoriaId)) ? (
                   <label className="field-wide">
                     <span>Trabajador al que se le paga</span>
                     <SearchableSelect

@@ -9,6 +9,9 @@ export type UsuarioSesion = {
   email: string;
   username?: string | null;
   role: string;
+  /** Unidad de negocio a la que pertenece la persona, vía su trabajador vinculado. */
+  unidadNegocioId?: string | null;
+  unidad?: string | null;
 };
 
 export function obtenerToken() {
@@ -81,6 +84,9 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
 
   let response: Response;
   try {
+    // Sin unidad pegada a la ruta: qué unidades ve cada usuario vive en la base y lo resuelve
+    // el API. Antes se adjuntaba desde `localStorage`, y esa elección se heredaba entre
+    // usuarios de la misma máquina.
     response = await fetch(`${API_URL}/api${path}`, {
       ...options,
       headers,

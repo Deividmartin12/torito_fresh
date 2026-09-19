@@ -4,6 +4,7 @@ import { HandCoins, ReceiptText, Users, Wallet } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { PeriodFilter } from '../../../../components/PeriodFilter';
+import { useUnidad } from '../../../../components/UnidadProvider';
 import { ReportHeader, ReportMetric } from '../../../../components/reports/ReportNav';
 import { moneda } from '../../../../lib/format';
 import {
@@ -32,6 +33,8 @@ export default function ReporteTrabajadoresPage() {
   const [tab, setTab] = useState<TabId>('ventas');
   const [mostrarTodos, setMostrarTodos] = useState(false);
   const [loading, setLoading] = useState(true);
+  // Solo dispara la recarga: la unidad viaja al API desde `api()`.
+  const { clave: unidad } = useUnidad();
 
   const handlePeriod = useCallback((from: string, to: string) => {
     setRango({ from, to });
@@ -49,7 +52,7 @@ export default function ReporteTrabajadoresPage() {
         ),
       )
       .finally(() => setLoading(false));
-  }, [rango]);
+  }, [rango, unidad]);
 
   const workers = report?.workers ?? [];
   const conMovimiento = useMemo(() => workers.filter(tuvoMovimiento), [workers]);

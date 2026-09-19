@@ -12,6 +12,9 @@ enum RoleName {
   SELLER
   DELIVERY
   WAREHOUSE
+  // Responsable de una unidad de negocio satélite: registra sus propias ventas y gastos
+  // contra su propio almacén y sus propios clientes, sin ver los de la unidad principal.
+  SOCIO
 }
 
 enum ClientType {
@@ -58,10 +61,34 @@ model User {
   createdOrders  Order[]             @relation("CreatedOrders")
   containerMoves ContainerMovement[]
   trabajador     Trabajador?
+  // Qué unidades de negocio mira esta persona. Sin filas = todas (ver UsuarioUnidadVisible).
+  unidadesVisibles UsuarioUnidadVisible[]
   createdAt      DateTime            @default(now()) @map("created_at")
   updatedAt      DateTime            @updatedAt @map("updated_at")
 
   @@map("users")
+}
+
+// Las unidades de negocio que un usuario eligió mirar, en Configuración › Unidades que veo.
+//
+// Va en la base y no en el navegador porque es una preferencia de la persona, no de la máquina:
+// tiene que seguirla si entra desde el celular o desde otra computadora. Antes la elección vivía
+// en `localStorage`, así que se perdía al cambiar de equipo y se heredaba entre usuarios de la
+// misma máquina.
+//
+// SIN NINGUNA FILA SIGNIFICA "TODAS", y es el estado por defecto. Eso importa: si se guardaran
+// las unidades de hoy una por una, una unidad creada mañana no aparecería y el usuario vería
+// números incompletos sin entender por qué.
+model UsuarioUnidadVisible {
+  userId          String        @map("user_id")
+  unidadNegocioId BigInt        @map("unidad_negocio_id")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  unidadNegocio   UnidadNegocio @relation(fields: [unidadNegocioId], references: [id], onDelete: Cascade)
+
+  @@id([userId, unidadNegocioId])
+  @@index([userId])
+  @@map("usuario_unidad_visible")
 }
 
 model Client {
@@ -108,7 +135,12 @@ model Order {
 
 model ContainerMovement {
   id           String                @id @default(cuid())
-  clientId     String                @map("client_id")
+  // `clientId`/`client` quedan del modelo legacy (Client, sin uso — ver abajo);
+  // ahora opcionales porque los movimientos nuevos se registran contra
+  // `clienteId`/`cliente` (Cliente, el modelo moderno que usa el resto del
+  // sistema). Ningún movimiento existente se pierde: la tabla está vacía.
+  clientId     String?               @map("client_id")
+  clienteId    BigInt?               @map("cliente_id")
   orderId      String?               @map("order_id")
   userId       String?               @map("user_id")
   type         ContainerMovementType
@@ -116,20 +148,69 @@ model ContainerMovement {
   balanceAfter Int                   @map("balance_after")
   notes        String?
   movedAt      DateTime              @default(now()) @map("moved_at")
-  client       Client                @relation(fields: [clientId], references: [id])
+  client       Client?               @relation(fields: [clientId], references: [id])
+  cliente      Cliente?              @relation(fields: [clienteId], references: [id])
   order        Order?                @relation(fields: [orderId], references: [id])
   user         User?                 @relation(fields: [userId], references: [id])
 
   @@index([movedAt])
+  @@index([clienteId])
   @@map("container_movements")
 }
 
 // Nuevo modelo operativo. Las tablas heredadas de arriba se mantienen de forma
 // temporal para que el API actual siga funcionando durante la migracion.
 
+// Unidad de negocio: la operación principal y cada puesto satélite. Las ventas, los gastos,
+// los clientes y los almacenes pertenecen a exactamente una unidad y no se cruzan entre sí.
+// El catálogo de productos, las categorías de gasto, los proveedores y los métodos de pago
+// son compartidos: lo que separa a una unidad de otra son sus números, no sus catálogos.
+model UnidadNegocio {
+  id        BigInt @id @default(autoincrement())
+  codigo    String @unique @db.VarChar(30)
+  nombre    String @unique @db.VarChar(100)
+  // La operación principal. Exactamente una fila la tiene en true: la migración crea un
+  // índice único parcial que lo garantiza (Prisma no sabe expresarlo con @@unique).
+  principal Boolean @default(false)
+  estado    Boolean @default(true)
+  // Un puesto que solo registra lo que vende y lo que gasta.
+  //
+  // En false la unidad no lleva stock: sus ventas no descuentan inventario ni generan kardex, y
+  // sus devoluciones no reingresan nada. Hace falta porque el stock solo nace de una orden de
+  // producción (no hay transferencias ni ajustes ni compras), así que un puesto que no produce
+  // no podía vender: la venta fallaba con "Stock insuficiente. Disponible: 0".
+  //
+  // Es propiedad del LUGAR y no de la persona: el stock cuelga del almacén y el almacén de la
+  // unidad, así que la venta tiene que comportarse igual la registre el responsable del puesto
+  // o el administrador parado en él. La Principal siempre lo tiene en true (lo garantiza un
+  // CHECK en constraints.sql).
+  controlaInventario Boolean  @default(true) @map("controla_inventario")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  // Las únicas seis tablas que llevan la columna. El resto se filtra por relación:
+  // CuentaCobrar y SaldoFavorCliente por cliente, PagoCliente por cuentaCobrar.venta,
+  // DevolucionVenta por venta, StockAlmacen por almacen, MovimientoInventario por
+  // detalles.almacen, ContainerMovement por cliente y OrdenProduccion por su almacén.
+  ventas       Venta[]
+  gastos       Gasto[]
+  clientes     Cliente[]
+  almacenes    Almacen[]
+  trabajadores Trabajador[]
+  bidonesRotos BidonRoto[]
+  // Quiénes la tienen marcada para mirarla. No es dato del negocio, es preferencia de usuario.
+  vistaPorUsuarios UsuarioUnidadVisible[]
+
+  @@map("unidad_negocio")
+}
+
 model Trabajador {
   id              BigInt   @id @default(autoincrement())
   userId          String?  @unique @map("user_id")
+  // La unidad a la que pertenece la persona. Va acá y no en `User` porque un ADMIN puede
+  // registrar operaciones a nombre de otro trabajador: la operación debe quedar en la
+  // unidad de ESE trabajador, no en la del admin que la tecleó.
+  unidadNegocioId BigInt   @map("unidad_negocio_id")
   tipoDocumento   String   @map("tipo_documento") @db.VarChar(20)
   numeroDocumento String   @unique @map("numero_documento") @db.VarChar(20)
   nombres         String   @db.VarChar(100)
@@ -142,6 +223,7 @@ model Trabajador {
   updatedAt       DateTime @updatedAt @map("updated_at")
 
   user                  User?                  @relation(fields: [userId], references: [id])
+  unidadNegocio         UnidadNegocio          @relation(fields: [unidadNegocioId], references: [id])
   ventas                Venta[]
   pagosCliente          PagoCliente[]
   devolucionesVenta     DevolucionVenta[]
@@ -155,6 +237,7 @@ model Trabajador {
   bidonesRotos          BidonRoto[]
   metodosPago           MetodoPago[]
 
+  @@index([unidadNegocioId])
   @@map("trabajador")
 }
 
@@ -178,29 +261,35 @@ model Proveedor {
 // Los gastos son egresos administrativos/operativos. No representan compras de
 // productos y, por tanto, no generan movimientos de inventario ni stock.
 model Gasto {
-  id            BigInt      @id @default(autoincrement())
-  fecha         DateTime    @default(now()) @db.Date
-  concepto      String      @db.VarChar(200)
-  categoria     String      @db.VarChar(100)
-  monto         Decimal     @db.Decimal(12, 2)
-  comprobante   String?     @db.VarChar(50)
-  observaciones String?
+  id              BigInt         @id @default(autoincrement())
+  unidadNegocioId BigInt         @map("unidad_negocio_id")
+  fecha           DateTime       @default(now()) @db.Date
+  concepto        String         @db.VarChar(200)
+  // La categoría es una fila de `categoria_gasto`, no un texto suelto: el catálogo es la
+  // única fuente del nombre, así que renombrarla se refleja en todos sus gastos.
+  categoriaId     BigInt         @map("categoria_id")
+  monto           Decimal        @db.Decimal(12, 2)
+  comprobante     String?        @db.VarChar(50)
+  observaciones   String?
   // Quién REGISTRÓ el gasto (su autor). Se muestra como "Registrado por".
-  trabajadorId   BigInt?     @map("trabajador_id")
+  trabajadorId    BigInt?        @map("trabajador_id")
   // A quién se le PAGA. Solo se usa en los gastos de la categoría "Pago a trabajador":
   // es lo que permite que el pago aparezca en el reporte de ese trabajador.
-  beneficiarioId BigInt?     @map("beneficiario_id")
-  proveedorId    BigInt?     @map("proveedor_id")
-  metodoPagoId   BigInt?     @map("metodo_pago_id")
-  createdAt      DateTime    @default(now()) @map("created_at")
-  updatedAt      DateTime    @updatedAt @map("updated_at")
-  trabajador     Trabajador? @relation("GastosRegistrados", fields: [trabajadorId], references: [id])
-  beneficiario   Trabajador? @relation("GastosRecibidos", fields: [beneficiarioId], references: [id])
-  proveedor      Proveedor?  @relation(fields: [proveedorId], references: [id])
-  metodoPago     MetodoPago? @relation(fields: [metodoPagoId], references: [id])
+  beneficiarioId  BigInt?        @map("beneficiario_id")
+  proveedorId     BigInt?        @map("proveedor_id")
+  metodoPagoId    BigInt?        @map("metodo_pago_id")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+  unidadNegocio   UnidadNegocio  @relation(fields: [unidadNegocioId], references: [id])
+  categoria       CategoriaGasto @relation(fields: [categoriaId], references: [id])
+  trabajador      Trabajador?    @relation("GastosRegistrados", fields: [trabajadorId], references: [id])
+  beneficiario    Trabajador?    @relation("GastosRecibidos", fields: [beneficiarioId], references: [id])
+  proveedor       Proveedor?     @relation(fields: [proveedorId], references: [id])
+  metodoPago      MetodoPago?    @relation(fields: [metodoPagoId], references: [id])
 
   @@index([fecha])
-  @@index([categoria])
+  @@index([unidadNegocioId, fecha])
+  @@index([categoriaId])
   @@index([proveedorId])
   @@index([trabajadorId, fecha])
   @@index([beneficiarioId, fecha])
@@ -208,13 +297,14 @@ model Gasto {
 }
 
 model CategoriaGasto {
-  id     BigInt @id @default(autoincrement())
-  nombre String @unique @db.VarChar(100)
+  id        BigInt   @id @default(autoincrement())
+  nombre    String   @unique @db.VarChar(100)
   // Categoría fija del sistema: no se puede renombrar ni eliminar desde la UI. Hoy solo
   // la usa "Pago a trabajador", que es la que enlaza el gasto con su beneficiario.
   sistema   Boolean  @default(false)
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
+  gastos    Gasto[]
 
   @@map("categoria_gasto")
 }
@@ -222,16 +312,23 @@ model CategoriaGasto {
 // Registro diario de bidones que se rompen. Es solo un conteo operativo: no
 // genera movimientos de inventario ni afecta el stock.
 model BidonRoto {
-  id            BigInt      @id @default(autoincrement())
-  fecha         DateTime    @default(now()) @db.Date
-  cantidad      Int
-  observaciones String?
-  trabajadorId  BigInt?     @map("trabajador_id")
-  createdAt     DateTime    @default(now()) @map("created_at")
-  updatedAt     DateTime    @updatedAt @map("updated_at")
-  trabajador    Trabajador? @relation(fields: [trabajadorId], references: [id])
+  id BigInt @id @default(autoincrement())
+  // La unidad va acá y no se hereda del trabajador: a una persona la pueden mover de puesto,
+  // y entonces su historial de bidones rotos se mudaría con ella. El registro es un hecho que
+  // ocurrió en un puesto concreto. Además `trabajadorId` es opcional, así que heredarla
+  // dejaría las filas sin autor fuera de todo listado.
+  unidadNegocioId BigInt        @map("unidad_negocio_id")
+  fecha           DateTime      @default(now()) @db.Date
+  cantidad        Int
+  observaciones   String?
+  trabajadorId    BigInt?       @map("trabajador_id")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+  trabajador      Trabajador?   @relation(fields: [trabajadorId], references: [id])
+  unidadNegocio   UnidadNegocio @relation(fields: [unidadNegocioId], references: [id])
 
   @@index([fecha])
+  @@index([unidadNegocioId, fecha])
   @@map("bidon_roto")
 }
 
@@ -340,6 +437,7 @@ model MetodoPago {
 
 model Almacen {
   id                 BigInt                        @id @default(autoincrement())
+  unidadNegocioId    BigInt                        @map("unidad_negocio_id")
   codigo             String                        @unique @db.VarChar(30)
   nombre             String                        @db.VarChar(100)
   // Se conserva la columna (nullable) para no perder los valores históricos, pero ya no se
@@ -350,6 +448,7 @@ model Almacen {
   estado             Boolean                       @default(true)
   createdAt          DateTime                      @default(now()) @map("created_at")
   updatedAt          DateTime                      @updatedAt @map("updated_at")
+  unidadNegocio      UnidadNegocio                 @relation(fields: [unidadNegocioId], references: [id])
   responsable        Trabajador?                   @relation(fields: [responsableId], references: [id])
   ventasOrigen       Venta[]                       @relation("VentasOrigen")
   stocks             StockAlmacen[]
@@ -359,6 +458,7 @@ model Almacen {
   ordenesInsumos     OrdenProduccion[]             @relation("AlmacenInsumos")
   ordenesTerminados  OrdenProduccion[]             @relation("AlmacenTerminados")
 
+  @@index([unidadNegocioId])
   @@map("almacen")
 }
 
@@ -377,27 +477,41 @@ model EstadoInventario {
 }
 
 model Cliente {
-  id              BigInt              @id @default(autoincrement())
-  tipoDocumento   String?             @map("tipo_documento") @db.VarChar(20)
-  numeroDocumento String?             @unique @map("numero_documento") @db.VarChar(20)
-  nombreLegal     String              @map("nombre_legal") @db.VarChar(150)
-  nombreComercial String?             @map("nombre_comercial") @db.VarChar(150)
-  telefono        String?             @db.VarChar(20)
-  correo          String?             @db.VarChar(150)
-  direccion       String?             @db.VarChar(250)
-  estado          Boolean             @default(true)
-  createdAt       DateTime            @default(now()) @map("created_at")
-  updatedAt       DateTime            @updatedAt @map("updated_at")
-  ventas          Venta[]
-  cuentasCobrar   CuentaCobrar[]
-  saldosFavor     SaldoFavorCliente[]
+  id                 BigInt              @id @default(autoincrement())
+  unidadNegocioId    BigInt              @map("unidad_negocio_id")
+  tipoDocumento      String?             @map("tipo_documento") @db.VarChar(20)
+  numeroDocumento    String?             @map("numero_documento") @db.VarChar(20)
+  nombreLegal        String              @map("nombre_legal") @db.VarChar(150)
+  nombreComercial    String?             @map("nombre_comercial") @db.VarChar(150)
+  telefono           String?             @db.VarChar(20)
+  correo             String?             @db.VarChar(150)
+  direccion          String?             @db.VarChar(250)
+  estado             Boolean             @default(true)
+  // Saldo de envases pendientes (bidones entregados sin retornar). Antes vivía
+  // solo en el modelo legacy `Client`, desconectado de este; acá se mantiene
+  // igual que `containerBalance` allá: positivo = el cliente tiene bidones
+  // nuestros pendientes de devolver.
+  saldoEnvases       Int                 @default(0) @map("saldo_envases")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+  unidadNegocio      UnidadNegocio       @relation(fields: [unidadNegocioId], references: [id])
+  ventas             Venta[]
+  cuentasCobrar      CuentaCobrar[]
+  saldosFavor        SaldoFavorCliente[]
+  movimientosEnvases ContainerMovement[]
 
+  // El documento es único dentro de la unidad, no en toda la base: dos unidades pueden
+  // tener registrado al mismo cliente por su cuenta. Los NULL no colisionan en los índices
+  // únicos de Postgres, así que se siguen admitiendo clientes sin documento.
+  @@unique([unidadNegocioId, numeroDocumento])
   @@index([nombreLegal])
+  @@index([unidadNegocioId])
   @@map("cliente")
 }
 
 model Venta {
   id                    BigInt                 @id @default(autoincrement())
+  unidadNegocioId       BigInt                 @map("unidad_negocio_id")
   clienteId             BigInt                 @map("cliente_id")
   almacenOrigenId       BigInt                 @map("almacen_origen_id")
   trabajadorId          BigInt                 @map("trabajador_id")
@@ -416,6 +530,7 @@ model Venta {
   observaciones         String?
   createdAt             DateTime               @default(now()) @map("created_at")
   updatedAt             DateTime               @updatedAt @map("updated_at")
+  unidadNegocio         UnidadNegocio          @relation(fields: [unidadNegocioId], references: [id])
   cliente               Cliente                @relation(fields: [clienteId], references: [id])
   almacenOrigen         Almacen                @relation("VentasOrigen", fields: [almacenOrigenId], references: [id])
   trabajador            Trabajador             @relation(fields: [trabajadorId], references: [id])
@@ -429,6 +544,10 @@ model Venta {
   @@index([estado, fecha])
   @@index([clienteId])
   @@index([trabajadorId, fecha])
+  // Casi toda consulta nueva filtra primero por unidad: estos dos replican los de arriba
+  // con la unidad al frente.
+  @@index([unidadNegocioId, fecha])
+  @@index([unidadNegocioId, estado, fecha])
   @@map("venta")
 }
 

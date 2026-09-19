@@ -4,6 +4,8 @@ import * as bcrypt from 'bcryptjs';
 const prisma = new PrismaClient();
 
 async function main() {
+  const unidadPrincipal = await sembrarUnidadPrincipal();
+
   const roles = await Promise.all(
     Object.values(RoleName).map((name) =>
       prisma.role.upsert({
@@ -87,12 +89,26 @@ async function main() {
         correo: u.email,
         cargo: u.cargo,
         userId: user.id,
+        unidadNegocioId: unidadPrincipal.id,
       },
     });
   }
 
   await sembrarMetodosDePago();
   await sembrarCategoriasDeGasto();
+}
+
+/**
+ * La unidad "Principal" es la operación de siempre: la migración la crea y le asigna todo lo
+ * que ya existía, y acá se reafirma para que una base sembrada desde cero también la tenga.
+ * Es la unidad por defecto de cualquier trabajador que no elija otra.
+ */
+async function sembrarUnidadPrincipal() {
+  return prisma.unidadNegocio.upsert({
+    where: { codigo: 'UN-001' },
+    update: { principal: true, estado: true },
+    create: { codigo: 'UN-001', nombre: 'Principal', principal: true },
+  });
 }
 
 /**

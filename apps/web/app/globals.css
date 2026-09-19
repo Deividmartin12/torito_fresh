@@ -1,3 +1,21 @@
+/* ===== Tramos de layout =================================================
+   Móvil    @media (max-width: 700px)
+   Tablet   @media (min-width: 701px) and (max-width: 1023px)
+   Desktop  @media (min-width: 1024px)
+
+   Estos tres son los únicos umbrales válidos para shell, navegación, tablas
+   y formularios. Un componente que necesite su propio corte usa @container
+   sobre su tarjeta (ver .business-chart-card), no un @media nuevo.
+
+   Quedan cuatro excepciones de componente, documentadas donde aparecen:
+     480px   línea de producto y pares de campos del formulario de venta
+     1100px  grillas de KPIs y de gráficos del panel
+     1180px  espacio de trabajo de la venta y tabla de cuentas
+   Son anchos de contenido reales, no tramos de dispositivo; no se pueden pasar
+   a @container porque container-type convertiría al contenedor en bloque de
+   referencia de la barra fija de acciones (position: fixed) y la rompería.
+   ====================================================================== */
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -29,7 +47,7 @@
   --shadow-flyout: 0 8px 24px rgba(15, 23, 42, 0.12);
 
   /* Fondo oscurecido detras de modales/drawers. */
-  --scrim: rgba(15, 23, 42, 0.45);
+  --scrim: rgba(15, 23, 42, 0.55);
 
   /* Estado: fondo pastel + texto oscuro del mismo color (el punto usa currentColor). */
   --status-green-bg: #ecfdf5;
@@ -68,7 +86,7 @@ html[data-theme='dark'] {
 
   --shadow: none;
   --shadow-flyout: 0 10px 30px rgba(0, 0, 0, 0.55);
-  --scrim: rgba(2, 6, 23, 0.6);
+  --scrim: rgba(2, 6, 23, 0.68);
 
   --status-green-bg: #0d2b23;
   --status-green-text: #6ee7b7;
@@ -233,16 +251,9 @@ button {
   color: var(--text-muted);
 }
 .app-menu {
-  position: absolute;
-  top: 74px;
-  right: 15px;
   z-index: 40;
-  display: grid;
-  width: min(92vw, 420px);
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
   border: 1px solid var(--border);
-  border-radius: 16px;
   background: var(--surface);
   padding: 10px;
   box-shadow: var(--shadow-flyout);
@@ -356,37 +367,70 @@ button {
   position: relative;
   width: 100%;
 }
+/*
+ * El control ES el campo: la cápsula, el borde, el fondo y el halo de foco se dibujan una sola
+ * vez acá, y todo lo de adentro (lupa, texto, botón de limpiar) va sin caja propia. La forma es
+ * de cápsula para que sea indistinguible de un input común al lado. El foco vive en
+ * `:focus-within`, más abajo, junto al del resto de los buscadores.
+ */
 .searchable-select-control {
   display: flex;
-  height: 41px;
+  height: 40px;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 999px;
   background: var(--surface);
-  padding: 0 10px;
+  padding: 0 10px 0 13px;
   color: var(--text-muted);
 }
+/* La lupa no se encoge ni se despega del texto: es parte del campo, no una pieza aparte. */
+.searchable-select-control > svg {
+  flex: none;
+}
+/*
+ * El campo de texto de adentro no dibuja NADA.
+ *
+ * Va con `!important` porque los formularios estilan `input` por contexto (`.modal-form input`,
+ * `.operation-fields input`, `.step-fields input`) con la misma especificidad que este selector
+ * y más abajo en el archivo, así que ganaban ellos: el input se pintaba su propia cápsula, con
+ * borde, fondo y halo de foco, dentro del control. El conjunto se leía como tres piezas sueltas
+ * —la lupa, una pastilla con el texto, y la X— en vez de un solo campo.
+ */
 .searchable-select-control input {
   min-width: 0;
-  width: 100%;
-  height: 100%;
-  border: 0;
-  background: transparent;
+  flex: 1;
+  /* Ocupa todo el alto para que el clic caiga en el campo y no en el hueco de al lado. */
+  align-self: stretch;
+  height: auto !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  padding: 0 !important;
+  box-shadow: none !important;
   color: var(--text);
   font-size: 13px;
   outline: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .searchable-select-clear {
   display: grid;
-  height: 24px;
-  width: 24px;
+  height: 26px;
+  width: 26px;
   flex: none;
   place-items: center;
   border: 0;
   border-radius: 999px;
   background: transparent;
   color: var(--text-muted);
+  cursor: pointer;
+}
+/* El fondo del hover es del botón entero, nunca una cajita detrás del ícono. */
+.searchable-select-clear:hover {
+  background: var(--surface-hover);
+  color: var(--text);
 }
 .searchable-select-menu {
   position: absolute;
@@ -596,7 +640,6 @@ button {
   overflow-y: auto;
   background: var(--scrim);
   padding: 16px;
-  backdrop-filter: blur(3px);
 }
 .operation-screen {
   display: block;
@@ -645,7 +688,10 @@ button {
   gap: 13px;
   padding: 17px 18px;
 }
-.modal-form label > span {
+.modal-form label > span,
+/* Misma etiqueta para un control que no es un input y por tanto no va dentro de un <label>
+   (p. ej. el segmentado de "qué hace esta unidad"). */
+.modal-form .modal-form-label {
   display: block;
   margin: 0 0 5px 3px;
   color: var(--text-muted);
@@ -1224,14 +1270,10 @@ button {
   background: var(--accent);
   color: white;
 }
-@media (min-width: 640px) {
+@media (min-width: 701px) {
   .app-shell {
     padding-left: 5px;
     padding-right: 10px;
-  }
-  .app-menu {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    width: 570px;
   }
   .modal-form {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1726,6 +1768,12 @@ body {
   }
 }
 
+@keyframes drawer-in-right {
+  from {
+    transform: translateX(100%);
+  }
+}
+
 .modal-backdrop,
 .operation-review-backdrop,
 .app-menu-backdrop,
@@ -1742,7 +1790,7 @@ body {
 }
 
 .app-menu {
-  animation: flyout-in 150ms ease-out;
+  animation: drawer-in-right 260ms ease-out;
 }
 
 @media (max-width: 700px) {
@@ -1782,6 +1830,98 @@ body {
   background: transparent;
   color: var(--accent);
   text-decoration: underline;
+}
+
+/* Lista de unidades elegibles en Configuración › Unidades que veo. Cada opción es un botón
+   ancho, como una fila tocable, en vez de una casilla chiquita al costado. */
+.unidades-visibles-lista {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.unidad-opcion {
+  display: flex;
+  width: 100%;
+  align-items: flex-start;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  padding: 14px 16px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.unidad-opcion:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.unidad-opcion.elegida {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+}
+
+/* Cuadrada y no cápsula: mantiene el gesto de "casilla de verificación". */
+.unidad-opcion-marca {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  place-items: center;
+  margin-top: 1px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: #fff;
+}
+
+.unidad-opcion.elegida .unidad-opcion-marca {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.unidad-opcion-texto {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.unidad-opcion-texto strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.unidad-opcion-texto small {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* Aclaración sobre cómo se calculó un reporte, bajo las tarjetas de indicadores. */
+.report-note {
+  margin: 0 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface-hover);
+  padding: 11px 14px;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Acción en línea dentro de un texto (p. ej. "Reintentar" junto a un error de carga). */
+.link-button {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 .operation-page-head {
@@ -1930,7 +2070,7 @@ body {
   border: 1px solid var(--border);
   border-radius: 15px 15px 0 0;
   background: var(--surface);
-  padding: 12px 20px;
+  padding: 12px 20px calc(12px + env(safe-area-inset-bottom));
   box-shadow: var(--shadow-flyout);
 }
 
@@ -2132,7 +2272,7 @@ html[data-theme='dark']
 .line-chart {
   display: block;
   width: 100%;
-  min-width: 500px;
+  min-width: 0;
   height: auto;
   color: var(--chart-1);
 }
@@ -2164,6 +2304,23 @@ html[data-theme='dark']
 @container (max-width: 520px) {
   .chart-tick-top {
     display: none;
+  }
+
+  .chart-axis-label,
+  .chart-date-label {
+    font-size: 14px;
+  }
+}
+
+@container (max-width: 430px) {
+  .chart-axis-label,
+  .chart-date-label {
+    font-size: 16px;
+  }
+
+  /* Con la fuente agrandada la etiqueta del eje Y roza el borde del viewBox. */
+  .line-chart {
+    overflow: visible;
   }
 }
 
@@ -2264,6 +2421,7 @@ html[data-theme='dark']
 }
 
 .report-chart-section {
+  container-type: inline-size;
   border: 1px solid var(--border);
   border-radius: 18px;
   background: var(--surface-soft);
@@ -2524,6 +2682,138 @@ html[data-theme='dark']
   min-width: 0;
 }
 
+/* Selector de unidad de negocio. Va debajo del de período y con la misma cápsula, para que
+   se lea como un filtro más y no como un control aparte. Solo lo ve el administrador y solo
+   cuando hay más de una unidad. */
+/* El selector de unidad vive en la barra superior, no dentro de las pantallas: la unidad vale
+   para toda la app, así que tiene que verse siempre y desde cualquier lado. Por eso va sin la
+   tarjeta (borde, sombra y margen) que tenía cuando era un filtro más de cada reporte. */
+.unidad-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.unidad-filter-label {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* La unidad para quien no puede cambiarla: el mismo dato, sin control. */
+.unidad-badge {
+  display: inline-flex;
+  max-width: 180px;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-hover);
+  padding: 6px 12px;
+  color: var(--text) !important;
+  font-size: 12px !important;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* En celular los nombres de las unidades no entran a lo ancho de la barra. Se oculta la
+   etiqueta "Unidad" (el control ya se explica solo) y el riel se desplaza en horizontal, igual
+   que el filtro de período: la cápsula no se encoge, porque si lo hiciera los segmentos
+   dejarían de medir lo mismo y la pastilla deslizante no coincidiría con el segmento activo. */
+@media (max-width: 720px) {
+  .unidad-filter {
+    max-width: 44vw;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .unidad-filter::-webkit-scrollbar {
+    display: none;
+  }
+
+  .unidad-filter-label {
+    display: none;
+  }
+
+  .unidad-filter .segmented {
+    flex: none;
+    width: max-content;
+    max-width: none;
+  }
+
+  .unidad-filter .segmented button {
+    padding: 0 10px;
+    font-size: 11px;
+  }
+
+  .unidad-badge {
+    max-width: 34vw;
+  }
+}
+
+.unidad-filter-select {
+  min-width: 160px;
+}
+
+/* Casilla de verificación dentro de un formulario modal: la etiqueta va al lado del control
+   y no encima, como en el resto de los campos. */
+.checkbox-field {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.checkbox-field input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.checkbox-field span {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* Aclaración corta bajo un campo o una casilla. */
+.form-hint {
+  margin: -4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* Título de bloque dentro de un formulario modal: separa grupos de campos (p. ej. los datos
+   del trabajador y los de su cuenta de acceso) sin sacarlos de la misma grilla, para que
+   sigan siendo un solo formulario y un solo guardado. */
+.modal-form-section {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 5px;
+  border-top: 1px solid var(--border);
+  padding-top: 15px;
+}
+
+.modal-form-section strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.modal-form-section small {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .period-filter-sep {
   align-self: stretch;
   width: 1px;
@@ -2727,6 +3017,17 @@ html[data-theme='dark']
   background: var(--surface-soft);
 }
 
+/* La columna de período queda fija: es la única forma de saber qué fila se está
+   leyendo cuando la matriz se desplaza. Acá el scroll horizontal es a propósito:
+   la matriz ES el valor de la pantalla, convertirla en tarjetas la destruiría. */
+.summary-grid > .sg-fixed:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  flex: none;
+  border-right: 1px solid var(--border);
+}
+
 .summary-grid .sg-scroll {
   flex: 4 1 0;
   min-width: 140px;
@@ -2746,6 +3047,24 @@ html[data-theme='dark']
   text-align: right;
   white-space: nowrap;
   border-bottom: 1px solid var(--border);
+}
+
+@media (max-width: 700px) {
+  .summary-grid th,
+  .summary-grid td {
+    height: 40px;
+    padding: 0 10px;
+  }
+
+  .summary-grid table {
+    font-size: 12px;
+  }
+
+  /* Los nombres de categoría sí pueden partirse; los importes no. */
+  .summary-grid th:not(.sg-periodo) {
+    white-space: normal;
+    line-height: 1.25;
+  }
 }
 
 .summary-grid th {
@@ -2969,6 +3288,15 @@ html[data-theme='dark']
   gap: 5px;
   overflow-x: auto;
   align-items: center;
+  scroll-snap-type: x proximity;
+}
+
+.demand-heatmap > span {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--surface);
+  scroll-snap-align: start;
 }
 .demand-heatmap > strong,
 .demand-heatmap > span {
@@ -3031,7 +3359,7 @@ html[data-theme='dark'] .stock-report-alert {
   color: #ffda8c;
 }
 
-@media (max-width: 1000px) {
+@media (max-width: 1023px) {
   .report-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -3061,8 +3389,18 @@ html[data-theme='dark'] .stock-report-alert {
     overflow-x: auto;
   }
   .comparison-chart {
-    min-width: 520px;
+    min-width: 0;
+    gap: 5px;
     overflow-x: auto;
+  }
+
+  .comparison-column,
+  .comparison-chart-labeled .comparison-column {
+    min-width: 26px;
+  }
+
+  .comparison-values {
+    display: none;
   }
 }
 
@@ -3163,6 +3501,10 @@ html[data-theme='dark'] .stock-report-alert {
   background: var(--surface);
   padding: 6px 9px;
   color: var(--text);
+}
+
+.return-line-label {
+  display: none;
 }
 
 .return-destination {
@@ -3584,19 +3926,8 @@ html[data-theme='dark'] .client-debt-link small.client-debt-overdue {
   padding: 0 34px 0 10px;
 }
 
-.operation-products-section .searchable-select-control input,
-.operation-general-section .searchable-select-control input {
-  min-width: 0;
-  flex: 1;
-  border: 0 !important;
-  outline: 0;
-  background: transparent !important;
-  padding: 0;
-  box-shadow: none;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+/* El input de adentro ya viene neutralizado desde `.searchable-select-control input`: acá solo
+   cambia la forma del control, porque en el formulario de venta los campos no son cápsulas. */
 
 .operation-products-section .searchable-select-clear,
 .operation-general-section .searchable-select-clear {
@@ -3837,7 +4168,6 @@ html[data-theme='dark'] .client-debt-link small.client-debt-overdue {
   overflow-y: auto;
   background: rgba(4, 12, 24, 0.58);
   padding: 24px;
-  backdrop-filter: blur(4px);
 }
 
 .operation-review-modal {
@@ -4128,7 +4458,7 @@ html[data-theme='dark'] .client-debt-link small.client-debt-overdue {
   border-top: 1px solid var(--border);
   padding: 14px 18px;
 }
-@media (max-width: 560px) {
+@media (max-width: 700px) {
   .sale-detail-facts {
     grid-template-columns: 1fr;
   }
@@ -4272,7 +4602,7 @@ html[data-theme='dark'] .client-debt-link small.client-debt-overdue {
   }
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1023px) {
   .operation-workspace {
     grid-template-columns: 1fr;
   }
@@ -4462,9 +4792,6 @@ html[data-theme='dark']
     align-items: stretch;
     flex-direction: column;
   }
-  .line-chart {
-    min-width: 440px;
-  }
 }
 
 html[data-theme='dark'] .operation-warning {
@@ -4477,7 +4804,7 @@ html[data-theme='dark'] .field-error {
   color: #ff9db2 !important;
 }
 
-@media (min-width: 900px) {
+@media (min-width: 1024px) {
   .operation-fields {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -4784,10 +5111,20 @@ html[data-theme='dark'] :where(.glass-table td, .table td) {
   border-top: 1px solid var(--border);
 }
 
-html[data-theme='dark'] :where(input, select, textarea) {
+/* Normalizador de campos en oscuro. Queda afuera el campo del combo buscable: ahí la caja la
+   dibuja `.searchable-select-control`, y pintarle un fondo propio al input de adentro metía una
+   segunda cápsula dentro del control. */
+html[data-theme='dark'] :where(input, select, textarea):not(.searchable-select-control input) {
   border-color: var(--border) !important;
   background-color: var(--surface-soft) !important;
   color: var(--text) !important;
+}
+
+/* El combo buscable es un campo más, así que en oscuro lleva el mismo fondo que los inputs de
+   al lado (la regla de arriba se los pone a ellos, pero no al control, que no es un `input`).
+   Sin esto el combo se veía más oscuro que el resto del formulario. */
+html[data-theme='dark'] .searchable-select-control {
+  background-color: var(--surface-soft);
 }
 
 html[data-theme='dark'] :where(input, textarea)::placeholder {
@@ -4807,7 +5144,7 @@ html[data-theme='dark'] :where(input, select, textarea) {
   color-scheme: dark;
 }
 
-@media (max-width: 420px) {
+@media (max-width: 700px) {
   .theme-toggle span {
     display: none;
   }
@@ -5262,22 +5599,62 @@ body {
   border: 0;
   background: rgba(4, 12, 24, 0.45);
   cursor: default;
-  backdrop-filter: blur(2px);
 }
 
 .app-menu {
   position: fixed;
-  top: 84px;
-  right: 12px;
-  bottom: 12px;
+  inset: 0 0 0 auto;
   z-index: 40;
   display: block;
-  width: min(90vw, 390px);
+  width: min(86vw, 360px);
   overflow-y: auto;
-  border-color: var(--border);
+  border: 0;
+  border-left: 1px solid var(--border);
+  border-radius: 20px 0 0 20px;
   background: var(--surface);
-  padding: 10px;
+  padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
   overscroll-behavior: contain;
+}
+
+/* Acordeón del menú de celular: mismos grupos que el sidebar de escritorio. */
+.app-menu-group {
+  margin: 3px 0;
+}
+
+.app-menu-group-trigger {
+  display: flex;
+  width: 100%;
+  min-height: 48px;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  padding: 0 12px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.app-menu-group.active > .app-menu-group-trigger {
+  color: var(--accent);
+}
+
+.app-menu-group-chevron {
+  margin-left: auto;
+  color: var(--text-muted);
+  transition: transform 0.2s ease;
+}
+
+.app-menu-group.expanded > .app-menu-group-trigger .app-menu-group-chevron {
+  transform: rotate(90deg);
+}
+
+.app-menu-sublinks {
+  margin: 2px 0 6px 13px;
+  border-left: 1px solid var(--border);
+  padding-left: 9px;
 }
 
 .app-menu-title {
@@ -6220,7 +6597,7 @@ html[data-theme='dark'] .collection-overdue-banner {
   font-size: 11px;
 }
 
-@media (max-width: 800px) {
+@media (max-width: 1023px) {
   .account-agenda {
     grid-template-columns: 1fr;
   }
@@ -6892,7 +7269,7 @@ input[type='radio'] {
   }
 }
 
-@media (min-width: 640px) {
+@media (min-width: 701px) {
   .inventory-flow {
     grid-template-columns:
       minmax(190px, 1fr) auto minmax(190px, 1fr) auto minmax(190px, 1fr)
@@ -7003,7 +7380,6 @@ input[type='radio'] {
   overflow-y: auto;
   background: rgba(31, 47, 78, 0.38);
   padding: 24px 16px;
-  backdrop-filter: blur(3px);
 }
 
 .sale-receipt {
@@ -7124,6 +7500,487 @@ input[type='radio'] {
 .sale-receipt-actions {
   display: flex;
   gap: 8px;
+}
+
+/* ===== Control de envases ================================================
+   Era la única pantalla con utilidades crudas de Tailwind (y colores literales
+   que no giraban con el modo oscuro). Ahora usa el sistema como el resto.
+   ====================================================================== */
+.envases-intro {
+  margin: 0 0 4px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.envases-form {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.envases-submit .btn-primary {
+  width: 100%;
+}
+
+.envases-section {
+  padding: 16px;
+}
+
+.envases-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.envases-section-head h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.envases-section-head span {
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.envases-strong {
+  font-weight: 600;
+}
+
+.envases-pending {
+  color: var(--status-red-text);
+  font-weight: 700;
+}
+
+@media (min-width: 701px) {
+  .envases-form {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    align-items: end;
+  }
+
+  .envases-field-wide {
+    grid-column: span 2;
+  }
+}
+
+/* ======================================================================
+   TABLET (701–1023px)
+   Sin barra lateral pero con ancho de sobra: la tabla sigue siendo tabla, solo
+   que más angosta y con la columna identificadora fija para no perderla al
+   desplazar. El menú agrupado ya aparece en este tramo.
+   ====================================================================== */
+@media (min-width: 701px) and (max-width: 1023px) {
+  .app-shell {
+    padding-inline: 16px;
+  }
+
+  .glass-table table {
+    min-width: 640px;
+  }
+
+  .kardex-page .glass-table table {
+    min-width: 860px;
+  }
+
+  .production-page .glass-table table {
+    min-width: 900px;
+  }
+
+  .kardex-ledger .glass-table table {
+    min-width: 760px;
+  }
+
+  .glass-table thead th:first-child,
+  .glass-table tbody td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--surface);
+  }
+
+  .glass-table tbody tr:hover td:first-child,
+  .glass-table tbody tr.account-group-row.open td:first-child {
+    background: var(--surface-soft);
+  }
+
+  .analytics-report-grid,
+  .dashboard-chart-grid,
+  .report-chart-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ======================================================================
+   MÓVIL · Higiene táctil y de formularios
+   Va al final del archivo a propósito: tiene que ganarle a los overrides
+   con !important que están repartidos más arriba.
+   ====================================================================== */
+@media (max-width: 700px) {
+  /* Safari iOS hace zoom automático al enfocar un campo de menos de 16px.
+     Es la causa de que hoy todos los formularios "salten" en celular. */
+  input:not([type='checkbox']):not([type='radio']),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+
+  /* Los 16px no entran en las alturas de escritorio: se acompañan. */
+  .pill-search {
+    height: 48px;
+  }
+
+  .modal-form input,
+  .modal-form select {
+    height: 48px;
+  }
+
+  .auto-table-search input {
+    height: 44px !important;
+  }
+
+  .pagination-size select,
+  .searchable-select-control {
+    min-height: 44px;
+    height: auto;
+  }
+
+  /* Dentro de un formulario modal los campos miden 48 px: el combo tiene que medir lo mismo o
+     se nota escalonado al lado de los demás. */
+  .modal-form .searchable-select-control {
+    min-height: 48px;
+  }
+
+  /* La X es un objetivo táctil: el círculo se ve chico igual porque el fondo solo aparece en
+     hover, que en un celular no existe. */
+  .searchable-select-clear {
+    height: 44px;
+    width: 44px;
+  }
+
+  .return-line input,
+  .return-line select,
+  .product-line input,
+  .product-line select,
+  .step-fields input,
+  .step-fields select {
+    min-height: 44px;
+  }
+
+  .report-clear-filter {
+    height: 44px;
+  }
+
+  /* Objetivos táctiles: mínimo 44px en todo lo que se toca. */
+  .table-pagination button,
+  .table-pagination .pagination-pages button {
+    height: 44px !important;
+    width: 44px !important;
+    min-width: 44px !important;
+  }
+
+  .filter-pill {
+    height: 44px;
+    min-height: 44px;
+  }
+
+  .period-nav-arrow {
+    width: 44px;
+    height: 44px;
+  }
+
+  .modal-close {
+    height: 44px;
+    width: 44px;
+  }
+
+  .icon-soft {
+    height: 44px;
+    width: 44px;
+  }
+
+  .btn-primary,
+  .btn-secondary {
+    min-height: 46px;
+  }
+
+  /* Barras de filtros: las de catálogos ya se apilaban porque tienen buscador;
+     las de reportes, kardex y cobranzas no, y se salían de la pantalla. */
+  .module-tools > *,
+  .operations-filters > *,
+  .report-filters > *,
+  .account-filters > *,
+  .kardex-filters > *,
+  .kardex-ledger-filters > * {
+    width: 100% !important;
+  }
+
+  .module-tools,
+  .report-filters,
+  .account-filters,
+  .kardex-filters,
+  .kardex-ledger-filters {
+    align-items: stretch !important;
+  }
+
+  .kardex-filters .searchable-select,
+  .kardex-ledger-filters .searchable-select {
+    min-width: 0;
+  }
+
+  /* Los rieles de pestañas se estiran, pero sus botones conservan su ancho propio. */
+  .period-filter-rail > *,
+  .report-period-shortcuts > *,
+  .report-tabs > *,
+  .return-tabs > * {
+    width: auto !important;
+  }
+
+  .report-tabs,
+  .return-tabs {
+    flex-wrap: wrap;
+  }
+
+  /* Cifras de KPI: a 26px dos tarjetas por fila se desbordan en 320px. */
+  .summary-glass strong {
+    font-size: 20px !important;
+  }
+
+  /* Al envolver, el separador vertical quedaba flotando a la izquierda. */
+  .summary-filter-step {
+    align-items: stretch;
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .summary-filter-step + .summary-filter-step {
+    margin-left: 0;
+    margin-top: 12px;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+    padding-left: 0;
+    padding-top: 12px;
+  }
+}
+
+/* A 480px cuatro tarjetas en dos columnas ya no entran: una sola columna. */
+@media (max-width: 480px) {
+  .return-source-summary,
+  .operation-financial-summary {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ======================================================================
+   MÓVIL · Tablas como tarjetas apiladas
+   Las etiquetas (data-label) las estampa components/TableEnhancer.tsx leyendo
+   el <thead>, así que esto cubre las 23 tablas sin tocar ninguna página.
+   ====================================================================== */
+@media (max-width: 700px) {
+  /* El contenedor deja de ser la superficie: ahora la tarjeta es cada fila. */
+  .glass-table,
+  .table-wrap {
+    overflow-x: visible;
+    border: 0;
+    border-radius: 0 !important;
+    background: transparent;
+  }
+
+  .module-tools + .glass-table,
+  .module-tools + .table-wrap {
+    margin-top: 12px;
+  }
+
+  /* Anula los cuatro mínimos que hoy fuerzan scroll horizontal (780 / 900 /
+     1040 / 1080 / 760px). */
+  .glass-table table,
+  .kardex-page .glass-table table,
+  .kardex-ledger .glass-table table,
+  .production-page .glass-table table,
+  .table-wrap table.table {
+    display: block;
+    min-width: 0;
+  }
+
+  .glass-table thead,
+  .table-wrap table.table thead {
+    display: none;
+  }
+
+  .glass-table tbody,
+  .table-wrap table.table tbody {
+    display: block;
+  }
+
+  .glass-table tbody tr,
+  .table-wrap table.table tbody tr {
+    display: block;
+    margin-bottom: 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--ui-radius);
+    background: var(--surface);
+    padding: 2px 14px;
+  }
+
+  .glass-table tbody td,
+  .table-wrap table.table tbody td {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 2px 14px;
+    padding: 10px 0;
+    max-width: none;
+    text-align: right;
+  }
+
+  /* Muchas celdas traen un dato y su aclaración (código, cliente, lote): la
+     aclaración baja a su propia línea en vez de pelear el ancho con el dato. */
+  .glass-table tbody td > small,
+  .table-wrap table.table tbody td > small {
+    flex-basis: 100%;
+  }
+
+  :where(.glass-table, .table-wrap) tbody tr + tr td {
+    border-top: 0;
+  }
+
+  :where(.glass-table, .table-wrap) tbody tr td + td {
+    border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  }
+
+  .glass-table tbody td[data-label]::before,
+  .table-wrap table.table tbody td[data-label]::before {
+    content: attr(data-label);
+    flex: none;
+    max-width: 46%;
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.03em;
+    line-height: 1.6;
+    text-align: left;
+    text-transform: uppercase;
+  }
+
+  /* Sin etiqueta (celdas fusionadas, subtotales): ocupan la tarjeta entera. */
+  .glass-table tbody td:not([data-label]),
+  .table-wrap table.table tbody td:not([data-label]) {
+    display: block;
+    text-align: left;
+  }
+
+  /* Celdas de relleno (<td className="num" />, <td colSpan={2} />): sin renglón. */
+  .glass-table tbody td:empty,
+  .table-wrap table.table tbody td:empty {
+    display: none;
+  }
+
+  /* Acciones: al pie de la tarjeta, con la etiqueta arriba. */
+  .glass-table tbody td[data-cell='actions'] {
+    display: block;
+    text-align: left;
+  }
+
+  .glass-table tbody td[data-cell='actions']::before {
+    display: block;
+    margin-bottom: 7px;
+  }
+
+  .glass-table tbody td[data-cell='actions'] .row-actions {
+    justify-content: flex-start;
+  }
+
+  /* Estado vacío o de carga: no es una tarjeta. */
+  .glass-table tbody tr[data-card='plain'],
+  .table-wrap table.table tbody tr[data-card='plain'] {
+    border-style: dashed;
+    background: transparent;
+    padding: 0;
+  }
+
+  .glass-table tbody tr[data-card='plain'] td,
+  .table-wrap table.table tbody tr[data-card='plain'] td {
+    display: block;
+    padding: 0;
+    text-align: center;
+  }
+
+  /* Subtotales del kardex por producto como encabezado de su tarjeta. */
+  .kardex-ledger-opening td:first-child,
+  .kardex-ledger-closing td:first-child {
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  /* Toda la tarjeta es el área táctil de las filas que abren un detalle. */
+  .glass-table tbody tr.clickable-row:active,
+  .glass-table tbody tr.account-group-row:active {
+    background: var(--surface-hover);
+  }
+
+  /* El buscador y la paginación automáticos viven DENTRO de .glass-table, que en
+     modo tarjeta deja de ser una superficie: recuperan su propia caja. */
+  .glass-table > .auto-table-toolbar,
+  .table-wrap > .auto-table-toolbar {
+    margin-bottom: 12px !important;
+    border: 1px solid var(--border);
+    border-radius: var(--ui-radius);
+    padding: 10px 12px !important;
+  }
+
+  .glass-table > .table-pagination,
+  .table-wrap > .table-pagination {
+    border: 1px solid var(--border);
+    border-radius: var(--ui-radius);
+  }
+
+  /* Buscador y paginación ya no están soldados a una tabla: recuperan su caja. */
+  .module-tools:has(+ .glass-table),
+  .module-tools:has(+ .table-wrap) {
+    border-bottom-right-radius: var(--ui-radius) !important;
+    border-bottom-left-radius: var(--ui-radius) !important;
+  }
+
+  .glass-table:has(+ .table-pagination),
+  .table-wrap:has(+ .table-pagination) {
+    margin-bottom: 0;
+  }
+
+  .glass-table + .table-pagination,
+  .table-wrap + .table-pagination {
+    border-top: 1px solid var(--border);
+    border-radius: var(--ui-radius) !important;
+  }
+
+  /* Único scroll horizontal anidado dentro de un modal: las líneas de devolución.
+     Al apilarse se pierde la cabecera, así que cada campo muestra su etiqueta. */
+  .return-line-head {
+    display: none;
+  }
+
+  .return-lines {
+    overflow-x: visible;
+  }
+
+  .return-line {
+    min-width: 0;
+    align-items: stretch;
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .return-line-label {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+  }
 }
 
 @media print {

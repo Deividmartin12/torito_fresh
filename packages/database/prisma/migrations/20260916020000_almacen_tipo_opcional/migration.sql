@@ -1,0 +1,12 @@
+-- `almacen.tipo` pasa a admitir nulos, que es lo que el esquema Prisma ya declaraba.
+--
+-- El tipo de almacén (PRINCIPAL, VEHICULO, PLANTA...) dejó de pedirse hace tiempo: un
+-- almacén es solo un lugar donde hay stock. La columna se conservó para no perder los
+-- valores históricos y en el esquema quedó como opcional, pero a la base nunca le llegó
+-- el ALTER. Esa diferencia dejaba rota la creación de almacenes: el API inserta sin `tipo`
+-- y Postgres lo rechazaba por el NOT NULL.
+--
+-- No borra ni cambia ningún valor existente: solo levanta la restricción. El CHECK
+-- `almacen_tipo_valido` sigue vigente y admite el nulo, porque una comparación con NULL no
+-- es falsa sino desconocida, y eso Postgres lo da por cumplido.
+ALTER TABLE "almacen" ALTER COLUMN "tipo" DROP NOT NULL;

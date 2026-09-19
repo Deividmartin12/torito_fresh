@@ -67,6 +67,18 @@ export type BusinessAnalytics = {
   expenseCategories: AnalyticsRanking[];
   heatmap: HeatmapPoint[];
   lowStock: { id: string; name: string; available: number; minimum: number }[];
+  /**
+   * El costo de esta vista salió del costo de referencia de cada producto y no del kardex,
+   * porque la unidad no lleva inventario. La pantalla lo dice en vez de llamarlo "costo de
+   * inventario".
+   */
+  costoEstimado?: boolean;
+  /**
+   * Cuánto vendió y cuánto gastó cada unidad dentro del alcance. Con una sola unidad a la
+   * vista trae un único renglón; con varias es lo que permite comparar puesto a puesto en vez
+   * de leer un total sin origen.
+   */
+  porUnidad?: { id: string; nombre: string; ventas: number; gastos: number; ordenes: number }[];
 };
 
 export function getBusinessAnalytics(from?: string, to?: string) {

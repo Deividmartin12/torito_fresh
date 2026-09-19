@@ -51,7 +51,12 @@ export function OperationDetailDialog({ sale, onClose, onRegisterCollection, onE
             <h2 id="operation-detail-title">{sale.codigo}</h2>
             <small>{fechaHora(sale.fecha)}</small>
           </div>
-          <button type="button" className="modal-close" onClick={onClose} aria-label="Cerrar detalle">
+          <button
+            type="button"
+            className="modal-close"
+            onClick={onClose}
+            aria-label="Cerrar detalle"
+          >
             <X size={18} />
           </button>
         </div>
@@ -174,7 +179,9 @@ export function OperationDetailDialog({ sale, onClose, onRegisterCollection, onE
               <em>Pagado</em>
               <b>{moneda(sale.pagado)}</b>
             </span>
-            <span className={pendiente ? 'sale-detail-balance-row pending' : 'sale-detail-balance-row'}>
+            <span
+              className={pendiente ? 'sale-detail-balance-row pending' : 'sale-detail-balance-row'}
+            >
               <em>Saldo</em>
               <b>{moneda(sale.saldo)}</b>
             </span>

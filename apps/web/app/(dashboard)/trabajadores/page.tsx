@@ -1,49 +1,12 @@
 'use client';
 
-import { Pencil, Plus, Search, UserCheck, UserX, X } from 'lucide-react';
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { Pencil, Plus, Search, UserCheck, UserX } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Pagination } from '../../../components/Pagination';
-import { api } from '../../../lib/api';
-import {
-  soloAlfanumerico,
-  soloDigitos,
-  soloLetras,
-  validarCelular,
-  validarDocumento,
-  validarEmail,
-  validarNombrePersona,
-} from '../../../lib/validacion';
-
-const CARGOS = ['Administrador', 'Almacenero', 'Vendedor', 'Repartidor'] as const;
-
-type Trabajador = {
-  id: string;
-  tipoDocumento: string;
-  numeroDocumento: string;
-  nombres: string;
-  apellidos: string;
-  telefono: string;
-  correo: string;
-  cargo: string;
-  estado: boolean;
-};
-
-type TrabajadorForm = Pick<
-  Trabajador,
-  'tipoDocumento' | 'numeroDocumento' | 'nombres' | 'apellidos' | 'telefono' | 'correo' | 'cargo'
->;
-type FormErrors = Partial<Record<keyof TrabajadorForm, string>>;
-
-const emptyForm: TrabajadorForm = {
-  tipoDocumento: 'DNI',
-  numeroDocumento: '',
-  nombres: '',
-  apellidos: '',
-  telefono: '',
-  correo: '',
-  cargo: 'Vendedor',
-};
+import { TrabajadorFormModal } from '../../../components/TrabajadorFormModal';
+import { etiquetaRol } from '../../../lib/permissions';
+import { getTrabajadores, Trabajador, updateTrabajador } from '../../../lib/trabajadores';
 
 export default function TrabajadoresPage() {
   const [trabajadores, setTrabajadores] = useState<Trabajador[]>([]);
@@ -53,16 +16,13 @@ export default function TrabajadoresPage() {
   const [pageSize, setPageSize] = useState(10);
   const [modal, setModal] = useState(false);
   const [editando, setEditando] = useState<Trabajador | null>(null);
-  const [form, setForm] = useState<TrabajadorForm>(emptyForm);
-  const [fieldErrors, setFieldErrors] = useState<FormErrors>({});
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [processingId, setProcessingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setTrabajadores(await api<Trabajador[]>('/trabajadores'));
+      setTrabajadores(await getTrabajadores());
     } catch (requestError) {
       toast.error(
         requestError instanceof Error
@@ -86,7 +46,7 @@ export default function TrabajadoresPage() {
         estado === 'Todos' || (estado === 'Activos' ? item.estado : !item.estado);
       const matchesSearch =
         !term ||
-        `${item.nombres} ${item.apellidos} ${item.numeroDocumento} ${item.cargo}`
+        `${item.nombres} ${item.apellidos} ${item.numeroDocumento} ${item.cargo} ${item.usuario?.username ?? ''}`
           .toLowerCase()
           .includes(term);
       return matchesStatus && matchesSearch;
@@ -98,87 +58,28 @@ export default function TrabajadoresPage() {
 
   function abrir(item?: Trabajador) {
     setEditando(item ?? null);
-    setForm(
-      item
-        ? {
-            tipoDocumento: item.tipoDocumento,
-            numeroDocumento: item.numeroDocumento,
-            nombres: item.nombres,
-            apellidos: item.apellidos,
-            telefono: item.telefono,
-            correo: item.correo,
-            cargo: item.cargo,
-          }
-        : emptyForm,
-    );
-    setFieldErrors({});
     setModal(true);
   }
 
-  function updateField(field: keyof TrabajadorForm, value: string) {
-    setForm((current) => ({ ...current, [field]: value }));
-    setFieldErrors((current) => ({ ...current, [field]: undefined }));
-  }
-
-  function validate() {
-    const next: FormErrors = {};
-    next.numeroDocumento = validarDocumento(form.tipoDocumento, form.numeroDocumento, {
-      requerido: true,
-    });
-    next.nombres = validarNombrePersona(form.nombres, 'nombres');
-    next.apellidos = validarNombrePersona(form.apellidos, 'apellidos');
-    next.telefono = validarCelular(form.telefono);
-    next.correo = validarEmail(form.correo);
-    setFieldErrors(next);
-    return Object.values(next).every((mensaje) => !mensaje);
-  }
-
-  async function guardar(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!validate()) return;
-    setSaving(true);
-    const payload = {
-      tipoDocumento: form.tipoDocumento,
-      numeroDocumento: form.numeroDocumento.trim(),
-      nombres: form.nombres.trim(),
-      apellidos: form.apellidos.trim(),
-      telefono: form.telefono.trim(),
-      correo: form.correo.trim(),
-      cargo: form.cargo,
-    };
-    try {
-      const saved = await api<Trabajador>(
-        editando ? `/trabajadores/${editando.id}` : '/trabajadores',
-        {
-          method: editando ? 'PATCH' : 'POST',
-          body: JSON.stringify(payload),
-        },
-      );
-      setTrabajadores((current) =>
-        (editando
-          ? current.map((item) => (item.id === saved.id ? saved : item))
-          : [...current, saved]
-        ).sort((left, right) => left.nombres.localeCompare(right.nombres, 'es')),
-      );
-      toast.success(editando ? 'Trabajador actualizado correctamente.' : 'Trabajador registrado correctamente.');
-      setModal(false);
-    } catch (requestError) {
-      toast.error(
-        requestError instanceof Error ? requestError.message : 'No se pudo guardar el trabajador',
-      );
-    } finally {
-      setSaving(false);
-    }
+  function handleGuardado(saved: Trabajador) {
+    setTrabajadores((current) =>
+      (current.some((item) => item.id === saved.id)
+        ? current.map((item) => (item.id === saved.id ? saved : item))
+        : [...current, saved]
+      ).sort((left, right) => left.nombres.localeCompare(right.nombres, 'es')),
+    );
+    setModal(false);
   }
 
   async function cambiarEstado(item: Trabajador) {
-    if (item.estado && !window.confirm(`¿Desactivar a ${item.nombres} ${item.apellidos}?`)) return;
+    // Desactivar a alguien también le cierra el acceso, así que conviene avisarlo.
+    const aviso = item.usuario
+      ? `¿Desactivar a ${item.nombres} ${item.apellidos}? Dejará de poder entrar al sistema.`
+      : `¿Desactivar a ${item.nombres} ${item.apellidos}?`;
+    if (item.estado && !window.confirm(aviso)) return;
     setProcessingId(item.id);
     try {
-      const updated = await api<Trabajador>(`/trabajadores/${item.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ estado: !item.estado }),
-      });
+      const updated = await updateTrabajador(item.id, { estado: !item.estado });
       setTrabajadores((current) => current.map((row) => (row.id === updated.id ? updated : row)));
     } catch (requestError) {
       toast.error(
@@ -219,7 +120,7 @@ export default function TrabajadoresPage() {
               setBuscar(event.target.value);
               setPagina(1);
             }}
-            placeholder="Buscar por nombre, documento o cargo"
+            placeholder="Buscar por nombre, documento, cargo o usuario"
           />
         </label>
         <select
@@ -249,6 +150,7 @@ export default function TrabajadoresPage() {
                   <th>Trabajador</th>
                   <th>Cargo</th>
                   <th>Contacto</th>
+                  <th>Cuenta de acceso</th>
                   <th>Estado</th>
                   <th>Acciones</th>
                 </tr>
@@ -265,10 +167,27 @@ export default function TrabajadoresPage() {
                           {item.tipoDocumento} {item.numeroDocumento}
                         </small>
                       </td>
-                      <td>{item.cargo}</td>
+                      <td>
+                        {item.cargo}
+                        {/* La unidad solo se nombra cuando no es la principal: en el caso
+                            normal sería ruido en cada fila. */}
+                        {item.unidad && item.unidad !== 'Principal' ? (
+                          <small>{item.unidad}</small>
+                        ) : null}
+                      </td>
                       <td>
                         {item.telefono || 'Sin teléfono'}
                         <small>{item.correo || 'Sin correo'}</small>
+                      </td>
+                      <td>
+                        {item.usuario ? (
+                          <>
+                            {item.usuario.username ?? item.usuario.email}
+                            <small>{etiquetaRol(item.usuario.role)}</small>
+                          </>
+                        ) : (
+                          'Sin cuenta'
+                        )}
                       </td>
                       <td>
                         <span className={item.estado ? 'status status-green' : 'status status-red'}>
@@ -302,7 +221,7 @@ export default function TrabajadoresPage() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={5}>
+                    <td colSpan={6}>
                       <div className="table-empty">
                         <Search size={22} />
                         <span>No hay trabajadores que coincidan con los filtros.</span>
@@ -338,147 +257,11 @@ export default function TrabajadoresPage() {
         </>
       )}
       {modal ? (
-        <div
-          className="modal-backdrop"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget && !saving) setModal(false);
-          }}
-        >
-          <section
-            className="crud-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="worker-modal-title"
-          >
-            <div className="modal-top">
-              <h2 id="worker-modal-title">
-                {editando ? 'Editar trabajador' : 'Agregar trabajador'}
-              </h2>
-              <button
-                type="button"
-                className="modal-close"
-                onClick={() => setModal(false)}
-                aria-label="Cerrar modal"
-                disabled={saving}
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <form className="modal-form" onSubmit={guardar} noValidate>
-              <label>
-                <span>Tipo de documento</span>
-                <select
-                  value={form.tipoDocumento}
-                  onChange={(event) => {
-                    const tipo = event.target.value;
-                    setForm((current) => ({
-                      ...current,
-                      tipoDocumento: tipo,
-                      numeroDocumento:
-                        tipo === 'DNI'
-                          ? soloDigitos(current.numeroDocumento, 8)
-                          : soloAlfanumerico(current.numeroDocumento, 15),
-                    }));
-                    setFieldErrors((current) => ({ ...current, numeroDocumento: undefined }));
-                  }}
-                >
-                  <option>DNI</option>
-                  <option>CE</option>
-                </select>
-              </label>
-              <label>
-                <span>Número de documento</span>
-                <input
-                  value={form.numeroDocumento}
-                  onChange={(event) =>
-                    updateField(
-                      'numeroDocumento',
-                      form.tipoDocumento === 'DNI'
-                        ? soloDigitos(event.target.value, 8)
-                        : soloAlfanumerico(event.target.value, 15),
-                    )
-                  }
-                  inputMode={form.tipoDocumento === 'DNI' ? 'numeric' : 'text'}
-                  maxLength={15}
-                  required
-                  autoFocus
-                />
-                {fieldErrors.numeroDocumento ? (
-                  <small className="field-error">{fieldErrors.numeroDocumento}</small>
-                ) : null}
-              </label>
-              <label>
-                <span>Nombres</span>
-                <input
-                  value={form.nombres}
-                  onChange={(event) => updateField('nombres', soloLetras(event.target.value))}
-                  maxLength={100}
-                  required
-                />
-                {fieldErrors.nombres ? (
-                  <small className="field-error">{fieldErrors.nombres}</small>
-                ) : null}
-              </label>
-              <label>
-                <span>Apellidos</span>
-                <input
-                  value={form.apellidos}
-                  onChange={(event) => updateField('apellidos', soloLetras(event.target.value))}
-                  maxLength={100}
-                  required
-                />
-                {fieldErrors.apellidos ? (
-                  <small className="field-error">{fieldErrors.apellidos}</small>
-                ) : null}
-              </label>
-              <label>
-                <span>Cargo</span>
-                <select value={form.cargo} onChange={(event) => updateField('cargo', event.target.value)}>
-                  {CARGOS.map((cargo) => (
-                    <option key={cargo}>{cargo}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                <span>Teléfono</span>
-                <input
-                  value={form.telefono}
-                  onChange={(event) => updateField('telefono', soloDigitos(event.target.value, 9))}
-                  inputMode="numeric"
-                  maxLength={9}
-                />
-                {fieldErrors.telefono ? (
-                  <small className="field-error">{fieldErrors.telefono}</small>
-                ) : null}
-              </label>
-              <label>
-                <span>Correo</span>
-                <input
-                  type="email"
-                  value={form.correo}
-                  onChange={(event) => updateField('correo', event.target.value)}
-                  maxLength={150}
-                />
-                {fieldErrors.correo ? (
-                  <small className="field-error">{fieldErrors.correo}</small>
-                ) : null}
-              </label>
-              <div className="modal-actions">
-                <button
-                  className="btn-secondary"
-                  type="button"
-                  onClick={() => setModal(false)}
-                  disabled={saving}
-                >
-                  Cancelar
-                </button>
-                <button className="btn-primary" disabled={saving}>
-                  {saving ? 'Guardando...' : editando ? 'Guardar cambios' : 'Registrar trabajador'}
-                </button>
-              </div>
-            </form>
-          </section>
-        </div>
+        <TrabajadorFormModal
+          editando={editando}
+          onClose={() => setModal(false)}
+          onSaved={handleGuardado}
+        />
       ) : null}
     </div>
   );

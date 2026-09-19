@@ -5,9 +5,13 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Pagination } from '../../../components/Pagination';
 import { SearchableSelect } from '../../../components/SearchableSelect';
-import { TipoProductoCreado, TipoProductoFormModal } from '../../../components/TipoProductoFormModal';
+import {
+  TipoProductoCreado,
+  TipoProductoFormModal,
+} from '../../../components/TipoProductoFormModal';
+import { useUnidad } from '../../../components/UnidadProvider';
 import { api } from '../../../lib/api';
-import { puedeEditar } from '../../../lib/permissions';
+import { puede } from '../../../lib/permissions';
 import { soloTextoNombre, validarMonto, validarNombreLibre } from '../../../lib/validacion';
 import { useRole } from '../../../lib/useCurrentUser';
 
@@ -39,7 +43,11 @@ export default function ProductosPage() {
   const [tipoNombre, setTipoNombre] = useState('');
   const [editando, setEditando] = useState<Producto | null>(null);
   const [guardando, setGuardando] = useState(false);
-  const editable = puedeEditar(useRole());
+  // El catálogo de productos es compartido entre unidades: solo lo edita quien administra la
+  // operación. Antes bastaba con no ser repartidor, y el responsable de un puesto veía los
+  // botones de crear y borrar aunque el API se los rechazara.
+  const editable = puede(useRole(), 'productos.editar');
+  const { controlaInventario } = useUnidad();
   useEffect(() => {
     api<Producto[]>('/operations/products')
       .then(setDatos)
@@ -198,7 +206,9 @@ export default function ProductosPage() {
               <th>Unidad</th>
               <th>Precio venta</th>
               <th>Costo ref.</th>
-              <th>Stock global</th>
+              {/* En un puesto que no lleva inventario la columna daría 0 en todo y solo
+                  confundiría: el catálogo sí se usa, el stock no existe. */}
+              {controlaInventario ? <th>Stock global</th> : null}
               <th>Control</th>
               <th>Estado</th>
               {editable ? <th>Acciones</th> : null}
@@ -217,7 +227,7 @@ export default function ProductosPage() {
                 <td>{item.unidad}</td>
                 <td>S/ {item.precio.toFixed(2)}</td>
                 <td>S/ {item.costo.toFixed(2)}</td>
-                <td>{item.stock}</td>
+                {controlaInventario ? <td>{item.stock}</td> : null}
                 <td>{item.lote ? 'Lote' : item.retornable ? 'Retornable' : 'Simple'}</td>
                 <td>
                   <span className={`status ${item.activo ? 'status-green' : 'status-amber'}`}>

@@ -1,11 +1,50 @@
+import { RoleName } from '@prisma/client';
 import { Type } from 'class-transformer';
-import { IsBoolean, IsIn, IsOptional, IsString, Matches, ValidateNested } from 'class-validator';
-import { RE_DOCUMENTO } from '../common/validacion';
+import {
+  IsBoolean,
+  IsIn,
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+  MinLength,
+  ValidateNested,
+} from 'class-validator';
+import { RE_DOCUMENTO, RE_USERNAME } from '../common/validacion';
 import { EsCelular, EsEmailOpcional, EsNombrePersona } from '../common/validators';
-import { CreateUserDto } from '../users/users.dto';
 
-const CARGOS = ['Administrador', 'Almacenero', 'Vendedor', 'Repartidor'] as const;
+const CARGOS = ['Administrador', 'Almacenero', 'Vendedor', 'Repartidor', 'Socio'] as const;
 const TIPOS_DOCUMENTO = ['DNI', 'CE', 'PAS'] as const;
+const ROLES = Object.values(RoleName);
+
+/**
+ * Cuenta de acceso del trabajador, dentro del mismo alta.
+ *
+ * Solo trae lo propio del login. El nombre y el correo de la cuenta NO viajan acá: salen de
+ * `nombres`/`apellidos`/`correo` del trabajador, para que no existan dos versiones del mismo
+ * dato que se puedan ir separando con el tiempo. Lo mismo el `active` de la cuenta, que
+ * sigue al `estado` del trabajador: dar de baja a alguien tiene que cerrarle el acceso.
+ *
+ * La contraseña es obligatoria cuando la cuenta se crea y opcional cuando se edita una que
+ * ya existe (sin valor = se queda con la que tenía).
+ */
+export class CuentaTrabajadorDto {
+  @IsString()
+  @MinLength(2, { message: 'El nombre de usuario es muy corto' })
+  @MaxLength(50)
+  @Matches(RE_USERNAME, {
+    message: 'El usuario solo puede tener letras, números, punto, guion y guion bajo',
+  })
+  username: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(4, { message: 'La contraseña debe tener al menos 4 caracteres' })
+  password?: string;
+
+  @IsIn(ROLES, { message: 'Selecciona un rol válido' })
+  role: RoleName;
+}
 
 export class CreateTrabajadorDto {
   @IsIn(TIPOS_DOCUMENTO, { message: 'Selecciona un tipo de documento válido' })
@@ -32,16 +71,23 @@ export class CreateTrabajadorDto {
   @IsIn(CARGOS, { message: 'Selecciona un cargo valido' })
   cargo: string;
 
-  // Cuenta de acceso. `userId` vincula una que ya existe; `cuenta` crea una nueva. Sin
-  // ninguna de las dos el trabajador queda sin acceso (y sin poder registrar operaciones).
+  // Unidad de negocio a la que pertenece. Si no viene, el trabajador entra a la Principal:
+  // es lo correcto para el alta de siempre, donde nadie piensa en unidades.
+  @IsOptional()
+  @IsString()
+  unidadNegocioId?: string;
+
+  // Cuenta de acceso. `userId` vincula una que ya existe; `cuenta` crea una nueva junto con
+  // el trabajador, en la misma transacción. Sin ninguna de las dos el trabajador queda sin
+  // acceso (y sin poder registrar operaciones).
   @IsOptional()
   @IsString()
   userId?: string;
 
   @IsOptional()
   @ValidateNested()
-  @Type(() => CreateUserDto)
-  cuenta?: CreateUserDto;
+  @Type(() => CuentaTrabajadorDto)
+  cuenta?: CuentaTrabajadorDto;
 }
 
 export class UpdateTrabajadorDto {
@@ -74,6 +120,12 @@ export class UpdateTrabajadorDto {
   @IsIn(CARGOS, { message: 'Selecciona un cargo valido' })
   cargo?: string;
 
+  // Mover a alguien de unidad cambia dónde caen sus operaciones NUEVAS; las anteriores
+  // conservan la unidad con la que se registraron, porque va estampada en cada fila.
+  @IsOptional()
+  @IsString()
+  unidadNegocioId?: string;
+
   @IsOptional()
   @IsBoolean()
   estado?: boolean;
@@ -83,8 +135,9 @@ export class UpdateTrabajadorDto {
   @IsString()
   userId?: string;
 
+  // Edita la cuenta que ya tiene el trabajador, o le crea una si todavía no tenía.
   @IsOptional()
   @ValidateNested()
-  @Type(() => CreateUserDto)
-  cuenta?: CreateUserDto;
+  @Type(() => CuentaTrabajadorDto)
+  cuenta?: CuentaTrabajadorDto;
 }

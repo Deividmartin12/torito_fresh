@@ -1,19 +1,39 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { AuthUser } from '../common/auth-user';
 import { accountState } from '../common/receivables';
+import {
+  filtroUnidad,
+  filtroUnidadPor,
+  resolverAlcanceUnidad,
+  unidadControlaInventario,
+} from '../common/unit-context';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class ReportsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async business(from?: string, to?: string) {
+  async business(actor: AuthUser, from?: string, to?: string, unidad?: string) {
     const dateRange = this.dateRange(from, to);
     const expenseRange = this.expenseDateRange(from, to);
+    // Una sola resolución para las seis consultas de abajo: sin esto el reporte de un
+    // puesto satélite mostraría los números de la Principal.
+    const alcance = await resolverAlcanceUnidad(this.prisma, actor, unidad);
+    const deUnidad = filtroUnidad(alcance);
+    // En un puesto que solo registra ventas y gastos no hay kardex, así que el costo de lo
+    // vendido cae al costo de referencia del producto (ver el cálculo de `lineCost` más abajo).
+    // Es un costo estimado y la pantalla tiene que decirlo: llamarlo "costo de inventario"
+    // sería mentira. En consolidado vale `false`, porque mezcla unidades de los dos tipos.
+    const costoEstimado =
+      alcance.tipo === 'una' && !(await unidadControlaInventario(this.prisma, alcance.id));
     const [sales, expenses, productionOrders, stocks, paymentMethodRows] = await Promise.all([
       this.prisma.venta.findMany({
-        where: { estado: 'CONFIRMADA', fecha: dateRange },
+        where: { ...deUnidad, estado: 'CONFIRMADA', fecha: dateRange },
         orderBy: { fecha: 'asc' },
         include: {
+          // Para el desglose por unidad: con varias a la vista hay que poder decir de cuál
+          // viene cada cifra, si no el consolidado es un número sin origen.
+          unidadNegocio: { select: { id: true, nombre: true } },
           cliente: true,
           detalles: {
             include: {
@@ -29,16 +49,34 @@ export class ReportsService {
         },
       }),
       this.prisma.gasto.findMany({
-        where: { fecha: expenseRange },
+        where: { ...deUnidad, fecha: expenseRange },
         orderBy: { fecha: 'asc' },
+        include: {
+          categoria: { select: { nombre: true } },
+          unidadNegocio: { select: { id: true, nombre: true } },
+        },
       }),
       this.prisma.ordenProduccion.findMany({
-        where: { estado: 'COMPLETADA', fechaFin: dateRange },
+        where: {
+          estado: 'COMPLETADA',
+          fechaFin: dateRange,
+          ...filtroUnidadPor('almacenProductoTerminado', alcance),
+        },
         select: { fechaFin: true, cantidadProducida: true },
       }),
+      // El catálogo de productos es compartido, pero el STOCK no: se filtra por el almacén
+      // de la unidad. Sin esto el panel del puesto satélite avisaría de quiebres de stock
+      // que en realidad son de la Principal.
       this.prisma.producto.findMany({
         where: { estado: true },
-        include: { stocks: { where: { estadoInventario: { codigo: 'DISPONIBLE' } } } },
+        include: {
+          stocks: {
+            where: {
+              estadoInventario: { codigo: 'DISPONIBLE' },
+              ...filtroUnidadPor('almacen', alcance),
+            },
+          },
+        },
       }),
       // Método de pago -> su categoría (YAPE, EFECTIVO...), para agrupar las ventas por
       // forma de cobro. Se agrupa por categoría porque puede haber varios Yape (uno por
@@ -91,6 +129,29 @@ export class ReportsService {
     const zones = new Map<string, Ranking>();
     const clients = new Map<string, Ranking>();
     const expenseCategories = new Map<string, Ranking>();
+    // Cuánto vendió y cuánto gastó cada unidad. Es lo que vuelve útil mirar varias a la vez:
+    // sin esto el consolidado suma todo en una sola cifra y no se puede comparar puesto a puesto.
+    const porUnidad = new Map<
+      string,
+      { id: string; nombre: string; ventas: number; gastos: number; ordenes: number }
+    >();
+    const acumularUnidad = (
+      unidadFila: { id: bigint; nombre: string },
+      valores: { ventas?: number; gastos?: number; ordenes?: number },
+    ) => {
+      const clave = unidadFila.id.toString();
+      const actual = porUnidad.get(clave) ?? {
+        id: clave,
+        nombre: unidadFila.nombre,
+        ventas: 0,
+        gastos: 0,
+        ordenes: 0,
+      };
+      actual.ventas += valores.ventas ?? 0;
+      actual.gastos += valores.gastos ?? 0;
+      actual.ordenes += valores.ordenes ?? 0;
+      porUnidad.set(clave, actual);
+    };
     // Forma de cobro -> cuántas ventas y cuánto se facturó con ella.
     const paymentMethods = new Map<
       string,
@@ -110,6 +171,7 @@ export class ReportsService {
       const netSale = Math.max(Number(sale.total) - returned, 0);
       const counts = netSale > 0 ? 1 : 0;
       orderCount += counts;
+      acumularUnidad(sale.unidadNegocio, { ventas: netSale, ordenes: counts });
       const detalleSubtotal = sale.detalles.reduce((sum, item) => sum + Number(item.subtotal), 0);
       const movementDetails = sale.movimientosInventario.flatMap((movement) => movement.detalles);
       // Costo real de lo que salió del almacén por esta venta, sumado por producto (así se
@@ -238,6 +300,7 @@ export class ReportsService {
     for (const expense of expenses) {
       const amount = Number(expense.monto);
       totalExpenses += amount;
+      acumularUnidad(expense.unidadNegocio, { gastos: amount });
       // `Gasto.fecha` es una columna de solo fecha (guardada a medianoche UTC); se agrupa por
       // su fecha de calendario en UTC para que no se corra al día anterior, como pasaría en Lima.
       const dayExpense = this.addPeriod(
@@ -252,9 +315,14 @@ export class ReportsService {
         this.utcMonthLabel(expense.fecha),
         { expenses: amount },
       );
-      this.bumpBreakdown(dayExpense.expensesByCategory, expense.categoria, amount);
-      this.bumpBreakdown(monthExpense.expensesByCategory, expense.categoria, amount);
-      this.addRanking(expenseCategories, expense.categoria, expense.categoria, amount);
+      this.bumpBreakdown(dayExpense.expensesByCategory, expense.categoria.nombre, amount);
+      this.bumpBreakdown(monthExpense.expensesByCategory, expense.categoria.nombre, amount);
+      this.addRanking(
+        expenseCategories,
+        expense.categoria.nombre,
+        expense.categoria.nombre,
+        amount,
+      );
       if (withHours) {
         // `Gasto.fecha` no guarda hora, así que la hora sale de `createdAt`, y solo si ese registro
         // cayó en el mismo día calendario del gasto; si no (un gasto de ayer registrado hoy) va a
@@ -267,7 +335,7 @@ export class ReportsService {
           `${this.padHour(hour)}:00`,
           { expenses: amount },
         );
-        this.bumpBreakdown(hourExpense.expensesByCategory, expense.categoria, amount);
+        this.bumpBreakdown(hourExpense.expensesByCategory, expense.categoria.nombre, amount);
       }
     }
 
@@ -293,18 +361,22 @@ export class ReportsService {
       string,
       { id: string; name: string; available: number; minimum: number }
     >();
-    for (const product of stocks) {
-      const key = product.id.toString();
-      lowStockByProduct.set(key, {
-        id: key,
-        name: product.nombre,
-        available: product.stocks.reduce(
-          (sum, stock) =>
-            sum + Math.max(Number(stock.cantidad) - Number(stock.cantidadReservada), 0),
-          0,
-        ),
-        minimum: Number(product.stockMinimoGlobal),
-      });
+    // Sin inventario no hay "bajo mínimo" que avisar: el stock de esta unidad es cero por
+    // definición, así que TODOS los productos saldrían en alerta. Queda vacío a propósito.
+    if (!costoEstimado) {
+      for (const product of stocks) {
+        const key = product.id.toString();
+        lowStockByProduct.set(key, {
+          id: key,
+          name: product.nombre,
+          available: product.stocks.reduce(
+            (sum, stock) =>
+              sum + Math.max(Number(stock.cantidad) - Number(stock.cantidadReservada), 0),
+            0,
+          ),
+          minimum: Number(product.stockMinimoGlobal),
+        });
+      }
     }
 
     const grossMargin = [...months.values()].reduce((sum, row) => sum + row.margin, 0);
@@ -313,7 +385,7 @@ export class ReportsService {
     // Cartera por cobrar: total vigente y vencido en todo el negocio (no acotado
     // al período), para el indicador del panel y el acceso directo a Cobranzas.
     const openReceivables = await this.prisma.cuentaCobrar.findMany({
-      where: { saldoPendiente: { gt: 0 } },
+      where: { saldoPendiente: { gt: 0 }, ...filtroUnidadPor('cliente', alcance) },
       select: { saldoPendiente: true, montoPagado: true, fechaVencimiento: true },
     });
     const receivables = openReceivables.reduce(
@@ -333,6 +405,12 @@ export class ReportsService {
     return {
       range: { from: dateRange.gte, to: dateRange.lt },
       receivables,
+      // El costo de esta vista salió del costo de referencia de cada producto y no del kardex.
+      // Lo lee la pantalla para no llamarlo "costo de inventario" cuando no lo es.
+      costoEstimado,
+      // Cuánto puso cada unidad. La pantalla lo muestra solo cuando hay más de una: con una
+      // sola sería repetir el total en una tabla de un renglón.
+      porUnidad: [...porUnidad.values()].sort((a, b) => b.ventas - a.ventas || b.gastos - a.gastos),
       summary: {
         sales: totalSales,
         expenses: totalExpenses,
@@ -381,12 +459,14 @@ export class ReportsService {
    * los pagos recibidos por `Gasto.beneficiarioId` (solo la categoría fija de pago a
    * trabajador la llena) y los gastos registrados por `Gasto.trabajadorId`, que es el autor.
    */
-  async workers(from?: string, to?: string) {
+  async workers(actor: AuthUser, from?: string, to?: string, unidad?: string) {
     const dateRange = this.dateRange(from, to);
     const expenseRange = this.expenseDateRange(from, to);
+    const alcance = await resolverAlcanceUnidad(this.prisma, actor, unidad);
+    const deUnidad = filtroUnidad(alcance);
     const [sales, expenses, paymentMethodRows, trabajadores] = await Promise.all([
       this.prisma.venta.findMany({
-        where: { estado: 'CONFIRMADA', fecha: dateRange },
+        where: { ...deUnidad, estado: 'CONFIRMADA', fecha: dateRange },
         select: {
           trabajadorId: true,
           total: true,
@@ -396,11 +476,11 @@ export class ReportsService {
         },
       }),
       this.prisma.gasto.findMany({
-        where: { fecha: expenseRange },
+        where: { ...deUnidad, fecha: expenseRange },
         select: {
           trabajadorId: true,
           beneficiarioId: true,
-          categoria: true,
+          categoria: { select: { nombre: true } },
           monto: true,
           metodoPagoId: true,
         },
@@ -408,7 +488,9 @@ export class ReportsService {
       this.prisma.metodoPago.findMany({
         select: { id: true, nombre: true, categoria: { select: { nombre: true } } },
       }),
+      // Sin el filtro, la tabla listaría en cero a la gente de las otras unidades.
       this.prisma.trabajador.findMany({
+        where: deUnidad,
         orderBy: [{ nombres: 'asc' }, { apellidos: 'asc' }],
         select: { id: true, nombres: true, apellidos: true, cargo: true, estado: true },
       }),
@@ -516,8 +598,8 @@ export class ReportsService {
       if (autor) {
         autor.gastosRegistrados.count += 1;
         autor.gastosRegistrados.total += amount;
-        this.bumpBreakdown(autor.gastosPorCategoria, expense.categoria, amount);
-        categoriasGasto.add(expense.categoria);
+        this.bumpBreakdown(autor.gastosPorCategoria, expense.categoria.nombre, amount);
+        categoriasGasto.add(expense.categoria.nombre);
       }
     }
 

@@ -1,6 +1,13 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { AuthUser } from '../common/auth-user';
+import {
+  exigirMismaUnidad,
+  filtroUnidadPor,
+  resolverAlcanceUnidad,
+  resolverUnidadDeEscritura,
+  unidadControlaInventario,
+} from '../common/unit-context';
 import { exigirTrabajadorId } from '../common/worker-context';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateProductionOrderDto, UpdateProductionOrderDto } from './production.dto';
@@ -22,14 +29,33 @@ type ConsumoParaDescontar = {
 export class ProductionService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async catalogs() {
+  /** Un puesto que solo registra ventas y gastos no produce: no tiene stock que mover. */
+  private async exigirInventario(db: Transaction | PrismaService, unidadNegocioId: bigint) {
+    if (await unidadControlaInventario(db, unidadNegocioId)) return;
+    throw new BadRequestException(
+      'Esta unidad de negocio solo registra ventas y gastos: no lleva inventario ni órdenes de producción.',
+    );
+  }
+
+  async catalogs(actor: AuthUser, unidad?: string) {
+    // Los almacenes se acotan a la unidad donde se va a registrar, igual que en el formulario
+    // de venta: antes el combo ofrecía los almacenes de todas las unidades y la producción de
+    // un puesto satélite terminaba entrando al almacén de la Principal. El catálogo de
+    // productos sí es compartido a propósito.
+    const unidadNegocioId = await resolverUnidadDeEscritura(this.prisma, {
+      actor,
+      unidadSolicitada: unidad,
+    });
     const [productos, almacenes] = await Promise.all([
       this.prisma.producto.findMany({
         where: { estado: true },
         include: { tipoProducto: true },
         orderBy: { nombre: 'asc' },
       }),
-      this.prisma.almacen.findMany({ where: { estado: true }, orderBy: { nombre: 'asc' } }),
+      this.prisma.almacen.findMany({
+        where: { estado: true, unidadNegocioId },
+        orderBy: { nombre: 'asc' },
+      }),
     ]);
     const productView = productos.map((item) => ({
       id: item.id.toString(),
@@ -51,8 +77,11 @@ export class ProductionService {
     };
   }
 
-  async orders() {
+  async orders(actor: AuthUser, unidad?: string) {
+    // La orden no lleva columna de unidad: la hereda del almacén donde entra lo producido.
+    const alcance = await resolverAlcanceUnidad(this.prisma, actor, unidad);
     const rows = await this.prisma.ordenProduccion.findMany({
+      where: filtroUnidadPor('almacenProductoTerminado', alcance),
       orderBy: { createdAt: 'desc' },
       take: 100,
       include: this.include(),
@@ -60,25 +89,42 @@ export class ProductionService {
     return rows.map((row) => this.view(row));
   }
 
-  async create(dto: CreateProductionOrderDto, actor: AuthUser) {
+  async create(dto: CreateProductionOrderDto, actor: AuthUser, unidad?: string) {
     // Registrar producción es un solo paso: la orden nace ya completada (crea el lote,
     // consume insumos y actualiza el stock) en la misma transacción, sin un estado
     // intermedio "BORRADOR" que requiera una confirmación aparte.
     return this.prisma.$transaction(
       async (tx) => {
         const inputs = dto.insumos ?? [];
+        // Destino y origen acotados a la unidad donde se registra. El fallback era un
+        // `findFirst` sobre toda la base, o sea el primer almacén de la Principal: la
+        // producción de un puesto satélite entraba al almacén de otra unidad, le consumía los
+        // insumos, y el movimiento aparecía en los dos kardex a la vez.
+        const unidadNegocioId = await resolverUnidadDeEscritura(tx, {
+          actor,
+          unidadSolicitada: unidad,
+        });
+        // El menú ya esconde Producción en un puesto que solo registra ventas y gastos, pero
+        // por URL se puede llegar igual.
+        await this.exigirInventario(tx, unidadNegocioId);
         const destination =
           (dto.almacenProductoTerminadoId
             ? await tx.almacen.findUnique({
                 where: { id: BigInt(dto.almacenProductoTerminadoId) },
               })
             : null) ??
-          (await tx.almacen.findFirst({ where: { estado: true }, orderBy: { id: 'asc' } }));
+          (await tx.almacen.findFirst({
+            where: { estado: true, unidadNegocioId },
+            orderBy: { id: 'asc' },
+          }));
         if (!destination)
-          throw new BadRequestException('Registre un almacén antes de crear producción');
+          throw new BadRequestException(
+            'Registra un almacén en esta unidad de negocio antes de crear producción',
+          );
+        await exigirMismaUnidad(tx, unidadNegocioId, { almacenId: destination.id });
         const source =
           (await tx.almacen.findFirst({
-            where: { estado: true, id: { not: destination.id } },
+            where: { estado: true, unidadNegocioId, id: { not: destination.id } },
             orderBy: { id: 'asc' },
           })) ?? destination;
         const repeated = new Set(inputs.map((item) => item.productoId));
@@ -188,12 +234,15 @@ export class ProductionService {
    * o cualquier otro movimiento de inventario sobre ese lote. En ese caso corregirlo aquí
    * dejaría el stock descuadrado.
    */
-  async update(id: string, dto: UpdateProductionOrderDto) {
+  async update(id: string, dto: UpdateProductionOrderDto, actor: AuthUser, unidad?: string) {
+    const alcance = await resolverAlcanceUnidad(this.prisma, actor, unidad);
     return this.prisma.$transaction(
       async (tx) => {
         const orderId = BigInt(id);
-        const order = await tx.ordenProduccion.findUnique({
-          where: { id: orderId },
+        // `findFirst` con el filtro de unidad: una producción de otro puesto no es
+        // "prohibida", sencillamente no existe para quien está mirando este.
+        const order = await tx.ordenProduccion.findFirst({
+          where: { id: orderId, ...filtroUnidadPor('almacenProductoTerminado', alcance) },
           include: {
             producto: true,
             consumos: true,
@@ -226,6 +275,13 @@ export class ProductionService {
           : await tx.almacen.findUnique({ where: { id: order.almacenProductoTerminadoId } });
         if (!destino || !destino.estado)
           throw new BadRequestException('El almacén destino no está disponible');
+        // Editar no muda la producción de unidad, igual que una venta: el almacén nuevo tiene
+        // que ser de la misma unidad que el original.
+        const almacenOriginal = await tx.almacen.findUniqueOrThrow({
+          where: { id: order.almacenProductoTerminadoId },
+          select: { unidadNegocioId: true },
+        });
+        await exigirMismaUnidad(tx, almacenOriginal.unidadNegocioId, { almacenId: destino.id });
 
         await tx.consumoOrdenProduccion.deleteMany({ where: { ordenProduccionId: order.id } });
         if (nuevosInsumos.length)

@@ -1,15 +1,6 @@
 'use client';
 
-import {
-  ArrowRight,
-  Boxes,
-  Eye,
-  FileText,
-  Search,
-  UserRound,
-  Warehouse,
-  X,
-} from 'lucide-react';
+import { ArrowRight, Boxes, Eye, FileText, Search, UserRound, Warehouse, X } from 'lucide-react';
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
@@ -20,12 +11,7 @@ import { SearchableSelect } from '../../../components/SearchableSelect';
 import { ProductLedger } from '../../../components/kardex/ProductLedger';
 import { fechaHora, moneda, cantidad } from '../../../lib/format';
 import { MOVEMENT_TYPE_OPTIONS, directionLabel, movementStyle } from '../../../lib/kardex';
-import {
-  CatalogItem,
-  Movement,
-  getMovements,
-  getOperationCatalogs,
-} from '../../../lib/operations';
+import { CatalogItem, Movement, getMovements, getOperationCatalogs } from '../../../lib/operations';
 
 type Tab = 'movimientos' | 'producto';
 

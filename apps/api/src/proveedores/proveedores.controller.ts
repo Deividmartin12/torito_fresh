@@ -4,7 +4,7 @@ import { Roles } from '../auth/roles.decorator';
 import { CreateProveedorDto, UpdateProveedorDto } from './proveedores.dto';
 import { ProveedoresService } from './proveedores.service';
 
-@Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.WAREHOUSE)
+@Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.WAREHOUSE, RoleName.SOCIO)
 @Controller('proveedores')
 export class ProveedoresController {
   constructor(private readonly proveedores: ProveedoresService) {}
@@ -24,6 +24,9 @@ export class ProveedoresController {
     return this.proveedores.create(dto);
   }
 
+  // Mismos roles que el alta (el `@Roles` de la clase): quien puede dar de alta un proveedor
+  // tiene que poder corregirle un RUC mal tipeado.
+  @Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.WAREHOUSE, RoleName.SOCIO)
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: UpdateProveedorDto) {
     return this.proveedores.update(id, dto);

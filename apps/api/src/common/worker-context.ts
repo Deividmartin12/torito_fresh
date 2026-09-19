@@ -59,7 +59,9 @@ export async function resolverTrabajadorAutor(
   if (!solicitado) return exigirTrabajadorId(db, actor.userId);
 
   if (actor.role !== RoleName.ADMIN) {
-    throw new ForbiddenException('Solo un administrador puede registrar a nombre de otro trabajador');
+    throw new ForbiddenException(
+      'Solo un administrador puede registrar a nombre de otro trabajador',
+    );
   }
 
   let id: bigint;

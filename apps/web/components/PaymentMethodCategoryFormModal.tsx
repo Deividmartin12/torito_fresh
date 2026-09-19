@@ -4,10 +4,7 @@ import { X } from 'lucide-react';
 import { FormEvent, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
-import {
-  createPaymentMethodCategory,
-  PaymentMethodCategory,
-} from '../lib/payment-methods';
+import { createPaymentMethodCategory, PaymentMethodCategory } from '../lib/payment-methods';
 
 type Props = {
   onClose: () => void;

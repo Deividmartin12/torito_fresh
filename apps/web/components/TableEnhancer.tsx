@@ -2,6 +2,57 @@
 
 import { useEffect } from 'react';
 
+/**
+ * Copia en cada <td> la etiqueta de su columna (data-label) para que el CSS móvil
+ * pueda mostrar la tabla como tarjetas apiladas sin tocar ninguna página.
+ * Corre sobre TODAS las tablas, también las que traen paginación propia.
+ */
+function stampCardLabels(table: HTMLTableElement) {
+  const headRow = table.tHead?.rows[0];
+  if (!headRow) return;
+  // Una entrada por columna real: un <th colspan="2"> ocupa dos posiciones.
+  const headers = Array.from(headRow.cells).flatMap((th) =>
+    Array<string>(th.colSpan || 1).fill(th.textContent?.trim() ?? ''),
+  );
+  const signature = headers.join('|');
+
+  // display:block en móvil borra los roles implícitos de tabla; los explícitos
+  // son idénticos, así que ponerlos siempre no cambia nada en escritorio.
+  table.setAttribute('role', 'table');
+  table.tHead?.setAttribute('role', 'rowgroup');
+
+  for (const body of Array.from(table.tBodies)) {
+    body.setAttribute('role', 'rowgroup');
+    for (const row of Array.from(body.rows)) {
+      const cells = Array.from(row.cells);
+      // La firma incluye el encabezado: si cambia la tabla (pestañas de
+      // devoluciones, vista de cobranzas) el estampado se rehace solo.
+      const stamp = `${cells.length}:${signature}`;
+      if (row.dataset.cardStamped === stamp) continue;
+      row.dataset.cardStamped = stamp;
+      row.setAttribute('role', 'row');
+
+      // Fila de estado vacío o de carga: una sola celda que cubre toda la tabla.
+      const plain = cells.length === 1 && (cells[0].colSpan || 1) >= headers.length;
+      if (plain) row.dataset.card = 'plain';
+      else delete row.dataset.card;
+
+      let column = 0;
+      for (const cell of cells) {
+        const span = cell.colSpan || 1;
+        const label = headers[column] ?? '';
+        column += span;
+        cell.setAttribute('role', cell.tagName === 'TH' ? 'rowheader' : 'cell');
+        // Sin etiqueta: subtotales y celdas fusionadas ocupan el ancho de la tarjeta.
+        if (plain || span > 1 || !label) delete cell.dataset.label;
+        else cell.dataset.label = label;
+        if (cell.querySelector('.row-actions')) cell.dataset.cell = 'actions';
+        else delete cell.dataset.cell;
+      }
+    }
+  }
+}
+
 export function TableEnhancer() {
   useEffect(() => {
     const cleanups: (() => void)[] = [];
@@ -11,6 +62,9 @@ export function TableEnhancer() {
         .forEach((table) => {
           const host = table.parentElement;
           if (!host) return;
+          // Antes del early-return: las tablas con paginación propia también
+          // necesitan las etiquetas para el modo tarjeta.
+          stampCardLabels(table);
           const manualPagination = host.nextElementSibling?.classList.contains('table-pagination');
           if (manualPagination) {
             host.querySelector(':scope > .auto-table-toolbar')?.remove();
@@ -111,10 +165,21 @@ export function TableEnhancer() {
         });
     };
     enhance();
-    const observer = new MutationObserver(enhance);
+    // El observer mira todo el body, así que dispara con cada toast y cada modal:
+    // se agrupan las ráfagas en un solo frame. Solo childList/subtree — con
+    // attributes:true el propio estampado volvería a dispararlo.
+    let frame = 0;
+    const observer = new MutationObserver(() => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        enhance();
+      });
+    });
     observer.observe(document.body, { childList: true, subtree: true });
     return () => {
       observer.disconnect();
+      if (frame) cancelAnimationFrame(frame);
       cleanups.forEach((cleanup) => cleanup());
     };
   }, []);

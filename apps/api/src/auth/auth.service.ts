@@ -58,12 +58,26 @@ export class AuthService {
         username: true,
         active: true,
         role: { select: { name: true } },
+        trabajador: {
+          select: { id: true, estado: true, unidadNegocio: { select: { id: true, nombre: true } } },
+        },
       },
     });
     // Si el usuario ya no existe, respondemos 401 en vez de un `null` con estado 200: así el
     // cliente sabe que debe volver a iniciar sesión en lugar de romperse leyendo `user.role`.
     if (!user) throw new UnauthorizedException('La sesión ya no es válida');
-    return user;
+    const { trabajador, role, ...cuenta } = user;
+    const vinculado = trabajador?.estado ? trabajador : null;
+    return {
+      ...cuenta,
+      // El rol va como texto plano, igual que en la respuesta del login: el front guarda las
+      // dos en la misma clave de sesión y si tuvieran forma distinta, la pantalla que lo
+      // muestra recibiría un objeto donde espera una cadena.
+      role: role.name,
+      trabajadorId: vinculado?.id.toString() ?? null,
+      unidadNegocioId: vinculado?.unidadNegocio.id.toString() ?? null,
+      unidad: vinculado?.unidadNegocio.nombre ?? null,
+    };
   }
 
   async changePassword(userId: string, dto: ChangePasswordDto) {

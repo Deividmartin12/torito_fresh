@@ -95,6 +95,27 @@ export function validarEmail(valor: string, { requerido }: Opcional = {}): strin
   return undefined;
 }
 
+/** Nombre con el que se entra al sistema. Mismas reglas que `CuentaTrabajadorDto` en el API. */
+export function validarUsername(valor: string, { requerido }: Opcional = {}): string | undefined {
+  const limpio = valor.trim();
+  if (!limpio) return requerido ? 'Ingresa el nombre de usuario.' : undefined;
+  if (limpio.length < 2) return 'El nombre de usuario debe tener al menos 2 caracteres.';
+  if (limpio.length > 50) return 'El nombre de usuario no puede pasar de 50 caracteres.';
+  if (!RE_USERNAME.test(limpio)) return 'Usa solo letras, números, punto, guion y guion bajo.';
+  return undefined;
+}
+
+/**
+ * Contraseña de una cuenta de acceso. Va sin `trim`: los espacios son parte de la clave.
+ * Al editar una cuenta que ya existe se usa sin `requerido`, porque dejarla en blanco
+ * significa "no cambiarla".
+ */
+export function validarPassword(valor: string, { requerido }: Opcional = {}): string | undefined {
+  if (!valor) return requerido ? 'Ingresa una contraseña.' : undefined;
+  if (valor.length < 4) return 'La contraseña debe tener al menos 4 caracteres.';
+  return undefined;
+}
+
 export function validarMonto(
   valor: string | number,
   { min = 0, etiqueta = 'el monto' }: { min?: number; etiqueta?: string } = {},
