@@ -20,6 +20,7 @@ import {
   Recycle,
   Route,
   Building2,
+  ShieldCheck,
   ShoppingCart,
   Store,
   Truck,
@@ -41,22 +42,22 @@ import {
   obtenerToken,
   UsuarioSesion,
 } from '../lib/api';
-import { aliasRuta, etiquetaRol, puedeVer } from '../lib/permissions';
-import { useRole } from '../lib/useCurrentUser';
+import { aliasRuta, puede, puedeVer } from '../lib/permissions';
+import { usePermisos } from '../lib/useCurrentUser';
 import { ThemeToggle } from './ThemeToggle';
 import { useUnidad } from './UnidadProvider';
 
 /**
  * Qué se está mirando ahora mismo. Con una sola unidad no hay nada que aclarar.
  *
- * Para el administrador es un enlace a Configuración, que es donde se cambia; para el resto es
- * una etiqueta fija, porque su unidad no se elige.
+ * Para quien puede elegir unidad es un enlace a Configuración, que es donde se cambia; para el
+ * resto es una etiqueta fija, porque su unidad no se elige.
  */
 function IndicadorUnidad() {
   const { resumen, disponibles } = useUnidad();
-  const role = useRole();
+  const permisos = usePermisos();
   if (disponibles.length < 2 || !resumen) return null;
-  if (role !== 'ADMIN') {
+  if (!puede(permisos, 'unidades.elegir')) {
     return (
       <span className="unidad-badge" title="Unidad de negocio en la que estás trabajando">
         {resumen}
@@ -71,6 +72,56 @@ function IndicadorUnidad() {
     >
       <Eye size={13} /> {resumen}
     </Link>
+  );
+}
+
+/** Iniciales para el avatar: "Juan Pérez Soto" → "JP". */
+function iniciales(nombre: string) {
+  const partes = nombre.trim().split(/\s+/).filter(Boolean);
+  if (!partes.length) return '?';
+  return (partes[0][0] + (partes[1]?.[0] ?? '')).toUpperCase();
+}
+
+/**
+ * Quién está usando la app, al pie del menú lateral: nombre, cargo y unidad de negocio.
+ *
+ * El CARGO y el ROL no son lo mismo y por eso se muestra el cargo cuando existe: el cargo es
+ * cómo se llama el puesto de la persona ("Almacenero") y el rol es qué puede hacer en el
+ * sistema ("Vendedor"). Quien no tiene trabajador vinculado no tiene cargo, y ahí se muestra
+ * el rol, que es lo único que la describe.
+ *
+ * La unidad sigue la misma regla que el resto de la app: quien puede elegir unidad ve la que
+ * está mirando ahora (que puede ser "Todas las unidades"), y quien no, la suya.
+ */
+function IdentidadUsuario({ user, colapsado }: { user: UsuarioSesion | null; colapsado: boolean }) {
+  const { resumen, disponibles } = useUnidad();
+  const permisos = user?.permisos ?? [];
+  if (!user) return null;
+
+  const cargo = user.cargo || user.rolNombre || '';
+  const unidad = puede(permisos, 'unidades.elegir')
+    ? disponibles.length > 0
+      ? resumen
+      : ''
+    : (user.unidad ?? '');
+  const resumenCompleto = [user.name, cargo, unidad].filter(Boolean).join(' · ');
+
+  return (
+    <div className="sidebar-identity" title={colapsado ? resumenCompleto : undefined}>
+      <span className="sidebar-identity-avatar" aria-hidden="true">
+        {iniciales(user.name)}
+      </span>
+      <div className="sidebar-identity-copy">
+        <strong>{user.name}</strong>
+        {cargo ? <span>{cargo}</span> : null}
+        {unidad ? (
+          <small>
+            <Building2 size={11} aria-hidden="true" />
+            {unidad}
+          </small>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -150,6 +201,7 @@ const groups = [
       { href: '/trabajadores', label: 'Trabajadores', icon: UserRoundCog },
       { href: '/unidades-negocio', label: 'Unidades de negocio', icon: Building2 },
       { href: '/unidades-visibles', label: 'Unidades que veo', icon: Eye },
+      { href: '/roles', label: 'Roles y permisos', icon: ShieldCheck },
     ],
   },
 ];
@@ -200,19 +252,22 @@ export function AppShell({ children }: { children: ReactNode }) {
       });
   }, [router]);
 
-  // Menú visible según el rol Y según la unidad en la que se está trabajando: un puesto que
-  // solo registra ventas y gastos no tiene Producción, Lotes, Almacenes ni Kardex. Los grupos
-  // que quedan sin links se descartan enteros; `aliasRuta` renombra ítems por rol (p. ej.
-  // "Productos disponibles").
+  // Menú visible según los PERMISOS y según la unidad en la que se está trabajando: un puesto
+  // que solo registra ventas y gastos no tiene Producción, Lotes, Almacenes ni Kardex. Los
+  // grupos que quedan sin links se descartan enteros; `aliasRuta` renombra ítems (p. ej.
+  // "Productos disponibles" para quien no administra el catálogo).
+  //
+  // Antes esto filtraba por el nombre del rol, y por eso un rol creado desde el panel no veía
+  // ninguna pantalla por más permisos que se le marcaran: no estaba en la lista de los cinco.
   const visibleGroups = useMemo(() => {
-    const role = user?.role;
+    const permisos = user?.permisos ?? [];
     const contextoUnidad = { controlaInventario };
     return groups
       .map((group) => ({
         ...group,
         links: group.links
-          .filter((link) => puedeVer(role, link.href, contextoUnidad))
-          .map((link) => ({ ...link, label: aliasRuta(role, link.href) ?? link.label })),
+          .filter((link) => puedeVer(permisos, link.href, contextoUnidad))
+          .map((link) => ({ ...link, label: aliasRuta(permisos, link.href) ?? link.label })),
       }))
       .filter((group) => group.links.length > 0);
     // `controlaInventario` tiene que estar acá: sin él, al cambiar de unidad el menú se queda
@@ -221,7 +276,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   // Guarda de ruta: si no corresponde ver la ruta actual, lo mandamos al inicio.
   useEffect(() => {
-    if (user && !puedeVer(user.role, pathname, { controlaInventario }))
+    if (user && !puedeVer(user.permisos ?? [], pathname, { controlaInventario }))
       router.replace('/dashboard');
   }, [user, pathname, router, controlaInventario]);
 
@@ -391,6 +446,12 @@ export function AppShell({ children }: { children: ReactNode }) {
             );
           })}
         </nav>
+
+        {/* Quién está adentro, al pie del menú: el nombre, su cargo y la unidad en la que
+            está trabajando. Antes vivía en la barra de arriba, donde el nombre competía por
+            lugar con los botones y en el celular directamente no entraba. Acá abajo hay sitio
+            para las tres líneas y no se cruza con nada. */}
+        <IdentidadUsuario user={user} colapsado={sidebarCollapsed} />
       </aside>
 
       <header className="admin-bar">
@@ -404,10 +465,6 @@ export function AppShell({ children }: { children: ReactNode }) {
           >
             {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
           </button>
-          <div>
-            <strong>{user?.name ?? 'Administrador'}</strong>
-            <span>{etiquetaRol(user?.role) || 'Administrador'}</span>
-          </div>
         </div>
         <div className="admin-actions">
           <IndicadorUnidad />
@@ -448,6 +505,10 @@ export function AppShell({ children }: { children: ReactNode }) {
             onClick={() => setMenuOpen(false)}
           />
           <nav className="app-menu" id="mobile-navigation" aria-label="Menú principal">
+            {/* En el celular no hay barra lateral, así que la identidad va acá arriba: es lo
+                primero que se ve al abrir el menú y responde "¿con qué cuenta estoy?" sin
+                tener que entrar a ninguna pantalla. */}
+            <IdentidadUsuario user={user} colapsado={false} />
             <div className="app-menu-title">
               <span>Navegación</span>
               <small>Selecciona una sección</small>

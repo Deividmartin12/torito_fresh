@@ -1,4 +1,3 @@
-import { RoleName } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
   IsBoolean,
@@ -15,7 +14,6 @@ import { EsCelular, EsEmailOpcional, EsNombrePersona } from '../common/validator
 
 const CARGOS = ['Administrador', 'Almacenero', 'Vendedor', 'Repartidor', 'Socio'] as const;
 const TIPOS_DOCUMENTO = ['DNI', 'CE', 'PAS'] as const;
-const ROLES = Object.values(RoleName);
 
 /**
  * Cuenta de acceso del trabajador, dentro del mismo alta.
@@ -42,8 +40,12 @@ export class CuentaTrabajadorDto {
   @MinLength(4, { message: 'La contraseña debe tener al menos 4 caracteres' })
   password?: string;
 
-  @IsIn(ROLES, { message: 'Selecciona un rol válido' })
-  role: RoleName;
+  // La clave del rol (`ADMIN`, `SELLER`, o la de uno creado desde el panel). No se valida
+  // contra una lista fija porque los roles ahora son filas: que exista lo comprueba el
+  // servicio al resolver su id, y así un rol nuevo funciona sin tocar este archivo.
+  @IsString()
+  @MaxLength(40)
+  role: string;
 }
 
 export class CreateTrabajadorDto {

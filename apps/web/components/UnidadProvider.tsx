@@ -10,7 +10,7 @@ import {
   useState,
 } from 'react';
 import { getUnidadesVisibles, UnidadOpcion } from '../lib/unidades';
-import { useRole } from '../lib/useCurrentUser';
+import { useSesion } from '../lib/useCurrentUser';
 
 /**
  * Qué unidades de negocio está mirando el usuario, para toda la app.
@@ -52,7 +52,7 @@ export function useUnidad(): UnidadContexto {
 }
 
 export function UnidadProvider({ children }: { children: ReactNode }) {
-  const role = useRole();
+  const sesion = useSesion();
   const [todas, setTodas] = useState(true);
   const [ids, setIds] = useState<string[]>([]);
   const [disponibles, setDisponibles] = useState<UnidadOpcion[]>([]);
@@ -70,9 +70,9 @@ export function UnidadProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!role) return;
+    if (!sesion) return;
     void recargar();
-  }, [role, recargar]);
+  }, [sesion, recargar]);
 
   const elegidas = useMemo(
     () => (todas ? [] : disponibles.filter((unidad) => ids.includes(unidad.id))),

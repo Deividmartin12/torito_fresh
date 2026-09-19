@@ -4,11 +4,10 @@ import { X } from 'lucide-react';
 import { FormEvent, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
-import { ETIQUETA_ROL, Role } from '../lib/permissions';
+import { getRolesAsignables, RolAsignable } from '../lib/roles';
 import {
   CARGOS_TRABAJADOR,
   createTrabajador,
-  ROLES_CUENTA,
   Trabajador,
   TrabajadorPayload,
   updateTrabajador,
@@ -48,7 +47,7 @@ type DatosForm = {
 };
 
 /** Lo que se teclea de la cuenta de acceso. El resto (nombre, correo) lo pone el API. */
-type CuentaForm = { username: string; password: string; role: Role };
+type CuentaForm = { username: string; password: string; role: string };
 
 type FormErrors = Partial<Record<keyof DatosForm | keyof CuentaForm, string>>;
 
@@ -65,8 +64,13 @@ const datosVacios: DatosForm = {
 
 const cuentaVacia: CuentaForm = { username: '', password: '', role: 'SELLER' };
 
-/** El cargo del trabajador y el rol con el que entra al sistema son la misma decisión. */
-const ROL_SUGERIDO: Record<string, Role> = {
+/**
+ * El cargo del trabajador y el rol con el que entra al sistema son la misma decisión.
+ *
+ * Solo cubre los cinco cargos de siempre: un rol creado desde el panel no tiene un cargo que
+ * lo sugiera, y ahí se elige a mano, que es lo correcto.
+ */
+const ROL_SUGERIDO: Record<string, string> = {
   Administrador: 'ADMIN',
   Almacenero: 'WAREHOUSE',
   Vendedor: 'SELLER',
@@ -112,6 +116,8 @@ export function TrabajadorFormModal({ editando, onClose, onSaved }: Props) {
   );
   // Mientras nadie elija el rol a mano, lo propone el cargo. Después manda lo elegido.
   const [rolElegido, setRolElegido] = useState(Boolean(editando?.usuario));
+  // Los roles salen del API: son filas editables, así que la lista no se puede escribir acá.
+  const [roles, setRoles] = useState<RolAsignable[]>([]);
   const [unidades, setUnidades] = useState<UnidadOpcion[]>([]);
   const [modalUnidad, setModalUnidad] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<FormErrors>({});
@@ -134,6 +140,21 @@ export function TrabajadorFormModal({ editando, onClose, onSaved }: Props) {
         );
       })
       .catch(() => setUnidades([]));
+  }, []);
+
+  useEffect(() => {
+    getRolesAsignables()
+      .then((lista) => {
+        setRoles(lista);
+        // Si el rol que traía la cuenta ya no está (lo desactivaron), se cae al primero de la
+        // lista: es preferible a dejar el combo mostrando un valor que el API va a rechazar.
+        setCuenta((actual) =>
+          lista.some((rol) => rol.clave === actual.role) || !lista.length
+            ? actual
+            : { ...actual, role: lista[0].clave },
+        );
+      })
+      .catch(() => setRoles([]));
   }, []);
 
   function updateField(field: keyof DatosForm, value: string) {
@@ -427,12 +448,12 @@ export function TrabajadorFormModal({ editando, onClose, onSaved }: Props) {
                     value={cuenta.role}
                     onChange={(event) => {
                       setRolElegido(true);
-                      updateCuenta('role', event.target.value as Role);
+                      updateCuenta('role', event.target.value);
                     }}
                   >
-                    {ROLES_CUENTA.map((rol) => (
-                      <option key={rol} value={rol}>
-                        {ETIQUETA_ROL[rol]}
+                    {roles.map((rol) => (
+                      <option key={rol.clave} value={rol.clave}>
+                        {rol.nombre}
                       </option>
                     ))}
                   </select>

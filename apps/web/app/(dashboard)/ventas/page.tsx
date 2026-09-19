@@ -19,8 +19,8 @@ import {
   OperationalPaymentMethod,
   Sale,
 } from '../../../lib/operations';
-import { puedeEditar } from '../../../lib/permissions';
-import { useRole } from '../../../lib/useCurrentUser';
+import { puede } from '../../../lib/permissions';
+import { usePermisos } from '../../../lib/useCurrentUser';
 
 /** Una venta se puede editar mientras su único cobro sea el automático de la propia venta
  * (una venta al contado nace cobrada y aun así se debe poder corregir). Un cobro hecho después
@@ -44,9 +44,9 @@ export default function VentasPage() {
   const [receivables, setReceivables] = useState<OperationalAccount[]>([]);
   const [methods, setMethods] = useState<OperationalPaymentMethod[]>([]);
   const [cobrarAccount, setCobrarAccount] = useState<OperationalAccount | null>(null);
-  const role = useRole();
-  // DELIVERY solo crea y lee ventas: sin confirmar, sin cobranzas, sin resumen por cobrar.
-  const editable = puedeEditar(role);
+  const permisos = usePermisos();
+  // Quien solo crea y lee ventas no ve confirmaciones, cobranzas ni el resumen por cobrar.
+  const editable = puede(permisos, 'ventas.editar');
 
   const loadReceivables = useCallback(async () => {
     try {
@@ -62,8 +62,8 @@ export default function VentasPage() {
   }, []);
 
   useEffect(() => {
-    if (role && puedeEditar(role)) void loadReceivables();
-  }, [role, loadReceivables]);
+    if (editable) void loadReceivables();
+  }, [editable, loadReceivables]);
 
   const porCobrarTotal = receivables.reduce((sum, item) => sum + item.saldo, 0);
   const vencidasCount = receivables.filter((item) => item.estado === 'VENCIDA').length;

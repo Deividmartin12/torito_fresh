@@ -1,5 +1,4 @@
 import { api } from './api';
-import { Role } from './permissions';
 
 /** Cuenta con la que el trabajador entra al sistema. Sale del mismo formulario que él. */
 export type CuentaTrabajador = {
@@ -7,7 +6,10 @@ export type CuentaTrabajador = {
   name: string;
   username: string | null;
   email: string;
-  role: Role;
+  /** Clave del rol con el que entra ('SELLER', o la de uno creado desde el panel). */
+  role: string;
+  /** Nombre visible del rol. Lo manda el API porque la web ya no tiene la lista. */
+  rolNombre: string;
   active: boolean;
 };
 
@@ -36,7 +38,7 @@ export type Trabajador = {
 export type CuentaTrabajadorPayload = {
   username: string;
   password?: string;
-  role: Role;
+  role: string;
 };
 
 export type TrabajadorPayload = Pick<
@@ -60,9 +62,6 @@ export const CARGOS_TRABAJADOR = [
   'Repartidor',
   'Socio',
 ] as const;
-
-/** Roles asignables desde la app. Coinciden con el enum `RoleName` del API. */
-export const ROLES_CUENTA: Role[] = ['ADMIN', 'SELLER', 'WAREHOUSE', 'DELIVERY', 'SOCIO'];
 
 export const nombreTrabajador = (item: Pick<Trabajador, 'nombres' | 'apellidos'>) =>
   `${item.nombres} ${item.apellidos}`.trim();

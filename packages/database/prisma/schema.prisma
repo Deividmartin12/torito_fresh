@@ -7,16 +7,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum RoleName {
-  ADMIN
-  SELLER
-  DELIVERY
-  WAREHOUSE
-  // Responsable de una unidad de negocio satélite: registra sus propias ventas y gastos
-  // contra su propio almacén y sus propios clientes, sin ver los de la unidad principal.
-  SOCIO
-}
-
 enum ClientType {
   HOME
   COMPANY
@@ -38,14 +28,48 @@ enum ContainerMovementType {
   ADJUSTMENT
 }
 
+// Un rol es una fila, no un valor de enum: se crean y se editan desde Configuración ›
+// Roles y permisos, sin tocar el código. Antes era el enum `RoleName`, y por eso agregar un
+// puesto nuevo obligaba a una migración y a un despliegue.
 model Role {
-  id        String   @id @default(cuid())
-  name      RoleName @unique
+  id String @id @default(cuid())
+  // Identificador estable que NO cambia al renombrar el rol. Los cinco que trae el sistema
+  // conservan la clave que tenía el enum (ADMIN, SELLER, ...), así los datos viejos y los
+  // tokens emitidos antes de la migración siguen valiendo.
+  clave       String  @unique @db.VarChar(40)
+  nombre      String  @unique @db.VarChar(60)
+  descripcion String? @db.VarChar(250)
+  // Un rol del sistema no se puede eliminar ni cambiar de clave: hay código que depende de
+  // que existan (el seed, y el administrador que tiene que poder entrar siempre).
+  sistema Boolean @default(false)
+  // Lo puede todo, incluidos los permisos que se agreguen al catálogo después. Con una lista
+  // fija de permisos, el administrador se quedaría afuera de cada función nueva.
+  accesoTotal Boolean @default(false) @map("acceso_total")
+  estado      Boolean @default(true)
+
+  permisos  RolPermiso[]
   users     User[]
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
 
   @@map("roles")
+}
+
+// Un permiso otorgado a un rol. La `clave` sale del catálogo de `apps/api/src/auth/permisos.ts`,
+// que es donde se declara qué permisos existen; acá solo se guarda quién los tiene.
+//
+// A propósito NO hay clave foránea contra una tabla de permisos: el catálogo vive en el código
+// porque cada permiso necesita que alguien lo consulte en un endpoint, y una fila suelta en la
+// base no habilitaría nada. Una clave que ya no exista en el catálogo se ignora al leer.
+model RolPermiso {
+  roleId    String   @map("role_id")
+  clave     String   @db.VarChar(60)
+  createdAt DateTime @default(now()) @map("created_at")
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, clave])
+  @@index([roleId])
+  @@map("rol_permiso")
 }
 
 model User {

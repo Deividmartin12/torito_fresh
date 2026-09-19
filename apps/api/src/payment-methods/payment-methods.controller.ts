@@ -1,6 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { RoleName } from '@prisma/client';
-import { Roles } from '../auth/roles.decorator';
+import { Permisos } from '../auth/permisos.decorator';
 import {
   CreatePaymentMethodCategoryDto,
   CreatePaymentMethodDto,
@@ -9,7 +8,7 @@ import {
 } from './payment-methods.dto';
 import { PaymentMethodsService } from './payment-methods.service';
 
-@Roles(RoleName.ADMIN)
+@Permisos('metodosPago.administrar')
 @Controller('payment-methods')
 export class PaymentMethodsController {
   constructor(private readonly paymentMethods: PaymentMethodsService) {}

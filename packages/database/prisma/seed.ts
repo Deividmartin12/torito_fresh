@@ -1,22 +1,12 @@
-import { PrismaClient, RoleName } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import { ROLES_DEL_SISTEMA } from '../../../apps/api/src/auth/permisos';
 
 const prisma = new PrismaClient();
 
 async function main() {
   const unidadPrincipal = await sembrarUnidadPrincipal();
-
-  const roles = await Promise.all(
-    Object.values(RoleName).map((name) =>
-      prisma.role.upsert({
-        where: { name },
-        update: {},
-        create: { name },
-      }),
-    ),
-  );
-
-  const roleByName = Object.fromEntries(roles.map((role) => [role.name, role]));
+  const roleByName = await sembrarRoles();
 
   // Usuarios de acceso. Se puede iniciar sesión con el nombre de usuario o con el correo.
   const usuarios = [
@@ -24,7 +14,7 @@ async function main() {
       username: 'admin',
       email: 'admin@toritofresh.local',
       name: 'Administrador',
-      role: RoleName.ADMIN,
+      role: 'ADMIN',
       password: 'admin',
       doc: '00000001',
       cargo: 'Administrador',
@@ -33,7 +23,7 @@ async function main() {
       username: '01',
       email: '01@toritofresh.local',
       name: 'Reparto 01',
-      role: RoleName.DELIVERY,
+      role: 'DELIVERY',
       password: '01',
       doc: '00000011',
       cargo: 'Repartidor',
@@ -42,7 +32,7 @@ async function main() {
       username: '02',
       email: '02@toritofresh.local',
       name: 'Reparto 02',
-      role: RoleName.DELIVERY,
+      role: 'DELIVERY',
       password: '02',
       doc: '00000012',
       cargo: 'Repartidor',
@@ -96,6 +86,49 @@ async function main() {
 
   await sembrarMetodosDePago();
   await sembrarCategoriasDeGasto();
+}
+
+/**
+ * Los cinco roles que trae el sistema, con los permisos con los que nacen.
+ *
+ * La lista sale del mismo catálogo que usa el API (`apps/api/src/auth/permisos.ts`), para que
+ * no haya dos versiones que se vayan separando. Los permisos se REEMPLAZAN enteros en cada
+ * corrida: el seed reafirma el estado de fábrica, y si alguien le sacó un permiso a un rol
+ * desde el panel, correr el seed se lo devuelve.
+ */
+async function sembrarRoles() {
+  const roles = await Promise.all(
+    ROLES_DEL_SISTEMA.map(async (definicion) => {
+      const rol = await prisma.role.upsert({
+        where: { clave: definicion.clave },
+        update: {
+          nombre: definicion.nombre,
+          descripcion: definicion.descripcion,
+          sistema: true,
+          accesoTotal: definicion.accesoTotal ?? false,
+        },
+        create: {
+          clave: definicion.clave,
+          nombre: definicion.nombre,
+          descripcion: definicion.descripcion,
+          sistema: true,
+          accesoTotal: definicion.accesoTotal ?? false,
+        },
+      });
+
+      // El rol con acceso total no lleva filas: su lista es el catálogo entero, y guardar una
+      // copia solo conseguiría que se desactualice al agregar un permiso nuevo.
+      if (!rol.accesoTotal) {
+        await prisma.rolPermiso.deleteMany({ where: { roleId: rol.id } });
+        await prisma.rolPermiso.createMany({
+          data: definicion.permisos.map((clave) => ({ roleId: rol.id, clave })),
+        });
+      }
+      return rol;
+    }),
+  );
+
+  return Object.fromEntries(roles.map((rol) => [rol.clave, rol]));
 }
 
 /**

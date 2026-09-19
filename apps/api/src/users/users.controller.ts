@@ -1,10 +1,9 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { RoleName } from '@prisma/client';
-import { Roles } from '../auth/roles.decorator';
+import { Permisos } from '../auth/permisos.decorator';
 import { CreateUserDto, UpdateUserDto } from './users.dto';
 import { UsersService } from './users.service';
 
-@Roles(RoleName.ADMIN)
+@Permisos('trabajadores.administrar')
 @Controller('users')
 export class UsersController {
   constructor(private readonly users: UsersService) {}
@@ -14,10 +13,15 @@ export class UsersController {
     return this.users.list(disponibles);
   }
 
-  /** Los roles que se pueden asignar. Sale del enum, no de la base. */
+  /**
+   * Los roles que se le pueden asignar a una cuenta: los activos, con su nombre en pantalla.
+   *
+   * Sale de la base y no de un enum, que es el cambio de fondo: un rol creado en
+   * Configuración › Roles y permisos aparece acá solo, sin tocar código.
+   */
   @Get('roles')
   roles() {
-    return Object.values(RoleName);
+    return this.users.rolesAsignables();
   }
 
   @Post()

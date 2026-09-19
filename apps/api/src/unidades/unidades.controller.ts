@@ -1,7 +1,6 @@
 import { Body, Controller, Get, Param, Patch, Post, Put } from '@nestjs/common';
-import { RoleName } from '@prisma/client';
 import { CurrentUser } from '../auth/current-user.decorator';
-import { Roles } from '../auth/roles.decorator';
+import { Permisos } from '../auth/permisos.decorator';
 import { AuthUser } from '../common/auth-user';
 import {
   CreateUnidadNegocioDto,
@@ -10,16 +9,16 @@ import {
 } from './unidades.dto';
 import { UnidadesService } from './unidades.service';
 
-// El @Roles de clase es obligatorio: sin ninguno, RolesGuard deja pasar a cualquier
+// El @Permisos de clase es obligatorio: sin ninguno, PermisosGuard deja pasar a cualquier
 // autenticado y un socio podría crear unidades.
-@Roles(RoleName.ADMIN)
+@Permisos('unidades.administrar')
 @Controller('unidades')
 export class UnidadesController {
   constructor(private readonly unidades: UnidadesService) {}
 
   // La única ruta abierta al resto de los roles: alimenta el selector de unidad. Cada quien
   // recibe solo la suya, así que no filtra nada que no pueda ver igual.
-  @Roles(RoleName.ADMIN, RoleName.SELLER, RoleName.WAREHOUSE, RoleName.DELIVERY, RoleName.SOCIO)
+  @Permisos('unidades.ver')
   @Get('mias')
   mias(@CurrentUser() user: AuthUser) {
     return this.unidades.propias(user);

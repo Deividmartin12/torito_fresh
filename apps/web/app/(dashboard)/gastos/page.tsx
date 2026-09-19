@@ -27,7 +27,7 @@ import { getOperationalPaymentMethods, OperationalPaymentMethod } from '../../..
 import { Proveedor } from '../../../lib/proveedores';
 import { puede } from '../../../lib/permissions';
 import { getTrabajadores, nombreTrabajador, Trabajador } from '../../../lib/trabajadores';
-import { useRole } from '../../../lib/useCurrentUser';
+import { usePermisos } from '../../../lib/useCurrentUser';
 
 const localDate = () =>
   new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
@@ -65,9 +65,9 @@ export default function GastosPage() {
   // Si el catálogo de categorías no llegó, la lista vacía no significa "no hay categorías"
   // sino "no se pudieron cargar", y el formulario tiene que decir eso y no lo otro.
   const [fallaronCategorias, setFallaronCategorias] = useState(false);
-  const rolActual = useRole();
-  const puedeCrearTrabajador = puede(rolActual, 'trabajadores.crear');
-  const puedeCrearCategoria = puede(rolActual, 'gastos.categoria.crear');
+  const permisos = usePermisos();
+  const puedeCrearTrabajador = puede(permisos, 'trabajadores.administrar');
+  const puedeCrearCategoria = puede(permisos, 'gastos.categorias.crear');
 
   const load = useCallback(async () => {
     setLoading(true);

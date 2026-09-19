@@ -1,5 +1,10 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, RoleName } from '@prisma/client';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto, UpdateUserDto } from './users.dto';
@@ -31,6 +36,20 @@ export class UsersService {
       include: { role: true, trabajador: true },
     });
     return rows.map((row) => this.view(row));
+  }
+
+  /** Los roles activos, para el combo del formulario de trabajador. */
+  async rolesAsignables() {
+    const roles = await this.prisma.role.findMany({
+      where: { estado: true },
+      orderBy: [{ sistema: 'desc' }, { nombre: 'asc' }],
+      select: { clave: true, nombre: true, descripcion: true },
+    });
+    return roles.map((rol) => ({
+      clave: rol.clave,
+      nombre: rol.nombre,
+      descripcion: rol.descripcion,
+    }));
   }
 
   async create(dto: CreateUserDto, db: DbClient = this.prisma) {
@@ -77,13 +96,25 @@ export class UsersService {
     }
   }
 
-  /** Los roles existen como filas creadas por el seed; acá se resuelve el id por nombre. */
-  private async roleId(name: RoleName, db: DbClient = this.prisma) {
-    const role = await db.role.upsert({
-      where: { name },
-      update: {},
-      create: { name },
+  /**
+   * Id del rol a partir de su clave.
+   *
+   * Antes esto era un `upsert`: si la clave no existía, se creaba el rol en el momento. Ya no
+   * corresponde, porque un rol ahora lleva nombre, descripción y permisos, y uno creado así
+   * nacería sin ninguno —la persona entraría a un sistema donde no puede hacer nada y sin
+   * ningún mensaje que lo explique—. Los roles se crean en Configuración › Roles y permisos.
+   */
+  private async roleId(clave: string, db: DbClient = this.prisma) {
+    const role = await db.role.findUnique({
+      where: { clave },
+      select: { id: true, estado: true, nombre: true },
     });
+    if (!role) throw new BadRequestException('El rol seleccionado no existe');
+    if (!role.estado) {
+      throw new BadRequestException(
+        `El rol "${role.nombre}" está desactivado: no se le puede asignar a nadie`,
+      );
+    }
     return role.id;
   }
 
@@ -105,7 +136,8 @@ export class UsersService {
       name: row.name,
       email: row.email,
       username: row.username,
-      role: row.role.name as RoleName,
+      role: row.role.clave as string,
+      rolNombre: row.role.nombre as string,
       active: row.active,
       trabajadorId: row.trabajador?.id?.toString() ?? null,
       trabajador: row.trabajador ? `${row.trabajador.nombres} ${row.trabajador.apellidos}` : null,

@@ -8,7 +8,18 @@ export type UsuarioSesion = {
   name: string;
   email: string;
   username?: string | null;
+  /** Clave del rol. Sirve para identificarlo, NO para decidir qué se muestra: para eso está `permisos`. */
   role: string;
+  /** Nombre del rol tal como se lee en pantalla ("Administrador", "Vendedor"). */
+  rolNombre?: string | null;
+  /**
+   * Lo que esta persona puede hacer, ya resuelto por el API. Un rol con acceso total llega
+   * con el catálogo entero, así que las pantallas preguntan siempre lo mismo y nunca tienen
+   * que acordarse de contemplar aparte el caso del administrador.
+   */
+  permisos?: string[];
+  /** Cargo del trabajador vinculado ("Almacenero"), distinto del rol con el que entra. */
+  cargo?: string | null;
   /** Unidad de negocio a la que pertenece la persona, vía su trabajador vinculado. */
   unidadNegocioId?: string | null;
   unidad?: string | null;

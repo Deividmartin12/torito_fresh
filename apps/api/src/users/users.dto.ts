@@ -1,8 +1,6 @@
-import { RoleName } from '@prisma/client';
 import {
   IsBoolean,
   IsEmail,
-  IsIn,
   IsOptional,
   IsString,
   Matches,
@@ -11,8 +9,6 @@ import {
 } from 'class-validator';
 import { RE_USERNAME } from '../common/validacion';
 import { EsNombrePersona } from '../common/validators';
-
-const ROLES = Object.values(RoleName);
 
 export class CreateUserDto {
   @EsNombrePersona(150)
@@ -34,8 +30,11 @@ export class CreateUserDto {
   @MinLength(4, { message: 'La contraseña debe tener al menos 4 caracteres' })
   password: string;
 
-  @IsIn(ROLES, { message: 'Selecciona un rol válido' })
-  role: RoleName;
+  // Clave del rol. Los roles son filas editables, así que la lista válida no se puede fijar
+  // acá: que exista lo comprueba el servicio al resolver su id.
+  @IsString()
+  @MaxLength(40)
+  role: string;
 
   @IsOptional()
   @IsBoolean()
@@ -69,8 +68,9 @@ export class UpdateUserDto {
   password?: string;
 
   @IsOptional()
-  @IsIn(ROLES, { message: 'Selecciona un rol válido' })
-  role?: RoleName;
+  @IsString()
+  @MaxLength(40)
+  role?: string;
 
   @IsOptional()
   @IsBoolean()

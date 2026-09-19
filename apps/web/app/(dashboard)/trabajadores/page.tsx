@@ -5,7 +5,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Pagination } from '../../../components/Pagination';
 import { TrabajadorFormModal } from '../../../components/TrabajadorFormModal';
-import { etiquetaRol } from '../../../lib/permissions';
 import { getTrabajadores, Trabajador, updateTrabajador } from '../../../lib/trabajadores';
 
 export default function TrabajadoresPage() {
@@ -183,7 +182,7 @@ export default function TrabajadoresPage() {
                         {item.usuario ? (
                           <>
                             {item.usuario.username ?? item.usuario.email}
-                            <small>{etiquetaRol(item.usuario.role)}</small>
+                            <small>{item.usuario.rolNombre}</small>
                           </>
                         ) : (
                           'Sin cuenta'
