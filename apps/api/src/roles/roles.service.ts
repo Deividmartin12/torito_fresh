@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { CATALOGO_PERMISOS, CLAVES_PERMISOS, esPermisoConocido } from '../auth/permisos';
+import { CATALOGO_PERMISOS, CLAVES_PERMISOS, expandirPermisos } from '../auth/permisos';
 import { AuthUser } from '../common/auth-user';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateRoleDto, UpdateRoleDto } from './roles.dto';
@@ -188,10 +188,16 @@ export class RolesService {
     }
   }
 
-  /** Quita duplicados y claves que ya no existen, en el orden del catálogo. */
+  /**
+   * Quita duplicados y claves que ya no existen, y agrega los permisos que los marcados
+   * arrastran (ver `implica` en el catálogo), en el orden del catálogo.
+   *
+   * La expansión se guarda, no se calcula al leer: así las casillas de la pantalla muestran
+   * exactamente lo que el rol tiene. Un permiso que estuviera activo sin aparecer marcado
+   * sería peor que el problema que vino a resolver.
+   */
   private permisosLimpios(permisos: string[]) {
-    const pedidos = new Set(permisos.filter((clave) => esPermisoConocido(clave)));
-    return CLAVES_PERMISOS.filter((clave) => pedidos.has(clave));
+    return expandirPermisos(permisos);
   }
 
   /**

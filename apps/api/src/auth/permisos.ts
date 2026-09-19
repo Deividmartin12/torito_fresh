@@ -24,6 +24,18 @@ export type Permiso = {
   etiqueta: string;
   /** Qué habilita, en una línea, para quien arma el rol y no conoce el código. */
   descripcion: string;
+  /**
+   * Permisos que este permiso arrastra, porque sin ellos no serviría de nada.
+   *
+   * Registrar una venta necesita poder ver los clientes, los productos y los métodos de
+   * cobro: son las listas que el propio formulario carga. Sin esto, un rol armado a mano
+   * marcando solo "Registrar ventas" entra a una pantalla que no puede llenar y lo único que
+   * ve es un error, sin nada que le diga qué le falta.
+   *
+   * Se aplican al guardar el rol, así que las casillas de la pantalla muestran exactamente
+   * lo que el rol tiene: no hay permisos invisibles.
+   */
+  implica?: string[];
 };
 
 export type GrupoPermisos = {
@@ -63,12 +75,14 @@ export const CATALOGO_PERMISOS: GrupoPermisos[] = [
         clave: 'gastos.registrar',
         etiqueta: 'Registrar y corregir gastos',
         descripcion: 'Dar de alta un gasto y corregir uno ya cargado.',
+        implica: ['gastos.ver', 'proveedores.ver'],
         // POST /expenses, PATCH /expenses/:id
       },
       {
         clave: 'gastos.categorias.crear',
         etiqueta: 'Crear categorías de gasto',
         descripcion: 'Agregar una categoría nueva sin salir del formulario de gasto.',
+        implica: ['gastos.ver'],
         // POST /expenses/categories
       },
       {
@@ -76,6 +90,7 @@ export const CATALOGO_PERMISOS: GrupoPermisos[] = [
         etiqueta: 'Administrar categorías de gasto',
         descripcion:
           'Renombrar o eliminar categorías. Afecta los gastos de TODAS las unidades, no solo los propios.',
+        implica: ['gastos.ver'],
         // PATCH /expenses/categories/:id, DELETE /expenses/categories/:id
       },
       {
@@ -88,12 +103,14 @@ export const CATALOGO_PERMISOS: GrupoPermisos[] = [
         clave: 'proveedores.crear',
         etiqueta: 'Crear proveedores',
         descripcion: 'Dar de alta un proveedor.',
+        implica: ['proveedores.ver'],
         // POST /proveedores
       },
       {
         clave: 'proveedores.editar',
         etiqueta: 'Editar proveedores',
         descripcion: 'Corregir los datos de un proveedor ya cargado.',
+        implica: ['proveedores.ver'],
         // PATCH /proveedores/:id
       },
     ],
@@ -105,6 +122,7 @@ export const CATALOGO_PERMISOS: GrupoPermisos[] = [
         clave: 'produccion.gestionar',
         etiqueta: 'Registrar producción',
         descripcion: 'Crear y cerrar órdenes de producción, que es de donde nace el stock.',
+        implica: ['productos.ver', 'almacenes.ver', 'lotes.ver'],
         // /production (clase entera)
       },
       {
@@ -117,6 +135,7 @@ export const CATALOGO_PERMISOS: GrupoPermisos[] = [
         clave: 'lotes.editar',
         etiqueta: 'Corregir lotes',
         descripcion: 'Cambiar los datos de un lote ya producido.',
+        implica: ['lotes.ver'],
         // PATCH /operations/lots/:id
       },
     ],
@@ -134,12 +153,14 @@ export const CATALOGO_PERMISOS: GrupoPermisos[] = [
         clave: 'clientes.crear',
         etiqueta: 'Crear clientes',
         descripcion: 'Dar de alta un cliente, también desde el formulario de venta.',
+        implica: ['clientes.ver'],
         // POST /clients
       },
       {
         clave: 'clientes.editar',
         etiqueta: 'Editar y desactivar clientes',
         descripcion: 'Corregir los datos de un cliente y darlo de baja.',
+        implica: ['clientes.ver'],
         // PATCH /clients/:id, PATCH /clients/:id/activate, PATCH /clients/:id/deactivate
       },
       {
@@ -151,13 +172,19 @@ export const CATALOGO_PERMISOS: GrupoPermisos[] = [
       {
         clave: 'ventas.registrar',
         etiqueta: 'Registrar ventas',
-        descripcion: 'Cargar una venta nueva.',
+        descripcion:
+          'Cargar una venta nueva. Para elegir a quién se le vende hace falta además "Ver los clientes".',
+        // "Ver los clientes" NO va en `implica` a propósito: Almacén registra ventas y el API
+        // le niega /clients, así que arrastrarlo le daría acceso a los clientes que hoy no
+        // tiene. La dependencia se avisa en la descripción en vez de imponerse.
+        implica: ['ventas.ver', 'productos.ver', 'stock.ver', 'metodosPago.ver'],
         // POST /operations/sales
       },
       {
         clave: 'ventas.editar',
         etiqueta: 'Corregir ventas',
         descripcion: 'Modificar o anular una venta ya registrada.',
+        implica: ['ventas.ver'],
         // PATCH /operations/sales/:id
       },
       {
@@ -176,6 +203,7 @@ export const CATALOGO_PERMISOS: GrupoPermisos[] = [
         clave: 'devoluciones.registrar',
         etiqueta: 'Registrar devoluciones',
         descripcion: 'Cargar la devolución de una venta.',
+        implica: ['devoluciones.ver', 'ventas.ver'],
         // POST /operations/returns/:type
       },
     ],
@@ -193,6 +221,7 @@ export const CATALOGO_PERMISOS: GrupoPermisos[] = [
         clave: 'envases.ajustar',
         etiqueta: 'Ajustar envases',
         descripcion: 'Registrar la entrega o la devolución de bidones de un cliente.',
+        implica: ['envases.ver'],
         // POST /containers/adjust
       },
       {
@@ -205,6 +234,7 @@ export const CATALOGO_PERMISOS: GrupoPermisos[] = [
         clave: 'bidonesRotos.registrar',
         etiqueta: 'Registrar bidones rotos',
         descripcion: 'Dar de baja un bidón roto y descontarlo del saldo del cliente.',
+        implica: ['bidonesRotos.ver'],
         // POST /bidones-rotos
       },
     ],
@@ -222,6 +252,7 @@ export const CATALOGO_PERMISOS: GrupoPermisos[] = [
         clave: 'productos.editar',
         etiqueta: 'Administrar productos',
         descripcion: 'Crear, editar y eliminar productos, insumos y tipos de producto.',
+        implica: ['productos.ver'],
         // POST|PATCH|DELETE /operations/products, POST /operations/product-types
       },
       {
@@ -234,6 +265,7 @@ export const CATALOGO_PERMISOS: GrupoPermisos[] = [
         clave: 'almacenes.crear',
         etiqueta: 'Crear almacenes',
         descripcion: 'Dar de alta un almacén, también desde el formulario de una operación.',
+        implica: ['almacenes.ver'],
         // POST /operations/warehouses
       },
       {
@@ -246,6 +278,7 @@ export const CATALOGO_PERMISOS: GrupoPermisos[] = [
         clave: 'kardex.ver',
         etiqueta: 'Ver el kardex',
         descripcion: 'Entrar al historial de entradas y salidas de cada producto.',
+        implica: ['productos.ver'],
         // GET /operations/movements, GET /operations/kardex
       },
     ],
@@ -263,6 +296,7 @@ export const CATALOGO_PERMISOS: GrupoPermisos[] = [
         clave: 'cobranzas.registrar',
         etiqueta: 'Registrar cobranzas',
         descripcion: 'Cobrar una cuenta pendiente y cambiarle la fecha de vencimiento.',
+        implica: ['cobranzas.ver', 'metodosPago.ver'],
         // POST /operations/accounts/:type/payments, PATCH /operations/accounts/cobrar/:id/vencimiento
       },
       {
@@ -275,12 +309,14 @@ export const CATALOGO_PERMISOS: GrupoPermisos[] = [
         clave: 'metodosPago.crearPropio',
         etiqueta: 'Crear su propio método de pago',
         descripcion: 'Agregar una cuenta o billetera propia para cobrar en ella.',
+        implica: ['metodosPago.ver'],
         // POST /operations/payment-methods
       },
       {
         clave: 'metodosPago.administrar',
         etiqueta: 'Administrar todos los métodos de pago',
         descripcion: 'Crear, editar y eliminar los métodos de pago y sus categorías, de todos.',
+        implica: ['metodosPago.ver'],
         // /payment-methods (clase entera)
       },
     ],
@@ -299,6 +335,7 @@ export const CATALOGO_PERMISOS: GrupoPermisos[] = [
         etiqueta: 'Ver el reporte por trabajador',
         descripcion:
           'Ver cuánto vendió, cobró y recibió cada persona. Son datos del desempeño de otros.',
+        implica: ['reportes.ver'],
         // GET /reports/workers
       },
       {
@@ -323,13 +360,8 @@ export const CATALOGO_PERMISOS: GrupoPermisos[] = [
         etiqueta: 'Administrar trabajadores y cuentas',
         descripcion:
           'Dar de alta personas, vincularles una cuenta de acceso y cambiarles la contraseña.',
+        implica: ['trabajadores.ver'],
         // POST /trabajadores, PATCH /trabajadores/:id, /users (clase entera)
-      },
-      {
-        clave: 'unidades.ver',
-        etiqueta: 'Ver su unidad de negocio',
-        descripcion: 'Saber en qué unidad está trabajando. Lo necesita todo el mundo.',
-        // GET /unidades/mias
       },
       {
         clave: 'unidades.elegir',
@@ -349,6 +381,7 @@ export const CATALOGO_PERMISOS: GrupoPermisos[] = [
         etiqueta: 'Registrar a nombre de otro',
         descripcion:
           'Cargar una venta o un gasto atribuido a otra persona, no a quien lo está tecleando.',
+        implica: ['trabajadores.ver'],
         // Lo decide worker-context.ts al resolver el autor de la operación.
       },
       {
@@ -372,6 +405,34 @@ const CLAVES_VALIDAS = new Set(CLAVES_PERMISOS);
 /** Si la clave existe en el catálogo. Lo usa el DTO para no guardar permisos inventados. */
 export function esPermisoConocido(clave: string): boolean {
   return CLAVES_VALIDAS.has(clave);
+}
+
+const IMPLICACIONES = new Map(
+  CATALOGO_PERMISOS.flatMap((grupo) =>
+    grupo.permisos.map((permiso) => [permiso.clave, permiso.implica ?? []] as const),
+  ),
+);
+
+/**
+ * Agrega los permisos que los marcados arrastran, y devuelve la lista en el orden del
+ * catálogo, sin repetidos ni claves que ya no existan.
+ *
+ * Es transitivo —si A arrastra B y B arrastra C, marcar A trae los tres— porque las cadenas
+ * son cortas pero reales: registrar una venta arrastra ver los métodos de cobro, y crear el
+ * propio método de cobro también.
+ */
+export function expandirPermisos(claves: Iterable<string>): string[] {
+  const resultado = new Set<string>();
+  const pendientes = [...claves].filter((clave) => esPermisoConocido(clave));
+  while (pendientes.length) {
+    const clave = pendientes.pop() as string;
+    if (resultado.has(clave)) continue;
+    resultado.add(clave);
+    for (const arrastrado of IMPLICACIONES.get(clave) ?? []) {
+      if (!resultado.has(arrastrado)) pendientes.push(arrastrado);
+    }
+  }
+  return CLAVES_PERMISOS.filter((clave) => resultado.has(clave));
 }
 
 /**
@@ -441,7 +502,6 @@ export const ROLES_DEL_SISTEMA: {
       'reportes.trabajadores',
       'reportes.reparto',
       'trabajadores.ver',
-      'unidades.ver',
     ],
   },
   {
@@ -480,7 +540,6 @@ export const ROLES_DEL_SISTEMA: {
       'reportes.trabajadores',
       'reportes.reparto',
       'trabajadores.ver',
-      'unidades.ver',
     ],
   },
   {
@@ -501,7 +560,6 @@ export const ROLES_DEL_SISTEMA: {
       'metodosPago.ver',
       'metodosPago.crearPropio',
       'reportes.reparto',
-      'unidades.ver',
     ],
   },
   {
@@ -538,7 +596,6 @@ export const ROLES_DEL_SISTEMA: {
       'reportes.ver',
       'reportes.reparto',
       'trabajadores.ver',
-      'unidades.ver',
     ],
   },
 ];

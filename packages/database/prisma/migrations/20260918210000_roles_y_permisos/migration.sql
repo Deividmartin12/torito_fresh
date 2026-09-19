@@ -132,7 +132,6 @@ JOIN (VALUES
   ('SELLER', 'reportes.trabajadores'),
   ('SELLER', 'reportes.reparto'),
   ('SELLER', 'trabajadores.ver'),
-  ('SELLER', 'unidades.ver'),
 
   ('WAREHOUSE', 'dashboard.ver'),
   ('WAREHOUSE', 'documento.consultar'),
@@ -165,7 +164,6 @@ JOIN (VALUES
   ('WAREHOUSE', 'reportes.trabajadores'),
   ('WAREHOUSE', 'reportes.reparto'),
   ('WAREHOUSE', 'trabajadores.ver'),
-  ('WAREHOUSE', 'unidades.ver'),
 
   ('DELIVERY', 'dashboard.ver'),
   ('DELIVERY', 'documento.consultar'),
@@ -180,7 +178,6 @@ JOIN (VALUES
   ('DELIVERY', 'metodosPago.ver'),
   ('DELIVERY', 'metodosPago.crearPropio'),
   ('DELIVERY', 'reportes.reparto'),
-  ('DELIVERY', 'unidades.ver'),
 
   ('SOCIO', 'dashboard.ver'),
   ('SOCIO', 'documento.consultar'),
@@ -209,7 +206,6 @@ JOIN (VALUES
   ('SOCIO', 'metodosPago.crearPropio'),
   ('SOCIO', 'reportes.ver'),
   ('SOCIO', 'reportes.reparto'),
-  ('SOCIO', 'trabajadores.ver'),
-  ('SOCIO', 'unidades.ver')
+  ('SOCIO', 'trabajadores.ver')
 ) AS otorgado("rol", "clave") ON otorgado."rol" = "roles"."clave"
 ON CONFLICT ("role_id", "clave") DO NOTHING;

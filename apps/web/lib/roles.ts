@@ -5,6 +5,12 @@ export type PermisoCatalogo = {
   clave: string;
   etiqueta: string;
   descripcion: string;
+  /**
+   * Permisos que este arrastra porque sin ellos no serviría de nada (registrar una venta
+   * necesita ver los productos). El API los agrega igual al guardar; el modal los marca al
+   * vuelo para que se vea lo que se está dando antes de guardar, no después.
+   */
+  implica?: string[];
 };
 
 /** Los permisos agrupados igual que el menú lateral, para que el panel se lea como la app. */

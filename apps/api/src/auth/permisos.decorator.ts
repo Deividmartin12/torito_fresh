@@ -13,3 +13,13 @@ export const PERMISOS_KEY = 'permisos';
  * CLASE, no que se sume. Al tocar uno hay que releer la lista entera del controlador.
  */
 export const Permisos = (...permisos: string[]) => SetMetadata(PERMISOS_KEY, permisos);
+
+/**
+ * Endpoint abierto a cualquier sesión válida, dentro de un controlador que sí pide permiso.
+ *
+ * No es lo mismo que `@Public()`, que no pide ni siquiera estar logueado. Es para lo que toda
+ * persona necesita sí o sí para que la app funcione —saber en qué unidad está parada—, y que
+ * por lo tanto no tiene sentido como permiso: sería uno que hay que acordarse de marcar
+ * siempre, y el día que alguien lo olvide el rol queda con la pantalla a medias.
+ */
+export const SinPermiso = () => SetMetadata(PERMISOS_KEY, []);

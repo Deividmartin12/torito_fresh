@@ -9,7 +9,8 @@ import {
   useMemo,
   useState,
 } from 'react';
-import { getUnidadesVisibles, UnidadOpcion } from '../lib/unidades';
+import { puede } from '../lib/permissions';
+import { getMisUnidades, getUnidadesVisibles, UnidadOpcion } from '../lib/unidades';
 import { useSesion } from '../lib/useCurrentUser';
 
 /**
@@ -53,12 +54,23 @@ export function useUnidad(): UnidadContexto {
 
 export function UnidadProvider({ children }: { children: ReactNode }) {
   const sesion = useSesion();
+  const puedeElegir = puede(sesion?.permisos, 'unidades.elegir');
   const [todas, setTodas] = useState(true);
   const [ids, setIds] = useState<string[]>([]);
   const [disponibles, setDisponibles] = useState<UnidadOpcion[]>([]);
 
   const recargar = useCallback(async () => {
     try {
+      // La preferencia de "qué unidades miro" solo existe para quien puede elegir unidad; al
+      // resto el API le niega ese endpoint, y pedirlo igual dejaba un 403 en la consola en
+      // cada pantalla. Su unidad sale de `/unidades/mias`, que sí les corresponde.
+      if (!puedeElegir) {
+        const propias = await getMisUnidades();
+        setTodas(true);
+        setIds([]);
+        setDisponibles(propias);
+        return;
+      }
       const visibles = await getUnidadesVisibles();
       setTodas(visibles.todas);
       setIds(visibles.unidades);
@@ -67,7 +79,7 @@ export function UnidadProvider({ children }: { children: ReactNode }) {
       // Sin respuesta se deja lo que había: la app sigue funcionando y el API igual resuelve
       // el alcance por su cuenta, que es la única fuente que manda.
     }
-  }, []);
+  }, [puedeElegir]);
 
   useEffect(() => {
     if (!sesion) return;

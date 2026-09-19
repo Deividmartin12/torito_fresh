@@ -53,11 +53,39 @@ export function RolFormModal({ catalogo, editando, onClose, onSaved }: Props) {
     [catalogo],
   );
 
+  /** Qué arrastra cada permiso, por clave. Lo declara el catálogo que manda el API. */
+  const implicaciones = useMemo(() => {
+    const mapa = new Map<string, string[]>();
+    for (const grupo of catalogo) {
+      for (const permiso of grupo.permisos) mapa.set(permiso.clave, permiso.implica ?? []);
+    }
+    return mapa;
+  }, [catalogo]);
+
+  /**
+   * Marca el permiso y todo lo que arrastra.
+   *
+   * El API hace lo mismo al guardar; acá se adelanta para que las casillas que se van a
+   * guardar se vean marcadas antes de apretar el botón, y no aparezcan después como una
+   * sorpresa al volver a abrir el rol.
+   */
+  function marcarCon(actuales: Set<string>, clave: string) {
+    const pendientes = [clave];
+    while (pendientes.length) {
+      const actual = pendientes.pop() as string;
+      if (actuales.has(actual)) continue;
+      actuales.add(actual);
+      pendientes.push(...(implicaciones.get(actual) ?? []));
+    }
+  }
+
   function alternar(clave: string) {
     setPermisos((actuales) => {
       const siguiente = new Set(actuales);
+      // Al desmarcar se quita solo el permiso tocado: lo que arrastraba puede estar ahí
+      // porque alguien lo marcó por su cuenta, y quitárselo sin avisar sería peor.
       if (siguiente.has(clave)) siguiente.delete(clave);
-      else siguiente.add(clave);
+      else marcarCon(siguiente, clave);
       return siguiente;
     });
   }
@@ -66,7 +94,7 @@ export function RolFormModal({ catalogo, editando, onClose, onSaved }: Props) {
     setPermisos((actuales) => {
       const siguiente = new Set(actuales);
       for (const permiso of grupo.permisos) {
-        if (marcar) siguiente.add(permiso.clave);
+        if (marcar) marcarCon(siguiente, permiso.clave);
         else siguiente.delete(permiso.clave);
       }
       return siguiente;
