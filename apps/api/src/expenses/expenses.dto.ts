@@ -18,9 +18,11 @@ export class CreateExpenseDto {
   @MaxLength(200)
   concepto: string;
 
+  // Id de la fila de `categoria_gasto`. El gasto ya no guarda el nombre: se elige una
+  // categoría del catálogo o no hay gasto.
   @IsString()
-  @MaxLength(100)
-  categoria: string;
+  @Matches(/\S/, { message: 'Selecciona una categoría de gasto' })
+  categoriaId: string;
 
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })
@@ -74,8 +76,8 @@ export class UpdateExpenseDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(100)
-  categoria?: string;
+  @Matches(/\S/, { message: 'Selecciona una categoría de gasto' })
+  categoriaId?: string;
 
   @IsOptional()
   @Type(() => Number)

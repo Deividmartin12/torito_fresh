@@ -15,6 +15,7 @@ import {
 } from '../../lib/analytics';
 import { moneda } from '../../lib/format';
 import { PeriodFilter } from '../PeriodFilter';
+import { useUnidad } from '../UnidadProvider';
 import { Segmented } from '../Segmented';
 import { ReportHeader } from './ReportNav';
 
@@ -132,6 +133,10 @@ export function SummaryTableReport() {
   const [to, setTo] = useState('');
   const [grouping, setGrouping] = useState<Grouping>('dia');
   const [loading, setLoading] = useState(true);
+  // Solo dispara la recarga: la unidad viaja al API desde `api()`.
+  const { clave: unidad } = useUnidad();
+  // El puesto que solo registra ventas y gastos no produce: la columna sobra.
+  const costoEstimado = Boolean(analytics?.costoEstimado);
   // Al inicio solo se ven los totales. Cada cabecera de total despliega sus propias
   // categorías, de forma independiente.
   const [verVentas, setVerVentas] = useState(false);
@@ -148,7 +153,7 @@ export function SummaryTableReport() {
         toast.error(cause instanceof Error ? cause.message : 'No se pudo calcular el resumen'),
       )
       .finally(() => setLoading(false));
-  }, [from, to]);
+  }, [from, to, unidad]);
 
   const changePeriod = useCallback((start: string, end: string) => {
     setFrom(start);
@@ -245,16 +250,19 @@ export function SummaryTableReport() {
       foot: celda(totales.expenses),
     },
   ];
-  // Bloque derecho fijo: producción.
-  const produccionCols: Col[] = [
-    {
-      key: 'produccion',
-      header: 'Producción',
-      className: 'num',
-      cell: (row) => `${row.production.toFixed(0)} un.`,
-      foot: `${totales.production.toFixed(0)} un.`,
-    },
-  ];
+  // Bloque derecho fijo: producción. En un puesto que solo registra ventas y gastos no existe,
+  // así que la columna se va entera en vez de mostrar "0 un." en cada fila.
+  const produccionCols: Col[] = costoEstimado
+    ? []
+    : [
+        {
+          key: 'produccion',
+          header: 'Producción',
+          className: 'num',
+          cell: (row) => `${row.production.toFixed(0)} un.`,
+          foot: `${totales.production.toFixed(0)} un.`,
+        },
+      ];
   // Columnas desplazables: una por cada forma de cobro / categoría de gasto.
   const buildSubCols = (
     names: string[],
@@ -287,7 +295,14 @@ export function SummaryTableReport() {
   function exportReport() {
     if (!rows.length) return;
     const csvRows: (string | number)[][] = [
-      ['Periodo', 'Ventas (S/)', ...ventaCols, 'Gastos (S/)', ...gastoCols, 'Producción'],
+      [
+        'Periodo',
+        'Ventas (S/)',
+        ...ventaCols,
+        'Gastos (S/)',
+        ...gastoCols,
+        ...(costoEstimado ? [] : ['Producción']),
+      ],
     ];
     for (const row of rows) {
       const ventas = amountsByColumn(row.salesByPayment);
@@ -298,7 +313,7 @@ export function SummaryTableReport() {
         ...ventaCols.map((col) => (ventas.get(col) ?? 0).toFixed(2)),
         row.expenses.toFixed(2),
         ...gastoCols.map((col) => (gastos.get(col) ?? 0).toFixed(2)),
-        row.production.toFixed(2),
+        ...(costoEstimado ? [] : [row.production.toFixed(2)]),
       ]);
     }
     csvRows.push([
@@ -307,7 +322,7 @@ export function SummaryTableReport() {
       ...ventaCols.map((col) => (totales.ventas.get(col) ?? 0).toFixed(2)),
       totales.expenses.toFixed(2),
       ...gastoCols.map((col) => (totales.gastos.get(col) ?? 0).toFixed(2)),
-      totales.production.toFixed(2),
+      ...(costoEstimado ? [] : [totales.production.toFixed(2)]),
     ]);
     const csv = `﻿${csvRows.map((row) => row.map(csvCell).join(';')).join('\n')}`;
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));

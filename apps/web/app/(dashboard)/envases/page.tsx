@@ -71,17 +71,19 @@ export default function ContainersPage() {
   }
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-black text-ink">Control de envases retornables</h1>
-        <p className="text-sm text-slate-500">
-          Registra entregas y retornos de recipientes sin modificar la venta ni crear una devolución
-          comercial.
-        </p>
+    <div className="module-page envases-page">
+      <div className="module-head">
+        <div className="module-title">
+          <h1>Control de envases retornables</h1>
+        </div>
       </div>
+      <p className="envases-intro">
+        Registra entregas y retornos de recipientes sin modificar la venta ni crear una devolución
+        comercial.
+      </p>
 
-      <form onSubmit={submit} className="panel grid gap-3 p-4 md:grid-cols-5">
-        <label className="md:col-span-2">
+      <form onSubmit={submit} className="panel envases-form">
+        <label className="envases-field-wide">
           <span className="label">Cliente</span>
           <SearchableSelect
             value={String(form.clientId)}
@@ -94,7 +96,7 @@ export default function ContainersPage() {
         <label>
           <span className="label">Movimiento</span>
           <select
-            className="control mt-1"
+            className="control"
             value={form.movementType}
             onChange={(e) => setForm({ ...form, movementType: e.target.value })}
           >
@@ -105,7 +107,7 @@ export default function ContainersPage() {
         <label>
           <span className="label">Cantidad</span>
           <input
-            className="control mt-1"
+            className="control"
             type="number"
             min="1"
             step="1"
@@ -117,22 +119,22 @@ export default function ContainersPage() {
         <label>
           <span className="label">Nota</span>
           <input
-            className="control mt-1"
+            className="control"
             value={form.notes}
             onChange={(e) => setForm({ ...form, notes: e.target.value })}
           />
         </label>
-        <div className="flex items-end">
+        <div className="envases-submit">
           <button className="btn-primary">
             <Droplets size={17} /> Registrar movimiento
           </button>
         </div>
       </form>
 
-      <section className="panel p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-bold text-ink">Clientes con envases pendientes</h2>
-          <span className="text-sm font-semibold text-slate-500">{pending.length} clientes</span>
+      <section className="panel envases-section">
+        <div className="envases-section-head">
+          <h2>Clientes con envases pendientes</h2>
+          <span>{pending.length} clientes</span>
         </div>
         <div className="table-wrap">
           <table className="table">
@@ -147,16 +149,18 @@ export default function ContainersPage() {
             <tbody>
               {pending.map((client) => (
                 <tr key={client.id}>
-                  <td className="font-semibold">{client.name}</td>
+                  <td className="envases-strong">{client.name}</td>
                   <td>{client.phone}</td>
                   <td>{client.address}</td>
-                  <td className="font-black text-rose-700">{client.containerBalance}</td>
+                  <td className="envases-pending">{client.containerBalance}</td>
                 </tr>
               ))}
               {!pending.length ? (
                 <tr>
-                  <td colSpan={4} className="text-center text-slate-500">
-                    No hay envases pendientes.
+                  <td colSpan={4}>
+                    <div className="table-empty">
+                      <span>No hay envases pendientes.</span>
+                    </div>
                   </td>
                 </tr>
               ) : null}
@@ -165,8 +169,10 @@ export default function ContainersPage() {
         </div>
       </section>
 
-      <section className="panel p-4">
-        <h2 className="mb-3 text-lg font-bold text-ink">Historial de entregas y retornos</h2>
+      <section className="panel envases-section">
+        <div className="envases-section-head">
+          <h2>Historial de entregas y retornos</h2>
+        </div>
         <div className="table-wrap">
           <table className="table">
             <thead>
@@ -182,7 +188,7 @@ export default function ContainersPage() {
             <tbody>
               {movements.map((movement) => (
                 <tr key={movement.id}>
-                  <td className="font-semibold">{movement.client?.name}</td>
+                  <td className="envases-strong">{movement.client?.name}</td>
                   <td>{fechaHora(movement.movedAt)}</td>
                   <td>
                     {movement.type === 'IN_EMPTY'

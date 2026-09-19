@@ -6,6 +6,13 @@ ON "stock_almacen" (
   "estado_inventario_id"
 );
 
+-- Solo puede existir una unidad de negocio principal. Prisma no puede expresarlo con
+-- @@unique porque necesita un índice parcial (WHERE): sin el WHERE, la unicidad también
+-- aplicaría a los `false` y no podría haber más de una unidad satélite.
+CREATE UNIQUE INDEX IF NOT EXISTS "unidad_negocio_una_sola_principal"
+ON "unidad_negocio" ("principal")
+WHERE "principal";
+
 -- Un mismo método de cobro no se puede repetir para el mismo dueño: el Yape 953323112 del
 -- repartidor 1 va una sola vez. Prisma no puede expresarlo con @@unique porque Postgres
 -- trata cada NULL como distinto, y entonces dos "Efectivo global" (referencia y trabajador
@@ -118,6 +125,13 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'orden_produccion_cantidades_validas') THEN
     ALTER TABLE "orden_produccion" ADD CONSTRAINT "orden_produccion_cantidades_validas"
       CHECK ("cantidad_planificada" > 0 AND "cantidad_producida" >= 0);
+  END IF;
+
+  -- Una unidad puede optar por no llevar inventario (solo registra ventas y gastos), pero la
+  -- Principal no: es la que produce, y de su almacén sale el stock de todo el negocio.
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'unidad_negocio_principal_con_inventario') THEN
+    ALTER TABLE "unidad_negocio" ADD CONSTRAINT "unidad_negocio_principal_con_inventario"
+      CHECK (NOT "principal" OR "controla_inventario");
   END IF;
 END
 $$;

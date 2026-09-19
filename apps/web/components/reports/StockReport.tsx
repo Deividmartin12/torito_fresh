@@ -7,6 +7,7 @@ import { TopProductRow } from '../../lib/dashboard';
 import { moneda, cantidad } from '../../lib/format';
 import { getOperationStock, StockRow } from '../../lib/operations';
 import { ProductRankingChart } from '../charts/BusinessCharts';
+import { useUnidad } from '../UnidadProvider';
 import { ReportHeader, ReportMetric } from './ReportNav';
 
 const round3 = (value: number) => Math.round(value * 1000) / 1000;
@@ -16,15 +17,18 @@ export function StockReport() {
   const [warehouse, setWarehouse] = useState('Todos');
   const [state, setState] = useState('Todos');
   const [loading, setLoading] = useState(true);
+  // Solo dispara la recarga: la unidad viaja al API desde `api()`.
+  const { clave: unidad } = useUnidad();
 
   useEffect(() => {
+    setLoading(true);
     getOperationStock()
       .then(setStock)
       .catch((cause) =>
         toast.error(cause instanceof Error ? cause.message : 'No se pudo cargar el stock'),
       )
       .finally(() => setLoading(false));
-  }, []);
+  }, [unidad]);
 
   // Las listas de los selectores solo cambian cuando llega stock nuevo, no en cada render.
   const warehouses = useMemo(() => [...new Set(stock.map((row) => row.almacen))], [stock]);
@@ -106,7 +110,11 @@ export function StockReport() {
           value={cantidad(available)}
           detail={`${filtered.length} posiciones`}
         />
-        <ReportMetric label="Reservado" value={cantidad(reserved)} detail="Unidades comprometidas" />
+        <ReportMetric
+          label="Reservado"
+          value={cantidad(reserved)}
+          detail="Unidades comprometidas"
+        />
         <ReportMetric
           label="Bajo mínimo"
           value={low.length}

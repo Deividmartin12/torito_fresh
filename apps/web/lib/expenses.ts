@@ -15,6 +15,9 @@ export type Expense = {
   id: string;
   fecha: string;
   concepto: string;
+  /** Id de la categoría en el catálogo (`categoria_gasto`): es lo que se guarda. */
+  categoriaId: string;
+  /** Nombre de esa categoría, tal como lo devuelve el API para mostrarlo. */
   categoria: string;
   monto: number;
   comprobante: string | null;
@@ -30,7 +33,7 @@ export type Expense = {
   metodoPago: string | null;
 };
 
-export type CreateExpensePayload = Pick<Expense, 'fecha' | 'concepto' | 'categoria' | 'monto'> & {
+export type CreateExpensePayload = Pick<Expense, 'fecha' | 'concepto' | 'categoriaId' | 'monto'> & {
   comprobante?: string;
   observaciones?: string;
   proveedorId?: string;

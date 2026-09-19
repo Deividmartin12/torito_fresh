@@ -4,6 +4,7 @@ import { CircleDollarSign, HandCoins, PackageCheck, Truck } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { PeriodFilter, PeriodKind } from '../../../components/PeriodFilter';
+import { useUnidad } from '../../../components/UnidadProvider';
 import {
   ComparisonBarChart,
   MarginChart,
@@ -20,6 +21,9 @@ export function AdminDashboard() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [period, setPeriod] = useState<PeriodKind>('week');
+  // Solo se usa como disparador: la unidad viaja al API desde `api()`. El selector vive en la
+  // barra superior, porque la unidad vale para toda la app y no solo para este panel.
+  const { clave: unidad } = useUnidad();
   const changePeriod = useCallback((start: string, end: string, meta: { period: PeriodKind }) => {
     setFrom(start);
     setTo(end);
@@ -43,7 +47,7 @@ export function AdminDashboard() {
     // Se espera a que PeriodFilter publique su rango para que el panel pida los datos una sola
     // vez con la ventana real, en vez de disparar además un pedido con el defecto de 12 meses.
     if (from && to) void load();
-  }, [from, load, to]);
+  }, [from, load, to, unidad]);
 
   const analytics = data?.analytics;
   // El eje X sigue al período elegido: día → tramos de 3 horas, semana → días con su nombre,

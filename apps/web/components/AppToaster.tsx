@@ -11,7 +11,10 @@ export function AppToaster() {
       setTheme(document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light');
     readTheme();
     const observer = new MutationObserver(readTheme);
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    });
     return () => observer.disconnect();
   }, []);
 

@@ -4,6 +4,15 @@ import { AuthUser } from '../common/auth-user';
 import { etiquetaMetodoPago } from '../common/payment-method-label';
 import { accountState as deriveAccountState, limaTodayKey } from '../common/receivables';
 import { nextSequentialCode } from '../common/next-code';
+import {
+  AlcanceUnidad,
+  exigirMismaUnidad,
+  filtroUnidad,
+  filtroUnidadPor,
+  resolverAlcanceUnidad,
+  resolverUnidadDeEscritura,
+  unidadControlaInventario,
+} from '../common/unit-context';
 import { resolverTrabajadorAutor } from '../common/worker-context';
 import { PaymentMethodsService } from '../payment-methods/payment-methods.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -71,12 +80,39 @@ export class OperationsService {
     private readonly paymentMethodsService: PaymentMethodsService,
   ) {}
 
-  async catalogs(actor: AuthUser) {
+  async catalogs(actor: AuthUser, unidad?: string) {
+    // Los combos del formulario tienen que ofrecer solo lo que esta unidad puede usar: si
+    // mostraran los almacenes o los clientes de otra, el alta fallaría recién al guardar.
+    // El catálogo de productos es la excepción: es compartido a propósito.
+    //
+    // Se resuelve con la MISMA función que usa `createSale`, no con el alcance de lectura, para
+    // que el combo ofrezca exactamente la unidad donde va a caer la venta. Eso es lo que evita
+    // el "El cliente seleccionado es de otra unidad de negocio" al guardar. De paso cubre
+    // "Todo consolidado", que sirve para mirar reportes pero no para registrar.
+    const unidadEscritura = await resolverUnidadDeEscritura(this.prisma, {
+      actor,
+      unidadSolicitada: unidad,
+    });
+    const unidadDestino = await this.prisma.unidadNegocio.findUnique({
+      where: { id: unidadEscritura },
+      select: { nombre: true, controlaInventario: true },
+    });
+    const alcance = { tipo: 'una', id: unidadEscritura } as const;
+    const deUnidad = filtroUnidad(alcance);
     const [clientes, almacenes, productos, trabajadores, estadosInventario] = await Promise.all([
-      this.prisma.cliente.findMany({ where: { estado: true }, orderBy: { nombreLegal: 'asc' } }),
-      this.prisma.almacen.findMany({ where: { estado: true }, orderBy: { nombre: 'asc' } }),
+      this.prisma.cliente.findMany({
+        where: { estado: true, ...deUnidad },
+        orderBy: { nombreLegal: 'asc' },
+      }),
+      this.prisma.almacen.findMany({
+        where: { estado: true, ...deUnidad },
+        orderBy: { nombre: 'asc' },
+      }),
       this.prisma.producto.findMany({ where: { estado: true }, orderBy: { nombre: 'asc' } }),
-      this.prisma.trabajador.findMany({ where: { estado: true }, orderBy: { nombres: 'asc' } }),
+      this.prisma.trabajador.findMany({
+        where: { estado: true, ...deUnidad },
+        orderBy: { nombres: 'asc' },
+      }),
       this.prisma.estadoInventario.findMany({
         where: { estado: true },
         orderBy: { nombre: 'asc' },
@@ -85,7 +121,7 @@ export class OperationsService {
 
     const debtByClient = await this.prisma.cuentaCobrar.groupBy({
       by: ['clienteId'],
-      where: { saldoPendiente: { gt: 0 } },
+      where: { saldoPendiente: { gt: 0 }, ...filtroUnidadPor('cliente', alcance) },
       _sum: { saldoPendiente: true },
       _count: { _all: true },
     });
@@ -128,16 +164,34 @@ export class OperationsService {
         codigo: item.cargo,
       })),
       trabajadorActualId: actor.trabajadorId,
+      // En qué unidad va a quedar la venta, y si esa unidad lleva inventario. El formulario usa
+      // ESTO y no la unidad del navegador: con "Todo consolidado" elegido las dos discrepan, y
+      // lo que vale es lo que el servidor va a hacer de verdad.
+      unidadEscritura: {
+        id: unidadEscritura.toString(),
+        nombre: unidadDestino?.nombre ?? '',
+        controlaInventario: unidadDestino?.controlaInventario ?? true,
+      },
       // Antes bastaba con que existiera *algún* trabajador. Ahora la venta se atribuye al del
       // usuario logueado, así que sin ese vínculo el formulario no puede registrar nada.
       preparado: Boolean(actor.trabajadorId && almacenes.length && productos.length),
     };
   }
 
-  async products() {
+  /**
+   * Catálogo de productos. El catálogo en sí es compartido entre unidades (mismos productos,
+   * mismos precios), pero la columna de stock NO: se suma solo sobre los almacenes de la
+   * unidad. Sin eso, un puesto satélite vería como propio el stock de la principal.
+   */
+  async products(actor: AuthUser, unidad?: string) {
+    const alcance = await resolverAlcanceUnidad(this.prisma, actor, unidad);
     const rows = await this.prisma.producto.findMany({
       orderBy: { nombre: 'asc' },
-      include: { tipoProducto: true, stocks: true, _count: { select: { detallesVenta: true } } },
+      include: {
+        tipoProducto: true,
+        stocks: { where: filtroUnidadPor('almacen', alcance) },
+        _count: { select: { detallesVenta: true } },
+      },
     });
     return rows.map((item) => ({
       id: item.id.toString(),
@@ -158,11 +212,16 @@ export class OperationsService {
 
   // Los lotes no tienen alta manual: nacen automáticamente al completar una producción.
   // Esta lectura solo lista lo que ya existe.
-  async lots() {
+  //
+  // El lote en sí es compartido (cuelga del producto, que también lo es), pero la columna
+  // "disponible" NO: se suma solo sobre los almacenes de la unidad. Sin ese recorte, cada
+  // puesto veía como propio el stock de todos los demás. Mismo criterio que `products()`.
+  async lots(actor: AuthUser, unidad?: string) {
+    const alcance = await resolverAlcanceUnidad(this.prisma, actor, unidad);
     const rows = await this.prisma.lote.findMany({
       orderBy: { createdAt: 'desc' },
       take: 500,
-      include: { producto: true, stocks: true },
+      include: { producto: true, stocks: { where: filtroUnidadPor('almacen', alcance) } },
     });
     return rows.map((row) => this.mapLot(row));
   }
@@ -206,9 +265,7 @@ export class OperationsService {
     return this.mapLot(updated);
   }
 
-  private mapLot(
-    row: Prisma.LoteGetPayload<{ include: { producto: true; stocks: true } }>,
-  ) {
+  private mapLot(row: Prisma.LoteGetPayload<{ include: { producto: true; stocks: true } }>) {
     return {
       id: row.id.toString(),
       codigo: row.codigoLote,
@@ -319,8 +376,10 @@ export class OperationsService {
     return { id: updated.id.toString(), codigo: updated.codigo, nombre: updated.nombre };
   }
 
-  async warehouses() {
+  async warehouses(actor: AuthUser, unidad?: string) {
+    const alcance = await resolverAlcanceUnidad(this.prisma, actor, unidad);
     const rows = await this.prisma.almacen.findMany({
+      where: filtroUnidad(alcance),
       orderBy: { nombre: 'asc' },
       include: { responsable: true, stocks: true },
     });
@@ -338,7 +397,13 @@ export class OperationsService {
     }));
   }
 
-  async createWarehouse(dto: CreateOperationalWarehouseDto) {
+  async createWarehouse(dto: CreateOperationalWarehouseDto, actor: AuthUser, unidad?: string) {
+    // El almacén nace en la unidad que se está mirando, no en la de quien lo crea: un admin
+    // parado en un puesto satélite está armando el almacén de ESE puesto.
+    const unidadNegocioId = await resolverUnidadDeEscritura(this.prisma, {
+      actor,
+      unidadSolicitada: unidad,
+    });
     const codigo = await nextSequentialCode('ALM', async () => {
       const ultimo = await this.prisma.almacen.findFirst({
         where: { codigo: { startsWith: 'ALM-' } },
@@ -349,6 +414,7 @@ export class OperationsService {
     });
     const warehouse = await this.prisma.almacen.create({
       data: {
+        unidadNegocioId,
         codigo,
         nombre: dto.nombre.trim(),
         direccion: dto.direccion?.trim() || null,
@@ -382,14 +448,17 @@ export class OperationsService {
     return { message: 'Producto eliminado' };
   }
 
-  async sale(id: string) {
-    return this.saleView(await this.findSale(this.prisma, BigInt(id)));
+  async sale(id: string, actor: AuthUser, unidad?: string) {
+    const alcance = await resolverAlcanceUnidad(this.prisma, actor, unidad);
+    return this.saleView(await this.findSale(this.prisma, BigInt(id), alcance));
   }
 
-  async sales(from?: string, to?: string, trabajadorId?: string) {
+  async sales(actor: AuthUser, from?: string, to?: string, trabajadorId?: string, unidad?: string) {
+    const alcance = await resolverAlcanceUnidad(this.prisma, actor, unidad);
     const range = this.listDateRange(from, to);
     const rows = await this.prisma.venta.findMany({
       where: {
+        ...filtroUnidad(alcance),
         ...(range ? { fecha: range } : {}),
         ...(trabajadorId ? { trabajadorId: BigInt(trabajadorId) } : {}),
       },
@@ -413,9 +482,14 @@ export class OperationsService {
     return rows.map((row) => this.saleView(row));
   }
 
-  async stock(almacenId?: string) {
+  async stock(actor: AuthUser, almacenId?: string, unidad?: string) {
+    const alcance = await resolverAlcanceUnidad(this.prisma, actor, unidad);
+    // `stock_almacen` no lleva la unidad: la hereda de su almacén.
     const rows = await this.prisma.stockAlmacen.findMany({
-      where: almacenId ? { almacenId: BigInt(almacenId) } : undefined,
+      where: {
+        ...filtroUnidadPor('almacen', alcance),
+        ...(almacenId ? { almacenId: BigInt(almacenId) } : {}),
+      },
       orderBy: [{ almacen: { nombre: 'asc' } }, { producto: { nombre: 'asc' } }],
       include: {
         producto: { include: { tipoProducto: true } },
@@ -488,10 +562,17 @@ export class OperationsService {
     });
   }
 
-  async accounts(clienteId?: string) {
+  async accounts(actor: AuthUser, clienteId?: string, unidad?: string) {
+    const alcance = await resolverAlcanceUnidad(this.prisma, actor, unidad);
     const rows = await this.prisma.cuentaCobrar.findMany({
-      where: clienteId ? { clienteId: BigInt(clienteId) } : undefined,
+      where: {
+        ...filtroUnidadPor('cliente', alcance),
+        ...(clienteId ? { clienteId: BigInt(clienteId) } : {}),
+      },
       orderBy: { fechaEmision: 'desc' },
+      // Antes no tenía tope. Con el consolidado la cartera de varias unidades se junta en
+      // una sola consulta, así que conviene acotarla como el resto de los listados.
+      take: 1000,
       include: {
         cliente: true,
         venta: true,
@@ -504,7 +585,11 @@ export class OperationsService {
     return rows.map((row) => this.receivableView(row));
   }
 
-  async registerAccountPayment(dto: RegisterOperationalPaymentDto, actor: AuthUser) {
+  async registerAccountPayment(
+    dto: RegisterOperationalPaymentDto,
+    actor: AuthUser,
+    unidadActiva?: string,
+  ) {
     return this.prisma.$transaction(async (tx) => {
       const workerId = await resolverTrabajadorAutor(tx, actor, dto.trabajadorId);
       const method = await tx.metodoPago.findUnique({
@@ -521,6 +606,12 @@ export class OperationsService {
         throw new BadRequestException('La fecha del pago no puede estar en el futuro');
       const paidAt = dto.fechaPago ? new Date(dto.fechaPago) : new Date();
 
+      const unidad = await resolverUnidadDeEscritura(tx, {
+        actor,
+        unidadSolicitada: unidadActiva,
+        atribuidaA: dto.trabajadorId ? workerId : null,
+      });
+      await exigirMismaUnidad(tx, unidad, { cuentaCobrarId: BigInt(dto.cuentaId) });
       const account = await tx.cuentaCobrar.findUnique({ where: { id: BigInt(dto.cuentaId) } });
       if (!account) throw new NotFoundException('Cuenta por cobrar no encontrada');
       const balance = Number(account.saldoPendiente);
@@ -554,8 +645,18 @@ export class OperationsService {
     });
   }
 
-  async updateReceivableDueDate(id: string, dto: UpdateReceivableDueDateDto) {
+  async updateReceivableDueDate(
+    id: string,
+    dto: UpdateReceivableDueDateDto,
+    actor: AuthUser,
+    unidadActiva?: string,
+  ) {
     return this.prisma.$transaction(async (tx) => {
+      const unidad = await resolverUnidadDeEscritura(tx, {
+        actor,
+        unidadSolicitada: unidadActiva,
+      });
+      await exigirMismaUnidad(tx, unidad, { cuentaCobrarId: BigInt(id) });
       const account = await tx.cuentaCobrar.findUnique({ where: { id: BigInt(id) } });
       if (!account) throw new NotFoundException('Cuenta por cobrar no encontrada');
       if (Number(account.saldoPendiente) <= 0)
@@ -581,9 +682,13 @@ export class OperationsService {
     });
   }
 
-  async returns() {
+  async returns(actor: AuthUser, unidad?: string) {
+    const alcance = await resolverAlcanceUnidad(this.prisma, actor, unidad);
     const [sales, clientCredits] = await Promise.all([
+      // Ni la devolución ni el saldo a favor llevan la unidad: la heredan de la venta y del
+      // cliente respectivamente.
       this.prisma.devolucionVenta.findMany({
+        where: filtroUnidadPor('venta', alcance),
         orderBy: { fecha: 'desc' },
         include: {
           venta: { include: { cliente: true } },
@@ -593,7 +698,7 @@ export class OperationsService {
         },
       }),
       this.prisma.saldoFavorCliente.findMany({
-        where: { montoDisponible: { gt: 0 } },
+        where: { montoDisponible: { gt: 0 }, ...filtroUnidadPor('cliente', alcance) },
         include: { cliente: true },
         orderBy: { createdAt: 'desc' },
       }),
@@ -614,10 +719,16 @@ export class OperationsService {
     };
   }
 
-  async createReturn(type: string, dto: CreateReturnDto, actor: AuthUser) {
+  async createReturn(type: string, dto: CreateReturnDto, actor: AuthUser, unidadActiva?: string) {
     if (type !== 'venta') throw new BadRequestException('Tipo de devolución inválido');
     const id = await this.prisma.$transaction(async (tx) => {
       const workerId = await resolverTrabajadorAutor(tx, actor, dto.trabajadorId);
+      const unidad = await resolverUnidadDeEscritura(tx, {
+        actor,
+        unidadSolicitada: unidadActiva,
+        atribuidaA: dto.trabajadorId ? workerId : null,
+      });
+      await exigirMismaUnidad(tx, unidad, { ventaId: BigInt(dto.operacionId) });
       return this.createSaleReturnTx(tx, dto, workerId);
     });
     // Se devuelve solo la devolución recién creada. Antes se recargaba la lista completa
@@ -744,9 +855,14 @@ export class OperationsService {
     };
   }
 
-  async movements(filters: MovementsFilter = {}) {
+  async movements(actor: AuthUser, filters: MovementsFilter = {}, unidad?: string) {
+    const alcance = await resolverAlcanceUnidad(this.prisma, actor, unidad);
     const fecha = this.listDateRange(filters.from, filters.to);
-    const detalleFilter: Prisma.DetalleMovimientoInventarioWhereInput = {};
+    // `movimiento_inventario` tampoco lleva la unidad: se filtra por el almacén de sus
+    // detalles. Salvo en el consolidado, el `some` ahora se construye siempre.
+    const detalleFilter: Prisma.DetalleMovimientoInventarioWhereInput = {
+      ...filtroUnidadPor('almacen', alcance),
+    };
     if (filters.productoId) detalleFilter.productoId = BigInt(filters.productoId);
     if (filters.almacenId) detalleFilter.almacenId = BigInt(filters.almacenId);
     const where: Prisma.MovimientoInventarioWhereInput = {
@@ -770,7 +886,12 @@ export class OperationsService {
    * `saldoAnterior/saldoPosterior` (que son por producto+almacén+lote+estado), acá el saldo se
    * recalcula sobre el filtro pedido para que se lea como una sola columna continua.
    */
-  async kardex(filters: { productoId?: string; almacenId?: string; from?: string; to?: string }) {
+  async kardex(
+    actor: AuthUser,
+    filters: { productoId?: string; almacenId?: string; from?: string; to?: string },
+    unidad?: string,
+  ) {
+    const alcance = await resolverAlcanceUnidad(this.prisma, actor, unidad);
     if (!filters.productoId) throw new BadRequestException('Seleccione un producto para el kardex');
     const productoId = BigInt(filters.productoId);
     const almacenId = filters.almacenId ? BigInt(filters.almacenId) : undefined;
@@ -783,6 +904,7 @@ export class OperationsService {
 
     const scopeFilter: Prisma.DetalleMovimientoInventarioWhereInput = {
       productoId,
+      ...filtroUnidadPor('almacen', alcance),
       ...(almacenId ? { almacenId } : {}),
     };
     const saldoInicial = fecha?.gte ? await this.kardexSaldoInicial(scopeFilter, fecha.gte) : 0;
@@ -874,19 +996,41 @@ export class OperationsService {
   // Registrar una venta es un solo paso: nace ya CONFIRMADA (descuenta stock y genera kardex
   // + cuenta por cobrar de inmediato), sin un estado intermedio BORRADOR que requiera una
   // confirmación aparte — mismo patrón que ya se usa en ProductionService.create().
-  async createSale(dto: CreateOperationalSaleDto, actor: AuthUser) {
+  async createSale(dto: CreateOperationalSaleDto, actor: AuthUser, unidadActiva?: string) {
     return this.prisma.$transaction(async (tx) => {
       const trabajadorId = await resolverTrabajadorAutor(tx, actor, dto.trabajadorId);
+      // La unidad sale de la que está elegida —la misma con la que se armaron los combos en
+      // `catalogs()`—, no del trabajador que la teclea. Cuando el admin la registra a nombre
+      // de otro, se exige además que ese trabajador sea de esta unidad.
+      const unidadNegocioId = await resolverUnidadDeEscritura(tx, {
+        actor,
+        unidadSolicitada: unidadActiva,
+        atribuidaA: dto.trabajadorId ? trabajadorId : null,
+      });
+      const controlaInventario = await unidadControlaInventario(tx, unidadNegocioId);
       const warehouse = dto.almacenId
         ? await tx.almacen.findUnique({ where: { id: BigInt(dto.almacenId) } })
-        : await tx.almacen.findFirst({ where: { estado: true }, orderBy: { id: 'asc' } });
+        : // El fallback tiene que estar acotado a la unidad. Sin el filtro, una venta sin
+          // almacén explícito descontaría del primer almacén activo de la base, que casi
+          // siempre es el de la Principal.
+          await tx.almacen.findFirst({
+            where: { estado: true, unidadNegocioId },
+            orderBy: { id: 'asc' },
+          });
       if (!warehouse || !warehouse.estado)
         throw new BadRequestException('No existe un almacén activo para registrar la venta');
+      // El cliente y el almacén llegan del formulario: nada garantiza que sean de esta
+      // unidad hasta que se comprueba.
+      await exigirMismaUnidad(tx, unidadNegocioId, {
+        clienteId: BigInt(dto.clienteId),
+        almacenId: warehouse.id,
+      });
       const totals = this.totals(dto.items, dto.descuento, false);
       const terms = await this.paymentTerms(tx, dto, totals.total, trabajadorId);
       await this.validarProductosDeVenta(tx, dto.items);
       const sale = await tx.venta.create({
         data: {
+          unidadNegocioId,
           clienteId: BigInt(dto.clienteId),
           almacenOrigenId: warehouse.id,
           trabajadorId,
@@ -913,7 +1057,10 @@ export class OperationsService {
           },
         },
       });
-      await this.applySaleOutbound(tx, sale.id);
+      // En un puesto que solo registra ventas y gastos no hay stock que descontar ni kardex que
+      // escribir: la venta queda igual de completa (cuenta por cobrar, cobros, reportes), solo
+      // que sin su contrapartida física.
+      if (controlaInventario) await this.applySaleOutbound(tx, sale.id);
       const account = await tx.cuentaCobrar.create({
         data: {
           ventaId: sale.id,
@@ -953,11 +1100,19 @@ export class OperationsService {
    * bloquea la edición es un cobro hecho después desde Cobranzas o una devolución confirmada:
    * cambiar el total ahí dejaría descuadrada la cuenta del cliente.
    */
-  async updateSale(id: string, dto: UpdateOperationalSaleDto, actor: AuthUser) {
+  async updateSale(
+    id: string,
+    dto: UpdateOperationalSaleDto,
+    actor: AuthUser,
+    unidadActiva?: string,
+  ) {
     return this.prisma.$transaction(async (tx) => {
       const saleId = BigInt(id);
-      const sale = await tx.venta.findUnique({
-        where: { id: saleId },
+      // Con la unidad activa: sin ella, un admin parado en un puesto satélite recibía "Venta
+      // no encontrada" al corregir una venta de ese puesto.
+      const alcance = await resolverAlcanceUnidad(tx, actor, unidadActiva);
+      const sale = await tx.venta.findFirst({
+        where: { id: saleId, ...filtroUnidad(alcance) },
         include: { cuentaCobrar: true, devoluciones: true },
       });
       if (!sale) throw new NotFoundException('Venta no encontrada');
@@ -966,6 +1121,19 @@ export class OperationsService {
       const trabajadorId = dto.trabajadorId
         ? await resolverTrabajadorAutor(tx, actor, dto.trabajadorId)
         : sale.trabajadorId;
+      // La venta NO cambia de unidad al editarla. Mudarla arrastraría su cliente, su
+      // almacén y su kardex, que siguen siendo de la unidad original: quedaría inconsistente.
+      // Un gasto sí se puede reasignar (es solo un monto); una venta, no.
+      if (dto.trabajadorId) {
+        const nuevoAutor = await tx.trabajador.findFirst({
+          where: { id: trabajadorId },
+          select: { unidadNegocioId: true },
+        });
+        if (nuevoAutor?.unidadNegocioId !== sale.unidadNegocioId)
+          throw new BadRequestException(
+            'No se puede reasignar la venta a un trabajador de otra unidad de negocio',
+          );
+      }
       // El medio centavo de margen evita que un redondeo del decimal marque falso positivo.
       const cobrado = Number(sale.cuentaCobrar?.montoPagado ?? 0);
       if (cobrado > Number(sale.montoInicial) + 0.005)
@@ -974,6 +1142,11 @@ export class OperationsService {
         );
       if (sale.devoluciones.some((item) => item.estado === 'CONFIRMADA'))
         throw new BadRequestException('No se puede editar una venta con devoluciones registradas');
+
+      // La bandera se lee de la unidad DE LA VENTA, no de la activa: una venta nunca cambia de
+      // unidad, así que editarla tiene que comportarse igual que cuando nació. Con la unidad
+      // activa, un admin en "Todo consolidado" la editaría con la semántica equivocada.
+      const controlaInventario = await unidadControlaInventario(tx, sale.unidadNegocioId);
 
       // La fecha de emisión se puede corregir al editar. No puede quedar en el futuro (Lima).
       // Se guarda a mediodía Lima para que los listados que agrupan por día no se corran de fecha;
@@ -994,13 +1167,22 @@ export class OperationsService {
       if (sale.cuentaCobrar)
         await tx.pagoCliente.deleteMany({ where: { cuentaCobrarId: sale.cuentaCobrar.id } });
 
-      await this.reverseSaleOutbound(tx, saleId);
+      // El gateo va acá afuera y NO adentro de `reverseSaleOutbound`: ese método tiene que
+      // seguir fallando cuando una venta con inventario no tiene movimiento, porque es lo que
+      // impide que al editar una venta vieja se descuente stock que nunca se descontó.
+      if (controlaInventario) await this.reverseSaleOutbound(tx, saleId);
 
       const warehouse = dto.almacenId
         ? await tx.almacen.findUnique({ where: { id: BigInt(dto.almacenId) } })
         : await tx.almacen.findUnique({ where: { id: sale.almacenOrigenId } });
       if (!warehouse || !warehouse.estado)
         throw new BadRequestException('No existe un almacén activo para registrar la venta');
+      // El DTO permite cambiar cliente y almacén, así que hay que revalidarlos: si no, una
+      // venta se editaría para apuntar al almacén de otra unidad y descontarle stock real.
+      await exigirMismaUnidad(tx, sale.unidadNegocioId, {
+        clienteId: BigInt(dto.clienteId),
+        almacenId: warehouse.id,
+      });
       const totals = this.totals(dto.items, dto.descuento, false);
       const terms = await this.paymentTerms(tx, dto, totals.total, trabajadorId);
       await this.validarProductosDeVenta(tx, dto.items);
@@ -1035,7 +1217,7 @@ export class OperationsService {
         },
       });
 
-      await this.applySaleOutbound(tx, saleId, '-R');
+      if (controlaInventario) await this.applySaleOutbound(tx, saleId, '-R');
 
       // La cuenta por cobrar se rearma desde cero con el total nuevo: se borró el cobro viejo,
       // así que parte en 0 pagado y se vuelve a registrar el cobro inicial que corresponda al
@@ -1299,6 +1481,14 @@ export class OperationsService {
         ),
       0,
     );
+    // La bandera sale de la unidad DE LA VENTA, no de la activa: la devolución tiene que
+    // comportarse igual que la venta que corrige. En un puesto sin inventario la parte de dinero
+    // (la nota de crédito, el ajuste de la cuenta por cobrar, el saldo a favor) funciona igual;
+    // lo único que no ocurre es el reingreso físico, y así queda guardado.
+    const controlaInventario = await unidadControlaInventario(tx, sale.unidadNegocioId);
+    const reintegra = (entry: { input: { reintegraInventario?: boolean } }) =>
+      controlaInventario && entry.input.reintegraInventario !== false;
+
     const code = `DV-${Date.now().toString(36).toUpperCase()}`;
     const created = await tx.devolucionVenta.create({
       data: {
@@ -1325,12 +1515,12 @@ export class OperationsService {
             estadoDestinoId: entry.input.estadoDestinoId
               ? BigInt(entry.input.estadoDestinoId)
               : defaultState.id,
-            reintegraInventario: entry.input.reintegraInventario !== false,
+            reintegraInventario: reintegra(entry),
           })),
         },
       },
     });
-    const physical = selected.filter((entry) => entry.input.reintegraInventario !== false);
+    const physical = selected.filter(reintegra);
     if (physical.length) {
       for (const entry of physical) {
         const state = await tx.estadoInventario.findUnique({
@@ -1679,10 +1869,14 @@ export class OperationsService {
     });
   }
 
-  private findSale(tx: Transaction, id: bigint) {
+  /**
+   * Una venta fuera del alcance no da 403 sino 404: para quien no puede verla, no existe.
+   * Por eso el filtro de unidad entra en el mismo `where` y no en un chequeo posterior.
+   */
+  private findSale(tx: Transaction, id: bigint, alcance?: AlcanceUnidad) {
     return tx.venta
-      .findUnique({
-        where: { id },
+      .findFirst({
+        where: { id, ...(alcance ? filtroUnidad(alcance) : {}) },
         include: {
           cliente: true,
           almacenOrigen: true,

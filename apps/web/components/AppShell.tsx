@@ -7,6 +7,7 @@ import {
   CalendarClock,
   ChevronRight,
   CreditCard,
+  Eye,
   Factory,
   LayoutDashboard,
   LogOut,
@@ -18,6 +19,7 @@ import {
   ReceiptText,
   Recycle,
   Route,
+  Building2,
   ShoppingCart,
   Store,
   Truck,
@@ -31,14 +33,46 @@ import { usePathname, useRouter } from 'next/navigation';
 import { ReactNode, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
+  api,
+  guardarSesion,
   limpiarSesion,
   obtenerVencimientoSesion,
   obtenerUsuarioGuardado,
   obtenerToken,
   UsuarioSesion,
 } from '../lib/api';
-import { aliasRuta, puedeVer } from '../lib/permissions';
+import { aliasRuta, etiquetaRol, puedeVer } from '../lib/permissions';
+import { useRole } from '../lib/useCurrentUser';
 import { ThemeToggle } from './ThemeToggle';
+import { useUnidad } from './UnidadProvider';
+
+/**
+ * Qué se está mirando ahora mismo. Con una sola unidad no hay nada que aclarar.
+ *
+ * Para el administrador es un enlace a Configuración, que es donde se cambia; para el resto es
+ * una etiqueta fija, porque su unidad no se elige.
+ */
+function IndicadorUnidad() {
+  const { resumen, disponibles } = useUnidad();
+  const role = useRole();
+  if (disponibles.length < 2 || !resumen) return null;
+  if (role !== 'ADMIN') {
+    return (
+      <span className="unidad-badge" title="Unidad de negocio en la que estás trabajando">
+        {resumen}
+      </span>
+    );
+  }
+  return (
+    <Link
+      href="/unidades-visibles"
+      className="unidad-badge"
+      title="Estás viendo estas unidades. Toca para cambiarlas."
+    >
+      <Eye size={13} /> {resumen}
+    </Link>
+  );
+}
 
 const groups = [
   {
@@ -52,6 +86,7 @@ const groups = [
     links: [
       { href: '/gastos', label: 'Gastos', icon: ShoppingCart },
       { href: '/categorias-gastos', label: 'Categorías de gasto', icon: ShoppingCart },
+      { href: '/proveedores', label: 'Proveedores', icon: Truck },
     ],
   },
   {
@@ -111,13 +146,18 @@ const groups = [
   {
     label: 'Configuración',
     icon: UserRoundCog,
-    links: [{ href: '/trabajadores', label: 'Trabajadores', icon: UserRoundCog }],
+    links: [
+      { href: '/trabajadores', label: 'Trabajadores', icon: UserRoundCog },
+      { href: '/unidades-negocio', label: 'Unidades de negocio', icon: Building2 },
+      { href: '/unidades-visibles', label: 'Unidades que veo', icon: Eye },
+    ],
   },
 ];
 
 export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
+  const { clave: unidadClave, controlaInventario } = useUnidad();
   const [user, setUser] = useState<UsuarioSesion | null>(null);
   const [ready, setReady] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -145,30 +185,45 @@ export function AppShell({ children }: { children: ReactNode }) {
     setUser(almacenado);
     setReady(true);
     setSidebarCollapsed(window.localStorage.getItem('torito-sidebar-collapsed') === 'true');
+
+    // Refresco silencioso: si el rol o la unidad cambiaron, el menú y el selector se
+    // acomodan solos. Un 401 lo maneja `api()`, que limpia la sesión y manda al login.
+    api<UsuarioSesion>('/auth/me')
+      .then((actual) => {
+        const token = obtenerToken();
+        if (!token) return;
+        guardarSesion(token, actual);
+        setUser(actual);
+      })
+      .catch(() => {
+        // Sin conexión no se toca la sesión guardada: la pantalla sigue con lo que había.
+      });
   }, [router]);
 
-  // Menú visible según el rol. `visibleGroups` descarta links no permitidos y grupos
-  // que quedan vacíos; `aliasRuta` renombra ítems por rol (p. ej. "Productos disponibles").
+  // Menú visible según el rol Y según la unidad en la que se está trabajando: un puesto que
+  // solo registra ventas y gastos no tiene Producción, Lotes, Almacenes ni Kardex. Los grupos
+  // que quedan sin links se descartan enteros; `aliasRuta` renombra ítems por rol (p. ej.
+  // "Productos disponibles").
   const visibleGroups = useMemo(() => {
     const role = user?.role;
+    const contextoUnidad = { controlaInventario };
     return groups
       .map((group) => ({
         ...group,
         links: group.links
-          .filter((link) => puedeVer(role, link.href))
+          .filter((link) => puedeVer(role, link.href, contextoUnidad))
           .map((link) => ({ ...link, label: aliasRuta(role, link.href) ?? link.label })),
       }))
       .filter((group) => group.links.length > 0);
-  }, [user]);
-  const visibleLinks = useMemo(
-    () => visibleGroups.flatMap((group) => group.links),
-    [visibleGroups],
-  );
+    // `controlaInventario` tiene que estar acá: sin él, al cambiar de unidad el menú se queda
+    // congelado con el de la anterior y no hay ningún error que lo delate.
+  }, [user, controlaInventario]);
 
-  // Guarda de ruta: si el rol no puede ver la ruta actual, lo mandamos al inicio.
+  // Guarda de ruta: si no corresponde ver la ruta actual, lo mandamos al inicio.
   useEffect(() => {
-    if (user && !puedeVer(user.role, pathname)) router.replace('/dashboard');
-  }, [user, pathname, router]);
+    if (user && !puedeVer(user.role, pathname, { controlaInventario }))
+      router.replace('/dashboard');
+  }, [user, pathname, router, controlaInventario]);
 
   // Cierra la sesión sola cuando vence el token, avisando por qué.
   useEffect(() => {
@@ -351,10 +406,11 @@ export function AppShell({ children }: { children: ReactNode }) {
           </button>
           <div>
             <strong>{user?.name ?? 'Administrador'}</strong>
-            <span>{user?.role ?? 'ADMIN'}</span>
+            <span>{etiquetaRol(user?.role) || 'Administrador'}</span>
           </div>
         </div>
         <div className="admin-actions">
+          <IndicadorUnidad />
           <ThemeToggle />
           <button
             type="button"
@@ -396,29 +452,75 @@ export function AppShell({ children }: { children: ReactNode }) {
               <span>Navegación</span>
               <small>Selecciona una sección</small>
             </div>
-            {visibleLinks.map(({ href, label, icon: Icon }) => (
-              <Link
-                aria-current={
-                  pathname === href || pathname.startsWith(`${href}/`) ? 'page' : undefined
-                }
-                className={
-                  pathname === href || pathname.startsWith(`${href}/`)
-                    ? 'app-menu-link active'
-                    : 'app-menu-link'
-                }
-                href={href}
-                key={href}
-                onClick={() => setMenuOpen(false)}
-              >
-                <Icon size={16} />
-                {label}
-              </Link>
-            ))}
+            {visibleGroups.map((group) => {
+              const groupActive = group.links.some(
+                ({ href }) => pathname === href || pathname.startsWith(`${href}/`),
+              );
+              // Igual que en el sidebar: un solo destino no necesita acordeón.
+              if (group.links.length === 1) {
+                const single = group.links[0];
+                const SingleIcon = single.icon;
+                return (
+                  <Link
+                    aria-current={groupActive ? 'page' : undefined}
+                    className={groupActive ? 'app-menu-link active' : 'app-menu-link'}
+                    href={single.href}
+                    key={group.label}
+                    onClick={() => setMenuOpen(false)}
+                  >
+                    <SingleIcon size={16} />
+                    {single.label}
+                  </Link>
+                );
+              }
+              const expanded = expandedGroup === group.label;
+              const GroupIcon = group.icon;
+              const panelId = `app-menu-group-${group.label.toLowerCase().replaceAll(' ', '-')}`;
+              return (
+                <section
+                  className={`app-menu-group${groupActive ? ' active' : ''}${
+                    expanded ? ' expanded' : ''
+                  }`}
+                  key={group.label}
+                >
+                  <button
+                    className="app-menu-group-trigger"
+                    type="button"
+                    onClick={() => toggleGroup(group.label)}
+                    aria-expanded={expanded}
+                    aria-controls={panelId}
+                  >
+                    <GroupIcon size={18} />
+                    <strong>{group.label}</strong>
+                    <ChevronRight className="app-menu-group-chevron" size={16} />
+                  </button>
+                  <div className="app-menu-sublinks" id={panelId} hidden={!expanded}>
+                    {group.links.map(({ href, label, icon: Icon }) => {
+                      const active = pathname === href || pathname.startsWith(`${href}/`);
+                      return (
+                        <Link
+                          aria-current={active ? 'page' : undefined}
+                          className={active ? 'app-menu-link active' : 'app-menu-link'}
+                          href={href}
+                          key={href}
+                          onClick={() => setMenuOpen(false)}
+                        >
+                          <Icon size={16} />
+                          {label}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </section>
+              );
+            })}
           </nav>
         </>
       ) : null}
 
-      <main className="app-main" id="main-content" tabIndex={-1}>
+      {/* La `key` remonta la pantalla al cambiar de unidad: así ninguna se queda mostrando
+          los datos de la anterior porque su `load()` no dependía de la unidad. */}
+      <main className="app-main" id="main-content" tabIndex={-1} key={unidadClave}>
         {children}
       </main>
     </div>

@@ -8,6 +8,13 @@ import { CreateUserDto, UpdateUserDto } from './users.dto';
 const BCRYPT_ROUNDS = 10;
 
 /**
+ * Cliente de base sobre el que corre la operación. Normalmente es el de siempre, pero
+ * cuando el alta viene de `TrabajadoresService` llega el cliente de la transacción: la
+ * cuenta y el trabajador tienen que guardarse —o deshacerse— juntos.
+ */
+export type DbClient = Prisma.TransactionClient;
+
+/**
  * Cuentas de acceso. Hasta ahora solo las creaba el seed, así que un trabajador nuevo no
  * podía entrar al sistema y sus ventas terminaban atribuidas a otro. Acá se administran
  * desde la app, y el vínculo con el trabajador se escribe en `TrabajadoresService`.
@@ -26,10 +33,10 @@ export class UsersService {
     return rows.map((row) => this.view(row));
   }
 
-  async create(dto: CreateUserDto) {
-    const role = await this.roleId(dto.role);
+  async create(dto: CreateUserDto, db: DbClient = this.prisma) {
+    const role = await this.roleId(dto.role, db);
     try {
-      const row = await this.prisma.user.create({
+      const row = await db.user.create({
         data: {
           name: dto.name.trim(),
           email: dto.email.trim().toLowerCase(),
@@ -46,8 +53,8 @@ export class UsersService {
     }
   }
 
-  async update(id: string, dto: UpdateUserDto) {
-    const current = await this.prisma.user.findUnique({ where: { id } });
+  async update(id: string, dto: UpdateUserDto, db: DbClient = this.prisma) {
+    const current = await db.user.findUnique({ where: { id } });
     if (!current) throw new NotFoundException('Usuario no encontrado');
 
     const data: Prisma.UserUpdateInput = {};
@@ -56,10 +63,10 @@ export class UsersService {
     if (dto.username !== undefined) data.username = dto.username.trim().toLowerCase();
     if (dto.active !== undefined) data.active = dto.active;
     if (dto.password) data.passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
-    if (dto.role !== undefined) data.role = { connect: { id: await this.roleId(dto.role) } };
+    if (dto.role !== undefined) data.role = { connect: { id: await this.roleId(dto.role, db) } };
 
     try {
-      const row = await this.prisma.user.update({
+      const row = await db.user.update({
         where: { id },
         data,
         include: { role: true, trabajador: true },
@@ -71,8 +78,8 @@ export class UsersService {
   }
 
   /** Los roles existen como filas creadas por el seed; acá se resuelve el id por nombre. */
-  private async roleId(name: RoleName) {
-    const role = await this.prisma.role.upsert({
+  private async roleId(name: RoleName, db: DbClient = this.prisma) {
+    const role = await db.role.upsert({
       where: { name },
       update: {},
       create: { name },
@@ -85,7 +92,8 @@ export class UsersService {
       const campos = (error.meta?.target as string[] | undefined) ?? [];
       if (campos.includes('username'))
         return new ConflictException('Ya existe un usuario con ese nombre de usuario');
-      if (campos.includes('email')) return new ConflictException('Ya existe un usuario con ese correo');
+      if (campos.includes('email'))
+        return new ConflictException('Ya existe un usuario con ese correo');
       return new ConflictException('Ya existe un usuario con esos datos');
     }
     return error;
@@ -100,9 +108,7 @@ export class UsersService {
       role: row.role.name as RoleName,
       active: row.active,
       trabajadorId: row.trabajador?.id?.toString() ?? null,
-      trabajador: row.trabajador
-        ? `${row.trabajador.nombres} ${row.trabajador.apellidos}`
-        : null,
+      trabajador: row.trabajador ? `${row.trabajador.nombres} ${row.trabajador.apellidos}` : null,
     };
   }
 }

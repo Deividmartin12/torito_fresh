@@ -39,6 +39,8 @@ import { ClienteFormModal } from '../ClienteFormModal';
 import { PaymentMethodFormModal } from '../PaymentMethodFormModal';
 import { SearchableSelect } from '../SearchableSelect';
 import { PaymentMethod } from '../../lib/payment-methods';
+import { puede } from '../../lib/permissions';
+import { useRole } from '../../lib/useCurrentUser';
 
 type FieldErrors = Partial<Record<'entity' | 'items' | 'payment' | 'dueDate', string>>;
 
@@ -135,6 +137,9 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
   const [entityId, setEntityId] = useState('');
   const [clienteModal, setClienteModal] = useState(false);
   const [almacenModal, setAlmacenModal] = useState(false);
+  // Dar de alta un almacén no lo permite el API a todos los roles: al resto se le oculta la
+  // acción inline en vez de dejar que reciba un error recién al guardar.
+  const puedeCrearAlmacen = puede(useRole(), 'almacenes.crear');
   // Fila de pago que abrió "+ Agregar método de pago" (null = modal cerrado).
   const [metodoModalRow, setMetodoModalRow] = useState<number | null>(null);
   const [warehouseId, setWarehouseId] = useState('');
@@ -375,6 +380,13 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
     return porProducto;
   }, [catalogs.almacenes, catalogs.productos, stock, warehouseId, ventaOriginal]);
 
+  /**
+   * Si esta venta va a descontar stock. Sale del catálogo y no del selector del navegador:
+   * con "Todo consolidado" elegido el servidor registra en la unidad del actor, así que lo
+   * único confiable es lo que el propio servidor dice que va a hacer.
+   */
+  const controlaInventario = catalogs.unidadEscritura?.controlaInventario ?? true;
+
   function available(productoId: string) {
     if (!productoId) return 0;
     return disponiblePorProducto.get(productoId) ?? 0;
@@ -400,7 +412,8 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
       )
     )
       next.items = 'Selecciona cada producto e ingresa una cantidad entera mayor a cero.';
-    else if (items.some((item) => item.cantidad > available(item.productoId)))
+    // En un puesto que solo registra ventas y gastos no hay stock contra el cual validar.
+    else if (controlaInventario && items.some((item) => item.cantidad > available(item.productoId)))
       next.items = 'Una cantidad supera el stock disponible del almacén seleccionado.';
     setFieldErrors(next);
     return Object.keys(next).length === 0;
@@ -506,12 +519,16 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
                     options={catalogs.productos.map((product) => ({
                       value: product.id,
                       label: `${product.codigo ?? ''} · ${product.nombre}`,
-                      hint: `Disponible: ${available(product.id)}`,
+                      // Sin inventario no hay disponible que mostrar: sería 0 en todo y solo
+                      // confundiría.
+                      hint: controlaInventario ? `Disponible: ${available(product.id)}` : undefined,
                     }))}
                     placeholder="Buscar por código o nombre"
                     required
                   />
-                  {item.productoId && available(item.productoId) < item.cantidad ? (
+                  {controlaInventario &&
+                  item.productoId &&
+                  available(item.productoId) < item.cantidad ? (
                     <small className="stock-warning">
                       Solo hay <b>{available(item.productoId)}</b> disponibles en este almacén.
                     </small>
@@ -569,7 +586,18 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
             <span>2</span>
             <div>
               <h2 id="sale-general-title">Datos generales</h2>
-              <p>Información de la operación.</p>
+              <p>
+                Información de la operación.
+                {/* En qué unidad va a quedar la venta. Se dice acá y no solo en la barra
+                    superior porque con "Todo consolidado" elegido la venta cae en la unidad
+                    propia, y eso hay que avisarlo antes de guardar, no después. */}
+                {catalogs.unidadEscritura?.nombre
+                  ? ` Se registrará en ${catalogs.unidadEscritura.nombre}.`
+                  : ''}
+                {controlaInventario
+                  ? ''
+                  : ' Esta unidad no lleva inventario: la venta se registra sin descontar stock.'}
+              </p>
             </div>
           </div>
           <div className="step-fields operation-fields">
@@ -612,21 +640,26 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
               ) : null}
             </label>
 
-            <label>
-              <span>Almacén de salida</span>
-              <SearchableSelect
-                value={warehouseId}
-                onChange={setWarehouseId}
-                options={catalogs.almacenes.map((item) => ({
-                  value: item.id,
-                  label: item.codigo ? `${item.codigo} · ${item.nombre}` : item.nombre,
-                }))}
-                placeholder="Buscar almacén"
-                required
-                actionLabel="+ Agregar almacén"
-                onAction={() => setAlmacenModal(true)}
-              />
-            </label>
+            {/* El almacén solo tiene sentido si la venta descuenta de algún lado. En un puesto
+                que solo registra, el campo no se muestra y `almacenId` viaja vacío: el servidor
+                usa el almacén de la unidad como ancla contable. */}
+            {controlaInventario ? (
+              <label>
+                <span>Almacén de salida</span>
+                <SearchableSelect
+                  value={warehouseId}
+                  onChange={setWarehouseId}
+                  options={catalogs.almacenes.map((item) => ({
+                    value: item.id,
+                    label: item.codigo ? `${item.codigo} · ${item.nombre}` : item.nombre,
+                  }))}
+                  placeholder="Buscar almacén"
+                  required
+                  actionLabel={puedeCrearAlmacen ? '+ Agregar almacén' : undefined}
+                  onAction={puedeCrearAlmacen ? () => setAlmacenModal(true) : undefined}
+                />
+              </label>
+            ) : null}
 
             <div className="payment-type-field">
               <span className="label">Forma de pago</span>

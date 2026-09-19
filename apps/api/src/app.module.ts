@@ -17,6 +17,7 @@ import { ProveedoresModule } from './proveedores/proveedores.module';
 import { RecargasModule } from './recargas/recargas.module';
 import { ReportsModule } from './reports/reports.module';
 import { TrabajadoresModule } from './trabajadores/trabajadores.module';
+import { UnidadesModule } from './unidades/unidades.module';
 import { UsersModule } from './users/users.module';
 
 @Module({
@@ -36,6 +37,7 @@ import { UsersModule } from './users/users.module';
     BidonesRotosModule,
     ReportsModule,
     TrabajadoresModule,
+    UnidadesModule,
     UsersModule,
   ],
   providers: [

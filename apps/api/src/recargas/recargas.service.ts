@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
+import { AuthUser } from '../common/auth-user';
 import { daysUntil } from '../common/receivables';
+import { filtroUnidad, resolverAlcanceUnidad } from '../common/unit-context';
 import { PrismaService } from '../prisma/prisma.service';
 
 const DIA_MS = 86_400_000;
@@ -14,10 +16,14 @@ export class RecargasService {
   /**
    * "Tiempo de recarga" por cliente: cada cuánto vuelve a comprar y cuánto paga.
    * Todo se deriva de las ventas confirmadas; no hay un registro propio.
+   *
+   * Acotado a la unidad: sin el filtro, cada puesto veía el nombre, el teléfono y el historial
+   * de compra de los clientes de todos los demás.
    */
-  async list() {
+  async list(actor: AuthUser, unidad?: string) {
+    const alcance = await resolverAlcanceUnidad(this.prisma, actor, unidad);
     const ventas = await this.prisma.venta.findMany({
-      where: { estado: 'CONFIRMADA' },
+      where: { estado: 'CONFIRMADA', ...filtroUnidad(alcance) },
       orderBy: { fecha: 'asc' },
       select: {
         clienteId: true,

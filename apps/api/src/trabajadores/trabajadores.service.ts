@@ -1,12 +1,25 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { AuthUser } from '../common/auth-user';
+import { filtroUnidad, resolverAlcanceUnidad, unidadPrincipalId } from '../common/unit-context';
 import { PrismaService } from '../prisma/prisma.service';
-import { UsersService } from '../users/users.service';
-import { CreateTrabajadorDto, UpdateTrabajadorDto } from './trabajadores.dto';
+import { DbClient, UsersService } from '../users/users.service';
+import { CreateTrabajadorDto, CuentaTrabajadorDto, UpdateTrabajadorDto } from './trabajadores.dto';
 
 /** El trabajador siempre se lee con su cuenta de acceso: la UI muestra ambas cosas juntas. */
-const CON_CUENTA = { user: { include: { role: true } } } as const;
+const CON_CUENTA = {
+  user: { include: { role: true } },
+  unidadNegocio: { select: { id: true, nombre: true } },
+} as const;
 type TrabajadorConCuenta = Prisma.TrabajadorGetPayload<{ include: typeof CON_CUENTA }>;
+
+/** Datos del trabajador de los que se deriva su cuenta de acceso. */
+type DatosPersona = { nombres: string; apellidos: string; correo: string; estado: boolean };
 
 @Injectable()
 export class TrabajadoresService {
@@ -15,10 +28,12 @@ export class TrabajadoresService {
     private readonly users: UsersService,
   ) {}
 
-  async list(search?: string, active?: string) {
+  async list(actor: AuthUser, search?: string, active?: string, unidad?: string) {
+    const alcance = await resolverAlcanceUnidad(this.prisma, actor, unidad);
     const term = search?.trim();
     const rows = await this.prisma.trabajador.findMany({
       where: {
+        ...filtroUnidad(alcance),
         ...(term
           ? {
               OR: [
@@ -37,16 +52,44 @@ export class TrabajadoresService {
     return rows.map((row) => this.view(row));
   }
 
-  async get(id: string) {
-    return this.view(await this.find(id));
+  async get(id: string, actor: AuthUser, unidad?: string) {
+    const alcance = await resolverAlcanceUnidad(this.prisma, actor, unidad);
+    const row = await this.find(id);
+    if (alcance.tipo === 'una' && row.unidadNegocioId !== alcance.id) {
+      throw new NotFoundException('Trabajador no encontrado');
+    }
+    return this.view(row);
   }
 
+  /**
+   * Alta del trabajador y, si viene `cuenta`, de su acceso al sistema. Las dos cosas van en
+   * UNA transacción: si el documento está repetido no puede quedar suelta la cuenta de un
+   * trabajador que nunca llegó a existir (antes pasaba, porque el usuario se guardaba
+   * primero y nadie lo deshacía).
+   */
   async create(dto: CreateTrabajadorDto) {
-    const userId = await this.resolverCuenta(dto);
+    const unidadNegocioId = await this.resolverUnidad(dto.unidadNegocioId);
     try {
-      const created = await this.prisma.trabajador.create({
-        data: { ...this.createData(dto), ...(userId ? { userId } : {}) },
-        include: CON_CUENTA,
+      const created = await this.prisma.$transaction(async (tx) => {
+        const userId = await this.aplicarCuenta(
+          tx,
+          dto,
+          {
+            nombres: dto.nombres,
+            apellidos: dto.apellidos,
+            correo: dto.correo ?? '',
+            estado: true,
+          },
+          null,
+        );
+        return tx.trabajador.create({
+          data: {
+            ...this.createData(dto),
+            unidadNegocioId,
+            ...(userId ? { userId } : {}),
+          },
+          include: CON_CUENTA,
+        });
       });
       return this.view(created);
     } catch (error) {
@@ -54,18 +97,36 @@ export class TrabajadoresService {
     }
   }
 
+  /** Igual que el alta: la persona y su cuenta se guardan juntas, o no se guarda nada. */
   async update(id: string, dto: UpdateTrabajadorDto) {
-    await this.find(id);
-    const userId = await this.resolverCuenta(dto);
+    const actual = await this.find(id);
+    const unidadNegocioId =
+      dto.unidadNegocioId === undefined
+        ? undefined
+        : await this.resolverUnidad(dto.unidadNegocioId);
     try {
-      const updated = await this.prisma.trabajador.update({
-        where: { id: BigInt(id) },
-        data: {
-          ...this.updateData(dto),
-          // `userId: ''` desvincula; `undefined` deja la cuenta como está.
-          ...(userId !== undefined ? { userId } : {}),
-        },
-        include: CON_CUENTA,
+      const updated = await this.prisma.$transaction(async (tx) => {
+        const userId = await this.aplicarCuenta(
+          tx,
+          dto,
+          {
+            nombres: dto.nombres ?? actual.nombres,
+            apellidos: dto.apellidos ?? actual.apellidos,
+            correo: dto.correo ?? actual.correo ?? '',
+            estado: dto.estado ?? actual.estado,
+          },
+          actual.userId,
+        );
+        return tx.trabajador.update({
+          where: { id: actual.id },
+          data: {
+            ...this.updateData(dto),
+            ...(unidadNegocioId !== undefined ? { unidadNegocioId } : {}),
+            // `userId: null` desvincula; `undefined` deja la cuenta como está.
+            ...(userId !== undefined ? { userId } : {}),
+          },
+          include: CON_CUENTA,
+        });
       });
       return this.view(updated);
     } catch (error) {
@@ -74,30 +135,104 @@ export class TrabajadoresService {
   }
 
   /**
-   * Resuelve qué cuenta de acceso queda vinculada:
-   * - `cuenta` → se crea un usuario nuevo y se devuelve su id
-   * - `userId` con valor → se vincula esa cuenta (validando que esté libre)
-   * - `userId` vacío → `null`, se desvincula
-   * - nada → `undefined`, no se toca
+   * Deja la cuenta de acceso como corresponde y devuelve qué vínculo escribir en el
+   * trabajador: un id, `null` para desvincular, o `undefined` para no tocarlo.
+   *
+   * - `cuenta` sobre alguien que ya tiene acceso → se edita esa cuenta (usuario, rol y, si
+   *   vino una contraseña nueva, también la contraseña).
+   * - `cuenta` sobre alguien que todavía no lo tiene → se crea la cuenta y se vincula.
+   * - `userId` con valor → se vincula una cuenta que ya existe; vacío → se desvincula.
+   * - Nada de eso pero cambió el estado → se activa o desactiva el acceso junto con el
+   *   trabajador, para que dar de baja a alguien le cierre también el login.
+   *
+   * El nombre y el correo de la cuenta salen siempre de los datos de la persona: si viviera
+   * cada uno por su lado, terminarían contando cosas distintas de la misma persona.
    */
-  private async resolverCuenta(dto: {
-    userId?: string;
-    cuenta?: CreateTrabajadorDto['cuenta'];
-  }): Promise<string | null | undefined> {
+  private async aplicarCuenta(
+    tx: DbClient,
+    dto: { userId?: string; cuenta?: CuentaTrabajadorDto; estado?: boolean },
+    persona: DatosPersona,
+    userIdActual: string | null,
+  ): Promise<string | null | undefined> {
     if (dto.cuenta) {
-      const creada = await this.users.create(dto.cuenta);
+      const email = persona.correo.trim().toLowerCase();
+      if (!email) {
+        throw new BadRequestException(
+          'El correo del trabajador es obligatorio para crear su cuenta de acceso',
+        );
+      }
+      const name = `${persona.nombres.trim()} ${persona.apellidos.trim()}`.trim();
+
+      if (userIdActual) {
+        await this.users.update(
+          userIdActual,
+          {
+            name,
+            email,
+            username: dto.cuenta.username,
+            role: dto.cuenta.role,
+            active: persona.estado,
+            // Sin contraseña nueva se queda con la que tenía: cambiarle el rol a alguien no
+            // tiene por qué obligar a resetearle la clave.
+            ...(dto.cuenta.password ? { password: dto.cuenta.password } : {}),
+          },
+          tx,
+        );
+        return undefined;
+      }
+
+      if (!dto.cuenta.password) {
+        throw new BadRequestException('Ingresa una contraseña para la cuenta de acceso');
+      }
+      const creada = await this.users.create(
+        {
+          name,
+          email,
+          username: dto.cuenta.username,
+          password: dto.cuenta.password,
+          role: dto.cuenta.role,
+          active: persona.estado,
+        },
+        tx,
+      );
       return creada.id;
     }
-    if (dto.userId === undefined) return undefined;
-    const userId = dto.userId.trim();
-    if (!userId) return null;
 
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      include: { trabajador: true },
+    if (dto.userId !== undefined) {
+      const userId = dto.userId.trim();
+      if (!userId) return null;
+      const user = await tx.user.findUnique({ where: { id: userId }, select: { id: true } });
+      if (!user) throw new NotFoundException('La cuenta de acceso no existe');
+      return user.id;
+    }
+
+    if (dto.estado !== undefined && userIdActual) {
+      await this.users.update(userIdActual, { active: dto.estado }, tx);
+    }
+    return undefined;
+  }
+
+  /**
+   * Unidad del trabajador. Sin valor explícito cae a la Principal, que es lo que corresponde
+   * al alta de toda la vida: solo quien está armando un puesto satélite elige otra.
+   */
+  private async resolverUnidad(unidadNegocioId?: string): Promise<bigint> {
+    const solicitada = unidadNegocioId?.toString().trim();
+    if (!solicitada) return unidadPrincipalId(this.prisma);
+    let id: bigint;
+    try {
+      id = BigInt(solicitada);
+    } catch {
+      throw new BadRequestException('La unidad de negocio seleccionada no es válida');
+    }
+    const unidad = await this.prisma.unidadNegocio.findFirst({
+      where: { id, estado: true },
+      select: { id: true },
     });
-    if (!user) throw new NotFoundException('La cuenta de acceso no existe');
-    return user.id;
+    if (!unidad) {
+      throw new BadRequestException('La unidad de negocio seleccionada no existe o está inactiva');
+    }
+    return unidad.id;
   }
 
   private async find(id: string) {
@@ -115,7 +250,11 @@ export class TrabajadoresService {
     return row;
   }
 
-  private createData(dto: CreateTrabajadorDto): Prisma.TrabajadorUncheckedCreateInput {
+  // La unidad se resuelve aparte (`resolverUnidad`) y se agrega en el `create`, porque no
+  // sale del DTO tal cual: sin valor explícito cae a la Principal.
+  private createData(
+    dto: CreateTrabajadorDto,
+  ): Omit<Prisma.TrabajadorUncheckedCreateInput, 'unidadNegocioId'> {
     return {
       tipoDocumento: dto.tipoDocumento.trim(),
       numeroDocumento: dto.numeroDocumento.trim(),
@@ -134,7 +273,9 @@ export class TrabajadoresService {
       ...(dto.nombres !== undefined ? { nombres: dto.nombres.trim() } : {}),
       ...(dto.apellidos !== undefined ? { apellidos: dto.apellidos.trim() } : {}),
       ...(dto.telefono !== undefined ? { telefono: this.optional(dto.telefono) } : {}),
-      ...(dto.correo !== undefined ? { correo: this.optional(dto.correo)?.toLowerCase() ?? null } : {}),
+      ...(dto.correo !== undefined
+        ? { correo: this.optional(dto.correo)?.toLowerCase() ?? null }
+        : {}),
       ...(dto.cargo !== undefined ? { cargo: dto.cargo } : {}),
       ...(dto.estado !== undefined ? { estado: dto.estado } : {}),
     };
@@ -155,10 +296,13 @@ export class TrabajadoresService {
       correo: row.correo ?? '',
       cargo: row.cargo,
       estado: row.estado,
+      unidadNegocioId: row.unidadNegocioId.toString(),
+      unidad: row.unidadNegocio?.nombre ?? null,
       userId: row.userId,
       usuario: row.user
         ? {
             id: row.user.id,
+            name: row.user.name,
             username: row.user.username,
             email: row.user.email,
             role: row.user.role.name,

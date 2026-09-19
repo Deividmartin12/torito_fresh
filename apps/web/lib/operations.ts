@@ -20,6 +20,13 @@ export type OperationCatalogs = {
   almacenes: CatalogItem[];
   productos: CatalogItem[];
   estadosInventario: CatalogItem[];
+  /**
+   * En qué unidad va a quedar la venta, y si esa unidad lleva inventario. Lo resuelve el API con
+   * la misma función que usa al guardar, así que es lo que realmente va a pasar y no una
+   * suposición del formulario. Importa sobre todo con "Todo consolidado" elegido, donde la
+   * unidad del navegador y la del servidor no coinciden.
+   */
+  unidadEscritura?: { id: string; nombre: string; controlaInventario: boolean };
   preparado: boolean;
 };
 

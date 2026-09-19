@@ -83,6 +83,9 @@ export default function DevolucionesPage() {
   const availableState =
     catalogs.estadosInventario.find((item) => item.codigo === 'DISPONIBLE') ??
     catalogs.estadosInventario[0];
+  // Si esta unidad lleva stock. Sale del catálogo, que es lo que el servidor va a hacer de
+  // verdad, y no del selector del navegador (con "Todo consolidado" no coinciden).
+  const controlaInventario = catalogs.unidadEscritura?.controlaInventario ?? true;
 
   function selectOperation(id: string) {
     setOperationId(id);
@@ -388,20 +391,30 @@ export default function DevolucionesPage() {
                           {item.cantidad} vendidos · {item.cantidadDevuelta} ya devueltos
                         </small>
                       </div>
-                      <span>{remaining}</span>
-                      <NumericField
-                        value={draft?.cantidad ?? 0}
-                        integer
-                        onCommit={(cantidad) =>
-                          setLines((current) =>
-                            current.map((line, position) =>
-                              position === index ? { ...line, cantidad } : line,
-                            ),
-                          )
-                        }
-                      />
-                      {draft ? (
+                      <span>
+                        <span className="return-line-label">Disponible para devolver</span>
+                        {remaining}
+                      </span>
+                      <label className="return-line-qty">
+                        <span className="return-line-label">Cantidad</span>
+                        <NumericField
+                          value={draft?.cantidad ?? 0}
+                          integer
+                          onCommit={(cantidad) =>
+                            setLines((current) =>
+                              current.map((line, position) =>
+                                position === index ? { ...line, cantidad } : line,
+                              ),
+                            )
+                          }
+                        />
+                      </label>
+                      {/* El destino físico solo existe si la unidad lleva stock. En un puesto que
+                          solo registra ventas y gastos la devolución ajusta lo que el cliente
+                          debe, y nada más: no hay inventario al que regresar. */}
+                      {draft && controlaInventario ? (
                         <div className="return-destination">
+                          <span className="return-line-label">Destino físico</span>
                           <label className="check-field">
                             <input
                               type="checkbox"

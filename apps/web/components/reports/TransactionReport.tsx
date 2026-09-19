@@ -7,6 +7,7 @@ import { BusinessAnalytics, getBusinessAnalytics, previousPeriodRange } from '..
 import { axisCaption, buildChartSeries, pickAxis } from '../../lib/chart-axis';
 import { moneda, variacion } from '../../lib/format';
 import { PeriodFilter, PeriodKind } from '../PeriodFilter';
+import { useUnidad } from '../UnidadProvider';
 import { ComparisonBarChart, DemandHeatmap, RankingBarChart } from '../charts/AnalyticsCharts';
 import { ProductRankingChart, SalesTrendChart } from '../charts/BusinessCharts';
 import { ReportHeader, ReportMetric } from './ReportNav';
@@ -28,6 +29,8 @@ export function TransactionReport({ kind }: { kind: ReportKind }) {
   const [to, setTo] = useState('');
   const [period, setPeriod] = useState<PeriodKind>('week');
   const [loading, setLoading] = useState(true);
+  // Solo dispara la recarga: la unidad viaja al API desde `api()`.
+  const { clave: unidad } = useUnidad();
 
   useEffect(() => {
     // Se espera a que PeriodFilter publique su rango antes del primer pedido, para que el
@@ -51,10 +54,14 @@ export function TransactionReport({ kind }: { kind: ReportKind }) {
         ),
       )
       .finally(() => setLoading(false));
-  }, [from, to]);
+  }, [from, to, unidad]);
 
   const summary = analytics?.summary;
   const priorSummary = previous?.summary;
+  // En un puesto que no lleva inventario no hay kardex del que sacar el costo real: se estima
+  // con el costo de referencia de cada producto. Llamarlo "costo de inventario" sería mentira.
+  const etiquetaCosto = analytics?.costoEstimado ? 'costo estimado' : 'costo de inventario';
+  const porUnidad = analytics?.porUnidad ?? [];
   // undefined mientras el período comparativo no ha llegado, para que la tarjeta no
   // muestre una variación calculada con datos a medio cargar.
   const change = (current?: number, prior?: number) =>
@@ -135,7 +142,7 @@ export function TransactionReport({ kind }: { kind: ReportKind }) {
           value={moneda(sales ? summary?.margin : summary?.sales)}
           detail={
             sales
-              ? `Ingresos menos costo de inventario · ${(summary?.marginRate ?? 0).toFixed(1)}%`
+              ? `Ingresos menos ${etiquetaCosto} · ${(summary?.marginRate ?? 0).toFixed(1)}%`
               : 'Base de comparación'
           }
           change={change(
@@ -162,6 +169,13 @@ export function TransactionReport({ kind }: { kind: ReportKind }) {
           )}
         />
       </section>
+      {analytics?.costoEstimado && sales ? (
+        <p className="report-note">
+          Esta unidad no lleva inventario: el costo y el margen se estiman con el costo de
+          referencia de cada producto. La utilidad real del puesto es {moneda(summary?.sales)} de
+          ventas menos {moneda(summary?.expenses)} de gastos.
+        </p>
+      ) : null}
       <PeriodFilter onChange={changePeriod} />
       <div className="module-tools report-filters">
         <button
@@ -208,6 +222,21 @@ export function TransactionReport({ kind }: { kind: ReportKind }) {
             title={sales ? 'Ventas vs gastos' : 'Gastos vs ventas'}
             subtitle={`Importes registrados ${axisCaption[axis]}`}
           />
+          {/* Solo con más de una unidad a la vista: con una sola sería repetir el total en un
+              gráfico de un renglón. */}
+          {porUnidad.length > 1 ? (
+            <RankingBarChart
+              rows={porUnidad.map((fila) => ({
+                id: fila.id,
+                name: fila.nombre,
+                value: sales ? fila.ventas : fila.gastos,
+                count: fila.ordenes,
+              }))}
+              detail={(fila) => (sales ? `${fila.count} ventas` : 'gastos del período')}
+              title={sales ? 'Ventas por unidad de negocio' : 'Gastos por unidad de negocio'}
+              subtitle="Cuánto puso cada puesto en el período"
+            />
+          ) : null}
           {sales ? (
             <RankingBarChart
               rows={analytics.topProducts
@@ -219,7 +248,7 @@ export function TransactionReport({ kind }: { kind: ReportKind }) {
                 }))
                 .sort((a, b) => b.value - a.value)}
               title="Margen por producto"
-              subtitle="Ingreso sin IGV menos costo de inventario"
+              subtitle={`Ingreso sin IGV menos ${etiquetaCosto}`}
               detail={(row) => `${row.count} unidades netas`}
             />
           ) : null}

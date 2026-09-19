@@ -1,4 +1,9 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { etiquetaMetodoPago } from '../common/payment-method-label';
 import { PrismaService } from '../prisma/prisma.service';
@@ -183,7 +188,8 @@ export class PaymentMethodsService {
       where: { id: this.parseId(valor, 'El trabajador seleccionado no existe'), estado: true },
       select: { id: true },
     });
-    if (!trabajador) throw new BadRequestException('El trabajador seleccionado no existe o está inactivo');
+    if (!trabajador)
+      throw new BadRequestException('El trabajador seleccionado no existe o está inactivo');
     return trabajador.id;
   }
 
@@ -228,7 +234,8 @@ export class PaymentMethodsService {
 
   private traducirCategoria(error: unknown) {
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
-      if (error.code === 'P2002') return new ConflictException('Ya existe una categoría con ese nombre');
+      if (error.code === 'P2002')
+        return new ConflictException('Ya existe una categoría con ese nombre');
       if (error.code === 'P2025') return new NotFoundException('Categoría no encontrada');
     }
     return error;
@@ -261,9 +268,7 @@ export class PaymentMethodsService {
       icono: row.categoria?.icono ?? null,
       referencia: row.referencia,
       trabajadorId: row.trabajadorId?.toString() ?? null,
-      trabajador: row.trabajador
-        ? `${row.trabajador.nombres} ${row.trabajador.apellidos}`
-        : null,
+      trabajador: row.trabajador ? `${row.trabajador.nombres} ${row.trabajador.apellidos}` : null,
       estado: row.estado,
     };
   }

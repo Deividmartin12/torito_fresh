@@ -2,11 +2,7 @@ import { ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { OperationForm } from '../../../../../components/operations/OperationForm';
 
-export default async function EditarVentaPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
+export default async function EditarVentaPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   return (
     <div className="module-page standalone-operation-page">

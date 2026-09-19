@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import { AppToaster } from '../components/AppToaster';
 import './globals.css';
@@ -11,6 +11,14 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: 'Torito Fresh',
   description: 'Sistema administrativo de venta y reparto de bidones de agua',
+};
+
+// viewportFit: 'cover' es lo que hace que env(safe-area-inset-*) devuelva un valor real;
+// sin esto los modales y las barras fijas quedan debajo de la barra de gestos del iPhone.
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
