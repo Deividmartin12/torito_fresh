@@ -4,6 +4,7 @@ import { Printer, X } from 'lucide-react';
 import { formaPagoLabel } from '../../lib/credit';
 import { fechaHora, moneda } from '../../lib/format';
 import { Sale } from '../../lib/operations';
+import { Button } from '../ui/Button';
 
 /**
  * Ticket de venta que se entrega al cliente con el detalle impreso de su compra.
@@ -97,12 +98,12 @@ export function SaleReceipt({ sale, onClose }: { sale: Sale; onClose: () => void
       </div>
 
       <div className="sale-receipt-actions">
-        <button type="button" className="btn-secondary" onClick={onClose}>
+        <Button variant="secondary" type="button" onClick={onClose}>
           <X size={16} /> Cerrar
-        </button>
-        <button type="button" className="btn-primary" onClick={() => window.print()}>
+        </Button>
+        <Button type="button" onClick={() => window.print()}>
           <Printer size={16} /> Imprimir
-        </button>
+        </Button>
       </div>
     </div>
   );

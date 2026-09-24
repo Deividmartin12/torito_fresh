@@ -9,7 +9,6 @@ import {
   Search,
   TriangleAlert,
   WalletCards,
-  X,
 } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
@@ -25,6 +24,16 @@ import {
 } from '../lib/operations';
 import { Pagination } from './Pagination';
 import { RegisterCollectionModal } from './operations/RegisterCollectionModal';
+import { Button } from './ui/Button';
+import {
+  controlClass,
+  fieldLabelClass,
+  fieldWideClass,
+  modalActionsClass,
+  modalFormClass,
+} from './ui/Field';
+import { IconButton } from './ui/IconButton';
+import { Modal, ModalHeader } from './ui/Modal';
 
 const today = () => {
   const date = new Date();
@@ -291,19 +300,17 @@ export function AccountsTablePage({ tipo }: { tipo: 'cobrar' | 'pagar' }) {
           <strong>{moneda(item.saldo)}</strong>
         </td>
         <td>
-          <div className="row-actions">
-            <button
-              className="icon-soft"
+          <div className="flex flex-wrap gap-[7px]">
+            <IconButton
               onClick={() => abrirPago(item)}
               title={payable ? 'Registrar pago' : 'Registrar cobro'}
               aria-label={`Registrar pago de ${item.comprobante}`}
               disabled={item.saldo <= 0}
             >
               <WalletCards size={16} />
-            </button>
+            </IconButton>
             {!payable && item.saldo > 0 ? (
-              <button
-                className="icon-soft"
+              <IconButton
                 title="Programar vencimiento"
                 aria-label={`Programar vencimiento de ${item.comprobante}`}
                 onClick={() => {
@@ -312,16 +319,15 @@ export function AccountsTablePage({ tipo }: { tipo: 'cobrar' | 'pagar' }) {
                 }}
               >
                 <CalendarClock size={16} />
-              </button>
+              </IconButton>
             ) : null}
-            <button
-              className="icon-soft"
+            <IconButton
               title="Ver historial"
               aria-label={`Ver historial de ${item.comprobante}`}
               onClick={() => setHistorialId(item.id)}
             >
               <Eye size={16} />
-            </button>
+            </IconButton>
           </div>
         </td>
       </tr>
@@ -335,13 +341,13 @@ export function AccountsTablePage({ tipo }: { tipo: 'cobrar' | 'pagar' }) {
           <span className="operation-eyebrow">Caja y cuentas</span>
           <h1>{payable ? 'Cuentas por pagar' : 'Cobranzas'}</h1>
         </div>
-        <button
-          className="btn-primary operation-primary-action"
+        <Button
+          className="min-h-[44px] shrink-0 px-[19px]"
           onClick={() => abrirPago()}
           disabled={loading || !pendientes.length}
         >
           <Plus size={18} /> {payable ? 'Registrar pago' : 'Registrar cobro'}
-        </button>
+        </Button>
       </div>
 
       <div className="summary-row">
@@ -459,7 +465,12 @@ export function AccountsTablePage({ tipo }: { tipo: 'cobrar' | 'pagar' }) {
         </button>
       </div>
 
-      <div className="glass-table">
+      {/* Filas agrupables/expandibles: no encajan en el <DataTable> genérico (una fila = un
+          registro). Se queda con el <table> semántico y `.glass-table` para el estilo base,
+          pero con `glass-table-static` para no entrar al apilado en tarjetas del móvil (que
+          necesita la etiqueta por columna que ponía TableEnhancer): en vez de eso, en móvil
+          se desplaza horizontal, como ya hacía el kardex por producto. */}
+      <div className="glass-table glass-table-static">
         <table>
           <thead>
             <tr>
@@ -532,9 +543,8 @@ export function AccountsTablePage({ tipo }: { tipo: 'cobrar' | 'pagar' }) {
                       <strong>{moneda(group.saldo)}</strong>
                     </td>
                     <td>
-                      <div className="row-actions">
-                        <button
-                          className="icon-soft"
+                      <div className="flex flex-wrap gap-[7px]">
+                        <IconButton
                           title="Registrar cobro"
                           aria-label={`Registrar cobro de ${group.tercero}`}
                           onClick={(event) => {
@@ -543,7 +553,7 @@ export function AccountsTablePage({ tipo }: { tipo: 'cobrar' | 'pagar' }) {
                           }}
                         >
                           <WalletCards size={16} />
-                        </button>
+                        </IconButton>
                       </div>
                     </td>
                   </tr>,
@@ -585,119 +595,80 @@ export function AccountsTablePage({ tipo }: { tipo: 'cobrar' | 'pagar' }) {
       ) : null}
 
       {programar ? (
-        <div
-          className="modal-backdrop"
-          onMouseDown={(e) => e.target === e.currentTarget && setProgramarId(null)}
-        >
-          <section
-            className="crud-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="due-modal-title"
-          >
-            <div className="modal-top">
-              <div>
-                <h2 id="due-modal-title">Programar vencimiento</h2>
-                <small>
-                  {programar.tercero} · {programar.comprobante}
-                </small>
-              </div>
-              <button
-                className="modal-close"
+        <Modal onClose={() => setProgramarId(null)}>
+          <ModalHeader
+            title="Programar vencimiento"
+            subtitle={`${programar.tercero} · ${programar.comprobante}`}
+            onClose={() => setProgramarId(null)}
+          />
+          <form className={modalFormClass} onSubmit={guardarFecha}>
+            <label className={fieldWideClass}>
+              <span className={fieldLabelClass}>¿Cuándo pagará el cliente?</span>
+              <input
+                className={controlClass}
+                type="date"
+                min={today()}
+                value={nuevaFecha}
+                onChange={(event) => setNuevaFecha(event.target.value)}
+                required
+              />
+            </label>
+            <div className={modalActionsClass}>
+              <Button
+                variant="secondary"
                 type="button"
                 onClick={() => setProgramarId(null)}
-                aria-label="Cerrar"
+                disabled={savingDate}
               >
-                <X size={18} />
-              </button>
+                Cancelar
+              </Button>
+              <Button disabled={savingDate}>{savingDate ? 'Guardando...' : 'Guardar fecha'}</Button>
             </div>
-            <form className="modal-form" onSubmit={guardarFecha}>
-              <label className="field-wide">
-                <span>¿Cuándo pagará el cliente?</span>
-                <input
-                  type="date"
-                  min={today()}
-                  value={nuevaFecha}
-                  onChange={(event) => setNuevaFecha(event.target.value)}
-                  required
-                />
-              </label>
-              <div className="modal-actions">
-                <button
-                  className="btn-secondary"
-                  type="button"
-                  onClick={() => setProgramarId(null)}
-                  disabled={savingDate}
-                >
-                  Cancelar
-                </button>
-                <button className="btn-primary" disabled={savingDate}>
-                  {savingDate ? 'Guardando...' : 'Guardar fecha'}
-                </button>
-              </div>
-            </form>
-          </section>
-        </div>
+          </form>
+        </Modal>
       ) : null}
 
       {historial ? (
-        <div
-          className="modal-backdrop"
-          onMouseDown={(e) => e.target === e.currentTarget && setHistorialId(null)}
+        <Modal
+          onClose={() => setHistorialId(null)}
+          className="max-w-[620px] animate-[overlay-panel-in_200ms_ease-out]"
         >
-          <section
-            className="crud-modal account-history-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="history-modal-title"
-          >
-            <div className="modal-top">
-              <div>
-                <h2 id="history-modal-title">Historial de {payable ? 'pagos' : 'cobros'}</h2>
-                <small>
-                  {historial.tercero} · {historial.comprobante}
-                </small>
-              </div>
-              <button
-                className="modal-close"
-                type="button"
-                onClick={() => setHistorialId(null)}
-                aria-label="Cerrar historial"
-              >
-                <X size={18} />
-              </button>
+          <ModalHeader
+            title={`Historial de ${payable ? 'pagos' : 'cobros'}`}
+            subtitle={`${historial.tercero} · ${historial.comprobante}`}
+            onClose={() => setHistorialId(null)}
+            closeLabel="Cerrar historial"
+          />
+          <div className="account-history-body">
+            <div className="payment-balance-preview">
+              <span>
+                Monto original <strong>{moneda(historial.original)}</strong>
+              </span>
+              <span>
+                Saldo pendiente <strong>{moneda(historial.saldo)}</strong>
+              </span>
             </div>
-            <div className="account-history-body">
-              <div className="payment-balance-preview">
-                <span>
-                  Monto original <strong>{moneda(historial.original)}</strong>
-                </span>
-                <span>
-                  Saldo pendiente <strong>{moneda(historial.saldo)}</strong>
-                </span>
+            {historial.pagos.length ? (
+              <div className="account-payment-list">
+                {historial.pagos.map((payment) => (
+                  <article key={payment.id}>
+                    <div>
+                      <strong>{payment.metodo}</strong>
+                      <small>
+                        {formatDate(payment.fecha)} · {payment.trabajador}
+                      </small>
+                    </div>
+                    <strong>{moneda(payment.monto)}</strong>
+                  </article>
+                ))}
               </div>
-              {historial.pagos.length ? (
-                <div className="account-payment-list">
-                  {historial.pagos.map((payment) => (
-                    <article key={payment.id}>
-                      <div>
-                        <strong>{payment.metodo}</strong>
-                        <small>
-                          {formatDate(payment.fecha)} · {payment.trabajador}
-                        </small>
-                      </div>
-                      <strong>{moneda(payment.monto)}</strong>
-                    </article>
-                  ))}
-                </div>
-              ) : (
-                <div className="table-empty">
-                  Todavía no se registran {payable ? 'pagos' : 'cobros'} para esta cuenta.
-                </div>
-              )}
-            </div>
-          </section>
-        </div>
+            ) : (
+              <div className="table-empty">
+                Todavía no se registran {payable ? 'pagos' : 'cobros'} para esta cuenta.
+              </div>
+            )}
+          </div>
+        </Modal>
       ) : null}
     </div>
   );

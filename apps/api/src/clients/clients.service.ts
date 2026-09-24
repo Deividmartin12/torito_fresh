@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AuthUser } from '../common/auth-user';
-import { accountState } from '../common/receivables';
+import { SituacionCredito, situacionDeCredito } from '../common/credit';
 import {
   AlcanceUnidad,
   filtroUnidad,
@@ -12,48 +12,17 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateClientDto, UpdateClientDto } from './clients.dto';
 
-type ClientDebt = { total: number; comprobantes: number; vencido: number; vencidas: number };
-
 @Injectable()
 export class ClientsService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Deuda vigente por cliente, derivada de las cuentas por cobrar con saldo
-   * pendiente. El vencido se calcula por cuenta con la misma lógica que usa el
-   * módulo de operaciones (`accountState`).
+   * Situación de crédito por cliente. Es un alias de `situacionDeCredito` (common/credit.ts):
+   * antes este cálculo vivía acá y se repetía a mano en el catálogo de la venta, así que el
+   * aviso del formulario y el corte del servidor podían no coincidir.
    */
-  private async debtByClient(
-    alcance: AlcanceUnidad,
-    clienteIds?: bigint[],
-  ): Promise<Map<string, ClientDebt>> {
-    const cuentas = await this.prisma.cuentaCobrar.findMany({
-      where: {
-        saldoPendiente: { gt: 0 },
-        ...filtroUnidadPor('cliente', alcance),
-        ...(clienteIds ? { clienteId: { in: clienteIds } } : {}),
-      },
-      select: {
-        clienteId: true,
-        saldoPendiente: true,
-        montoPagado: true,
-        fechaVencimiento: true,
-      },
-    });
-    const map = new Map<string, ClientDebt>();
-    for (const cuenta of cuentas) {
-      const key = cuenta.clienteId.toString();
-      const entry = map.get(key) ?? { total: 0, comprobantes: 0, vencido: 0, vencidas: 0 };
-      const saldo = Number(cuenta.saldoPendiente);
-      entry.total += saldo;
-      entry.comprobantes += 1;
-      if (accountState(cuenta) === 'VENCIDA') {
-        entry.vencido += saldo;
-        entry.vencidas += 1;
-      }
-      map.set(key, entry);
-    }
-    return map;
+  private creditoDe(alcance: AlcanceUnidad, clienteIds?: bigint[]) {
+    return situacionDeCredito(this.prisma, { alcance, clienteIds });
   }
 
   async list(actor: AuthUser, search?: string, active?: string, unidad?: string) {
@@ -61,6 +30,8 @@ export class ClientsService {
     const rows = await this.prisma.cliente.findMany({
       where: {
         ...filtroUnidad(alcance),
+        // El cliente "Ventas del día" lo crea la carga diaria: no es alguien a quien atender.
+        sistema: false,
         ...(search
           ? {
               OR: [
@@ -74,7 +45,7 @@ export class ClientsService {
       },
       orderBy: { createdAt: 'desc' },
     });
-    const debt = await this.debtByClient(alcance);
+    const debt = await this.creditoDe(alcance);
     return rows.map((row) => this.view(row, debt.get(row.id.toString())));
   }
 
@@ -89,7 +60,7 @@ export class ClientsService {
       where: { id: BigInt(id), ...filtroUnidad(alcance) },
     });
     if (!row) throw new NotFoundException('Cliente no encontrado');
-    const debt = await this.debtByClient(alcance, [row.id]);
+    const debt = await this.creditoDe(alcance, [row.id]);
     return this.view(row, debt.get(row.id.toString()));
   }
 
@@ -109,6 +80,7 @@ export class ClientsService {
           nombreLegal: dto.name,
           telefono: dto.phone,
           direccion: dto.address ?? null,
+          limiteCredito: dto.creditLimit ?? null,
           estado: true,
         },
       });
@@ -126,10 +98,13 @@ export class ClientsService {
       ...(dto.name ? { nombreLegal: dto.name } : {}),
       ...(dto.phone ? { telefono: dto.phone } : {}),
       ...(dto.address ? { direccion: dto.address } : {}),
+      // `undefined` es "no lo mandaron" y `null` es "sacale el límite": los otros campos usan
+      // el truthy de arriba, pero acá no sirve porque 0 y null son valores con significado.
+      ...(dto.creditLimit === undefined ? {} : { limiteCredito: dto.creditLimit }),
       ...(dto.active === undefined ? {} : { estado: dto.active }),
     });
     const alcance = await resolverAlcanceUnidad(this.prisma, actor, unidad);
-    const debt = await this.debtByClient(alcance, [row.id]);
+    const debt = await this.creditoDe(alcance, [row.id]);
     return this.view(row, debt.get(row.id.toString()));
   }
 
@@ -170,7 +145,7 @@ export class ClientsService {
     return error;
   }
 
-  private view(row: any, debt?: ClientDebt) {
+  private view(row: any, debt?: SituacionCredito) {
     return {
       id: row.id.toString(),
       name: row.nombreLegal,
@@ -178,10 +153,14 @@ export class ClientsService {
       document: row.numeroDocumento,
       phone: row.telefono ?? '',
       address: row.direccion ?? '',
-      debtBalance: debt?.total ?? 0,
+      debtBalance: debt?.deuda ?? 0,
       pendingReceivables: debt?.comprobantes ?? 0,
       overdueBalance: debt?.vencido ?? 0,
       overdueCount: debt?.vencidas ?? 0,
+      // Tope de crédito del cliente. `null` es "sin límite" y 0 es "no se le fía": son cosas
+      // opuestas, así que el null NO se puede convertir en cero al viajar a la web.
+      creditLimit: row.limiteCredito === null ? null : Number(row.limiteCredito),
+      creditAvailable: debt?.disponible ?? null,
       // Antes fijo en 0: el saldo de envases vivía únicamente en el modelo
       // legacy Client, desconectado de este. Ver containers.service.ts.
       containerBalance: row.saldoEnvases ?? 0,

@@ -1,10 +1,19 @@
 'use client';
 
-import { X } from 'lucide-react';
 import { FormEvent, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import { api } from '../lib/api';
+import { Button } from './ui/Button';
+import {
+  controlClass,
+  fieldErrorClass,
+  fieldLabelClass,
+  fieldWideClass,
+  modalActionsClass,
+  modalFormClass,
+} from './ui/Field';
+import { Modal, ModalHeader } from './ui/Modal';
 import { soloTextoNombre, validarNombreLibre } from '../lib/validacion';
 
 /** Lo que devuelve `POST /operations/warehouses`. */
@@ -56,58 +65,41 @@ export function AlmacenFormModal({ onClose, onSaved }: Props) {
   if (typeof document === 'undefined') return null;
 
   return createPortal(
-    <div
-      className="modal-backdrop"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !saving) onClose();
-      }}
-    >
-      <section className="crud-modal" role="dialog" aria-modal="true" aria-label="Agregar almacén">
-        <div className="modal-top">
-          <h2>Agregar almacén</h2>
-          <button
-            className="modal-close"
-            onClick={onClose}
-            disabled={saving}
-            aria-label="Cerrar modal"
-          >
-            <X size={18} />
-          </button>
+    <Modal onClose={onClose} closeDisabled={saving}>
+      <ModalHeader title="Agregar almacén" onClose={onClose} closeDisabled={saving} />
+      <form className={modalFormClass} onSubmit={(event) => void guardar(event)} noValidate>
+        <label>
+          <span className={fieldLabelClass}>Nombre</span>
+          <input
+            className={controlClass}
+            value={nombre}
+            onChange={(event) => {
+              setNombre(soloTextoNombre(event.target.value));
+              setError(undefined);
+            }}
+            maxLength={80}
+            required
+            autoFocus
+          />
+          {error ? <small className={fieldErrorClass}>{error}</small> : null}
+        </label>
+        <label className={fieldWideClass}>
+          <span className={fieldLabelClass}>Dirección</span>
+          <input
+            className={controlClass}
+            value={direccion}
+            onChange={(event) => setDireccion(event.target.value)}
+            maxLength={250}
+          />
+        </label>
+        <div className={modalActionsClass}>
+          <Button variant="secondary" type="button" onClick={onClose} disabled={saving}>
+            Cancelar
+          </Button>
+          <Button disabled={saving}>{saving ? 'Registrando...' : 'Registrar almacén'}</Button>
         </div>
-        <form className="modal-form" onSubmit={(event) => void guardar(event)} noValidate>
-          <label>
-            <span>Nombre</span>
-            <input
-              value={nombre}
-              onChange={(event) => {
-                setNombre(soloTextoNombre(event.target.value));
-                setError(undefined);
-              }}
-              maxLength={80}
-              required
-              autoFocus
-            />
-            {error ? <small className="field-error">{error}</small> : null}
-          </label>
-          <label className="field-wide">
-            <span>Dirección</span>
-            <input
-              value={direccion}
-              onChange={(event) => setDireccion(event.target.value)}
-              maxLength={250}
-            />
-          </label>
-          <div className="modal-actions">
-            <button className="btn-secondary" type="button" onClick={onClose} disabled={saving}>
-              Cancelar
-            </button>
-            <button className="btn-primary" disabled={saving}>
-              {saving ? 'Registrando...' : 'Registrar almacén'}
-            </button>
-          </div>
-        </form>
-      </section>
-    </div>,
+      </form>
+    </Modal>,
     document.body,
   );
 }

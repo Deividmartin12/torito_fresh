@@ -10,8 +10,8 @@ export function ReportHeader({
 }: {
   eyebrow: string;
   title: string;
-  /** Período activo, escrito completo ("Septiembre de 2026"), para que se lea de un vistazo
-   *  con qué filtro está armado el reporte. */
+  /** Contexto activo del reporte (período o alcance de unidades), para que se lea de un
+   *  vistazo con qué filtro está armado. */
   caption?: string;
 }) {
   return (

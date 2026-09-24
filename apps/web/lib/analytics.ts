@@ -40,9 +40,24 @@ export type ReceivablesSummary = {
   overdueCount: number;
 };
 
+/**
+ * Totales del período inmediatamente anterior, para las variaciones del panel. Solo llega
+ * cuando se pide `compare`; el backend los resuelve con agregados, así que son un contexto
+ * barato y no el pipeline completo repetido.
+ */
+export type PreviousTotals = {
+  sales: number;
+  expenses: number;
+  profit: number;
+  orders: number;
+  bidones: number;
+  newClients: number;
+};
+
 export type BusinessAnalytics = {
   range: { from: string; to: string };
   receivables: ReceivablesSummary;
+  previous: PreviousTotals | null;
   summary: {
     sales: number;
     expenses: number;
@@ -55,6 +70,12 @@ export type BusinessAnalytics = {
     ticket: number;
     expenseCount: number;
     averageExpense: number;
+    /** Unidades entregadas en el período (todas las líneas de venta, netas de devolución). */
+    units: number;
+    /** Solo las unidades de productos retornables: los bidones que salieron a la calle. */
+    bidones: number;
+    /** Clientes dados de alta dentro del período. */
+    newClients: number;
   };
   daily: AnalyticsPeriod[];
   monthly: AnalyticsPeriod[];
@@ -81,10 +102,11 @@ export type BusinessAnalytics = {
   porUnidad?: { id: string; nombre: string; ventas: number; gastos: number; ordenes: number }[];
 };
 
-export function getBusinessAnalytics(from?: string, to?: string) {
+export function getBusinessAnalytics(from?: string, to?: string, compare = false) {
   const query = new URLSearchParams();
   if (from) query.set('from', from);
   if (to) query.set('to', to);
+  if (compare) query.set('compare', '1');
   return api<BusinessAnalytics>(`/reports/business${query.size ? `?${query}` : ''}`);
 }
 

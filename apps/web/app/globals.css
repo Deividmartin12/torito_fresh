@@ -66,6 +66,11 @@
   --chart-2: #16a34a;
   --chart-3: #94a3b8;
   --chart-4: #7c3aed;
+
+  /* Degradado de la tarjeta principal de los paneles: la única superficie de marca de la
+     app, y por eso la única que lleva texto blanco fijo en los dos temas. */
+  --hero-from: #2563eb;
+  --hero-to: #1e3a8a;
 }
 
 html[data-theme='dark'] {
@@ -103,6 +108,9 @@ html[data-theme='dark'] {
   --chart-2: #22c55e;
   --chart-3: #94a3b8;
   --chart-4: #a78bfa;
+
+  --hero-from: #1d4ed8;
+  --hero-to: #172554;
 }
 
 /* ==========================================================================
@@ -592,6 +600,12 @@ button {
 .icon-soft:hover {
   background: var(--surface-hover);
   color: var(--text);
+}
+/* Acción destructiva dentro de una fila (hoy: anular una venta). Se pinta de rojo solo al
+   pasar por encima, para que no compita con el resto de los iconos de la fila. */
+.icon-soft-danger:hover {
+  background: var(--status-red-bg);
+  color: var(--status-red-text);
 }
 .status {
   display: inline-flex;
@@ -1218,6 +1232,265 @@ button {
   display: block;
   font-size: 13px;
 }
+
+/* ===== Conteo y cuadre de inventario ===================================
+   La hoja donde se anota lo que hay de verdad. No usa `.glass-table`: cada
+   fila lleva un campo y un stepper, y `TableEnhancer` —que en celular
+   convierte las tablas en pares etiqueta/valor leyendo el thead— no degrada
+   bien con controles dentro. Es el mismo DOM en los tres tramos: solo cambia
+   la grilla.
+   ====================================================================== */
+
+.count-sheet-page {
+  /* La barra fija del pie no puede tapar la última fila ni el campo de notas. */
+  padding-bottom: 104px;
+}
+
+.count-sheet-tools {
+  margin-bottom: 12px;
+}
+
+.count-sheet-warehouse {
+  min-width: 260px;
+}
+
+.count-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  border: 1px solid var(--status-amber-text);
+  border-radius: var(--ui-radius);
+  background: var(--status-amber-bg);
+  margin: 12px 0;
+  padding: 11px 14px;
+  color: var(--status-amber-text);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.count-warning-info {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-soft-text);
+}
+
+.count-warning svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.count-sheet {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-container-lg);
+  background: var(--surface);
+  margin-bottom: 12px;
+  padding: 6px 14px;
+}
+
+.count-sheet-head {
+  display: none;
+}
+
+.count-row {
+  display: grid;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0;
+}
+
+.count-row + .count-row {
+  border-top: 1px solid var(--border);
+}
+
+.count-cell {
+  min-width: 0;
+}
+
+/* En celular cada celda se anuncia sola, porque no hay cabecera a la vista. */
+.count-cell-label {
+  display: block;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.count-product strong {
+  display: block;
+  color: var(--text);
+  font-size: 15px;
+}
+
+.count-product small {
+  display: block;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.count-breakdown {
+  margin-top: 6px;
+}
+
+.count-breakdown summary {
+  color: var(--accent);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.count-breakdown ul {
+  margin: 6px 0 0;
+  padding-left: 16px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.count-breakdown b {
+  color: var(--text);
+}
+
+.count-theoretical strong {
+  color: var(--text);
+  font-size: 19px;
+  font-weight: 700;
+}
+
+/* 44px de alto y 16px de letra: es lo que se toca con el pulgar y lo que evita que Safari de
+   iOS haga zoom al enfocar. */
+.count-input {
+  min-width: 0;
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  padding: 0 8px;
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.count-diff-cell {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+}
+
+.count-diff-chip {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  border-radius: var(--radius-control);
+  background: var(--status-gray-bg);
+  padding: 0 12px;
+  color: var(--status-gray-text);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.count-diff-ok {
+  background: var(--status-green-bg);
+  color: var(--status-green-text);
+}
+
+.count-diff-over {
+  background: var(--status-blue-bg);
+  color: var(--status-blue-text);
+}
+
+.count-diff-short {
+  background: var(--status-red-bg);
+  color: var(--status-red-text);
+}
+
+/* La fila con diferencia se distingue de un vistazo al recorrer la hoja. */
+.count-row-short {
+  background: color-mix(in srgb, var(--status-red-bg) 55%, transparent);
+}
+
+.count-row-over {
+  background: color-mix(in srgb, var(--status-blue-bg) 55%, transparent);
+}
+
+.count-motivo {
+  min-height: 44px;
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  padding: 0 12px;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.count-sheet-extras {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-bottom: 12px;
+}
+
+.count-sheet-extras > button {
+  min-height: 44px;
+}
+
+.count-note {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 12px;
+}
+
+.count-note input {
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  padding: 0 14px;
+  color: var(--text);
+  font-size: 15px;
+}
+
+/* El botón de guardar de esta hoja se toca de pie, con el celular en una mano. */
+.count-sheet-page .operation-sticky-actions .btn-primary {
+  min-height: 48px;
+}
+
+@media (max-width: 700px) {
+  .count-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .count-product {
+    grid-column: 1 / -1;
+  }
+  .count-sheet-warehouse {
+    min-width: 0;
+  }
+}
+
+@media (min-width: 701px) {
+  .count-sheet-head,
+  .count-row {
+    grid-template-columns: minmax(0, 1fr) 110px 170px 170px;
+  }
+  .count-sheet-head {
+    display: grid;
+    align-items: center;
+    gap: 10px;
+    border-bottom: 1px solid var(--border);
+    padding: 10px 0;
+    color: var(--text-muted);
+    font-size: 12px;
+    text-transform: uppercase;
+  }
+  .count-cell-label {
+    display: none;
+  }
+  .count-theoretical,
+  .count-diff-cell {
+    justify-items: start;
+  }
+}
+
 .panel,
 .form-crud {
   border: 1px solid var(--border);
@@ -1598,6 +1871,14 @@ body {
   min-height: 44px;
   flex: none;
   padding-inline: 19px;
+}
+
+/* Dos accesos a registrar (el express y el completo) en la cabecera de una lista. */
+.operation-head-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
 }
 
 /* Título del período activo (Día / Semana / Mes / Año / personalizado) en las listas
@@ -2056,7 +2337,7 @@ body {
 
 /* Fija abajo a todo el ancho del área de contenido (no solo del formulario centrado), para
    que quede siempre visible sin depender del scroll. El offset izquierdo coincide con el
-   ancho del sidebar (ver .app-shell y .app-shell.sidebar-is-collapsed más abajo). */
+   ancho del sidebar: 252px expandido y 88px compactado (`data-sidebar` en AppShell). */
 .operation-sticky-actions {
   position: fixed;
   left: 0;
@@ -2079,7 +2360,7 @@ body {
     left: 252px;
   }
 
-  .app-shell.sidebar-is-collapsed .operation-sticky-actions {
+  [data-sidebar='collapsed'] .operation-sticky-actions {
     left: 88px;
   }
 }
@@ -2157,22 +2438,6 @@ html[data-theme='dark']
   color: var(--text-muted);
 }
 
-.dashboard-kpis {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.dashboard-kpi-link {
-  text-decoration: none;
-  transition: transform 0.12s ease;
-}
-
-.dashboard-kpi-link:hover {
-  transform: translateY(-2px);
-}
-
 .dashboard-chart-grid,
 .report-chart-grid {
   display: grid;
@@ -2183,6 +2448,627 @@ html[data-theme='dark']
 
 .dashboard-chart-grid-reverse {
   grid-template-columns: minmax(280px, 0.75fr) minmax(0, 1.55fr);
+}
+
+/* ===== Tarjetas de panel ================================================
+   El lenguaje de las pantallas de uso diario, pensado primero para el celular:
+   un hero con el número que importa, mini-tarjetas de apoyo, listas de filas en
+   lugar de tablas y una dona para los desgloses. Nació en el panel pero lo usan
+   también /ventas, /gastos y la venta rápida, por eso vive suelto y no anidado
+   bajo .business-dashboard.
+   ====================================================================== */
+
+.stat-hero {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  border-radius: var(--radius-container-lg);
+  background: linear-gradient(135deg, var(--hero-from), var(--hero-to));
+  margin-bottom: 12px;
+  padding: 20px;
+  color: #fff;
+}
+
+.stat-hero-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.stat-hero-label {
+  font-size: 13px;
+  opacity: 0.82;
+}
+
+.stat-hero-chip {
+  flex: none;
+  border-radius: var(--radius-control);
+  background: rgba(255, 255, 255, 0.18);
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.stat-hero-value {
+  font-size: clamp(32px, 9vw, 44px);
+  font-weight: 700;
+  line-height: 1.05;
+}
+
+.stat-hero-delta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  opacity: 0.9;
+}
+
+/* La curva va al ancho completo de la tarjeta y sin proporción fija: es una referencia de
+   forma, no un gráfico para leer valores (para eso está el de barras de abajo). */
+.stat-hero-spark {
+  display: block;
+  width: 100%;
+  height: 72px;
+  margin-top: 4px;
+}
+
+/* El hero es la única superficie de marca de la app: su texto es blanco en los dos temas,
+   por encima de las reglas generales de color de `strong` y `span`. */
+.stat-hero :where(strong, span) {
+  color: #fff;
+}
+
+html[data-theme='dark'] .stat-hero :where(strong, span) {
+  color: #fff;
+}
+
+/* Dos bloques de igual peso, uno al lado del otro en pantallas anchas. */
+.panel-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 1100px) {
+  .panel-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+/* Un gráfico que va solo, fuera de la grilla de dos columnas, que es la que normalmente
+   aporta la separación de abajo. */
+.dashboard-single-chart {
+  margin-bottom: 12px;
+}
+
+/* La acción que el repartidor abre veinte veces al día: a ancho completo y arriba de todo. */
+.dashboard-primary-action {
+  display: flex;
+  min-height: 52px;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  margin-bottom: 12px;
+  font-size: 16px;
+  text-decoration: none;
+}
+
+.stat-card {
+  display: grid;
+  align-content: start;
+  gap: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius);
+  background: var(--surface);
+  padding: 14px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.stat-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+/* El ícono va dentro de un cuadrito con fondo pastel del color del indicador. */
+.stat-card-icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--status-blue-bg);
+  color: var(--status-blue-text);
+}
+
+.stat-card-green .stat-card-icon {
+  background: var(--status-green-bg);
+  color: var(--status-green-text);
+}
+
+.stat-card-amber .stat-card-icon {
+  background: var(--status-amber-bg);
+  color: var(--status-amber-text);
+}
+
+.stat-card-red .stat-card-icon {
+  background: var(--status-red-bg);
+  color: var(--status-red-text);
+}
+
+.stat-card-violet .stat-card-icon {
+  background: var(--accent-soft);
+  color: var(--chart-4);
+}
+
+.stat-card-trend {
+  color: var(--text-muted);
+}
+
+.stat-card-value {
+  overflow: hidden;
+  color: var(--text);
+  font-size: clamp(20px, 5.5vw, 26px);
+  font-weight: 700;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stat-card-label {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.stat-card-delta {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.stat-card-delta-up,
+.stat-card-trend-up {
+  color: var(--status-green-text);
+}
+
+.stat-card-delta-down,
+.stat-card-trend-down {
+  color: var(--status-red-text);
+}
+
+.stat-card-delta-flat {
+  color: var(--text-muted);
+}
+
+.stat-card-link {
+  transition: transform 0.12s ease;
+}
+
+.stat-card-link:hover {
+  transform: translateY(-2px);
+}
+
+.panel-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-container-lg);
+  background: var(--surface);
+  margin-bottom: 12px;
+  padding: 16px;
+}
+
+.panel-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.panel-card-head h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 16px;
+}
+
+/* El relleno negativo compensa el área táctil de 44px para que no separe la cabecera. */
+.panel-card-action {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  margin: -12px -6px;
+  padding: 12px 6px;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.entity-list {
+  display: grid;
+}
+
+.entity-row {
+  display: grid;
+  width: 100%;
+  min-height: 56px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  border: 0;
+  background: transparent;
+  padding: 10px 6px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+}
+
+.entity-row + .entity-row {
+  border-top: 1px solid var(--border);
+}
+
+button.entity-row,
+a.entity-row {
+  cursor: pointer;
+}
+
+button.entity-row:hover,
+a.entity-row:hover {
+  background: var(--surface-hover);
+}
+
+.entity-row-icon {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--status-blue-bg);
+  color: var(--status-blue-text);
+}
+
+.entity-row-icon-green {
+  background: var(--status-green-bg);
+  color: var(--status-green-text);
+}
+
+.entity-row-icon-amber {
+  background: var(--status-amber-bg);
+  color: var(--status-amber-text);
+}
+
+.entity-row-icon-red {
+  background: var(--status-red-bg);
+  color: var(--status-red-text);
+}
+
+.entity-row-icon-gray {
+  background: var(--status-gray-bg);
+  color: var(--status-gray-text);
+}
+
+.entity-row-main {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.entity-row-title {
+  overflow: hidden;
+  color: var(--text);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entity-row-meta {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entity-row-side {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+}
+
+.entity-row-amount {
+  color: var(--text);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.entity-list-empty {
+  padding: 26px 8px;
+  color: var(--text-muted);
+  font-size: 14px;
+  text-align: center;
+}
+
+.donut-breakdown {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+}
+
+.donut-breakdown svg {
+  width: 128px;
+  height: 128px;
+}
+
+.donut-center-value {
+  fill: var(--text);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.donut-center-label {
+  fill: var(--text-muted);
+  font-size: 9px;
+}
+
+.donut-legend {
+  display: grid;
+  min-width: 0;
+  gap: 9px;
+}
+
+.donut-legend-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.donut-legend-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.donut-legend-name {
+  overflow: hidden;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.donut-legend-value {
+  color: var(--text);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* ===== Venta rápida =====================================================
+   La pantalla express: cliente, productos con más y menos, cobro de un toque.
+   Todo lo táctil mide 44px o más, porque se usa de pie y con una mano.
+   ====================================================================== */
+
+.quick-sale {
+  /* Deja lugar para que la barra fija del total no tape la última línea. */
+  padding-bottom: 104px;
+}
+
+.quick-client-debt {
+  margin: 10px 0 0;
+  color: var(--status-amber-text);
+  font-size: 13px;
+}
+
+.quick-repeat {
+  display: flex;
+  width: 100%;
+  min-height: 52px;
+  align-items: center;
+  gap: 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius);
+  background: var(--accent-soft);
+  margin-top: 10px;
+  padding: 10px 14px;
+  color: var(--accent-soft-text);
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.quick-repeat span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.quick-repeat small {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-product-search {
+  margin-bottom: 12px;
+}
+
+.product-pad {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.product-pad-item {
+  display: grid;
+  align-content: start;
+  gap: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius);
+  background: var(--surface-soft);
+  padding: 12px;
+}
+
+/* Un producto con cantidad se distingue de un vistazo, sin tener que leer el contador. */
+.product-pad-item.is-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.product-pad-item strong {
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.25;
+}
+
+.product-pad-item > span {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.qty-stepper {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.qty-stepper button {
+  display: grid;
+  height: 44px;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.qty-stepper button:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.qty-stepper > span {
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.pay-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pay-chip {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  padding: 0 16px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pay-chip.is-active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.quick-due {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.quick-due .label {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.quick-due small {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.quick-escape {
+  margin: 0 0 8px;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.quick-escape a {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+@media (min-width: 701px) {
+  .product-pad {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .product-pad {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* La lista de tarjetas reemplaza a la tabla en el celular: desde tablet manda la tabla,
+   que ahí sí entra completa. Se renderizan las dos y el CSS elige, para no depender de
+   matchMedia y arriesgar un parpadeo después de la hidratación. */
+.mobile-list {
+  display: none;
+}
+
+@media (max-width: 700px) {
+  .mobile-list {
+    display: block;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-container-lg);
+    background: var(--surface);
+    padding: 6px 10px;
+  }
+
+  .mobile-list ~ .glass-table {
+    display: none;
+  }
+
+  .stat-hero {
+    padding: 18px 16px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .stat-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 
 .business-chart-card {
@@ -2720,6 +3606,22 @@ html[data-theme='dark']
   text-overflow: ellipsis;
 }
 
+/* El rol con el que se está trabajando, al lado de la unidad en la barra de arriba. */
+.rol-badge {
+  display: inline-flex;
+  max-width: 140px;
+  align-items: center;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  padding: 6px 12px;
+  color: var(--accent-soft-text) !important;
+  font-size: 12px !important;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* En celular los nombres de las unidades no entran a lo ancho de la barra. Se oculta la
    etiqueta "Unidad" (el control ya se explica solo) y el riel se desplaza en horizontal, igual
    que el filtro de período: la cápsula no se encoge, porque si lo hiciera los segmentos
@@ -2750,8 +3652,35 @@ html[data-theme='dark']
     font-size: 11px;
   }
 
-  .unidad-badge {
-    max-width: 34vw;
+  /* Las dos cápsulas de contexto (unidad y rol) se reparten lo que sobra y se recortan con
+     puntos suspensivos. El `min-width: 0` del contenedor es lo que habilita el encogido:
+     sin él la barra se ensancha más que la pantalla y aparece el desplazamiento horizontal
+     que el resto de la app evita. */
+  .admin-actions {
+    min-width: 0;
+  }
+
+  .unidad-badge,
+  .rol-badge {
+    min-width: 0;
+    max-width: 30vw;
+    flex: 0 1 auto;
+  }
+
+  /* La cápsula de unidad es un enlace: se toca, así que cumple los 44px. La de rol no,
+     porque solo informa. */
+  .admin-bar .unidad-badge {
+    min-height: 44px;
+  }
+
+  /* Los botones de la barra no entran en el reparto: son objetivos táctiles y se quedan
+     con sus 44px. Lo que cede es el texto de las cápsulas. */
+  .admin-bar .theme-toggle,
+  .admin-bar .admin-logout,
+  .admin-bar .menu-button {
+    min-width: 44px;
+    min-height: 44px;
+    flex: none;
   }
 }
 
@@ -3620,6 +4549,78 @@ html[data-theme='dark'] .stock-report-alert {
   gap: 7px;
 }
 
+/* ===== Vacíos que devuelve el cliente en la venta =======================
+   El campo es angosto a propósito (son unidades, rara vez de dos cifras) y la
+   explicación va al lado en escritorio; en celular se apila debajo. */
+.envases-field {
+  display: grid;
+  gap: 5px;
+}
+.envases-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.envases-row input {
+  width: 92px;
+  flex: none;
+  text-align: center;
+  font-weight: 600;
+}
+.envases-row small {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+@media (max-width: 480px) {
+  .envases-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+}
+
+/* ===== Modal de anulación de venta =====================================
+   Lo primero que se lee es qué va a pasar, no el formulario: es irreversible. */
+.annul-summary {
+  border: 1px solid var(--status-red-bg);
+  border-radius: 12px;
+  background: var(--status-red-bg);
+  padding: 12px 14px;
+}
+.annul-warning {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 8px;
+  color: var(--status-red-text);
+  font-size: 12px;
+  font-weight: 600;
+}
+.annul-summary ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* El mismo contador, en la venta rápida: ahí el stepper manda porque se usa con una mano. */
+.quick-empties {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.quick-empties small {
+  flex: 1 1 160px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .payment-type-options {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -3810,6 +4811,14 @@ html[data-theme='dark'] .stock-report-alert {
 
 html[data-theme='dark'] .client-debt-hint {
   color: #e5b567;
+}
+
+/* El ámbar de arriba es "ojo con esto"; el rojo es "esto le corta el crédito": una cuenta
+   vencida o el límite agotado. Vale para los dos formularios de venta. */
+.client-debt-hint.alerta,
+.quick-client-debt.alerta {
+  color: var(--status-red-text);
+  font-weight: 600;
 }
 
 .credit-panel {
@@ -4391,6 +5400,16 @@ html[data-theme='dark'] .client-debt-link small.client-debt-overdue {
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
+/* Línea explicativa dentro del detalle de una venta (hoy: el movimiento de envases). */
+.sale-detail-note {
+  margin: 0;
+  border-radius: 10px;
+  background: var(--surface-soft);
+  padding: 10px 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
 .sale-detail-items .detail-line:last-child {
   border-bottom: 0;
   padding-bottom: 0;
@@ -4698,72 +5717,13 @@ html[data-theme='dark'] .client-debt-link small.client-debt-overdue {
   }
 }
 
-.dashboard-kpi {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 2px 11px;
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  background: var(--surface);
-  padding: 16px;
-  box-shadow: var(--shadow);
-}
-
-/* El icono va suelto, sin caja de color detras: solo se colorea el glifo. */
-.dashboard-kpi > div {
-  display: grid;
-  grid-row: 1 / 4;
-  align-self: start;
-  place-items: center;
-  color: var(--accent);
-}
-
-.dashboard-kpi > span,
-.dashboard-kpi > small {
-  color: var(--text-muted);
-}
-
-.dashboard-kpi > span {
-  font-size: 12px;
-  text-transform: uppercase;
-}
-
-.dashboard-kpi > strong {
-  overflow: hidden;
-  color: var(--text);
-  font-size: clamp(22px, 2vw, 28px);
-  line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.dashboard-kpi > small {
-  font-size: 12px;
-}
-
-.dashboard-kpi-blue > div {
-  color: var(--chart-1);
-}
-.dashboard-kpi-green > div {
-  color: var(--chart-2);
-}
-.dashboard-kpi-amber > div {
-  color: var(--status-amber-text);
-}
-.dashboard-kpi-violet > div {
-  color: var(--chart-4);
-}
-
 html[data-theme='dark']
-  :where(.dashboard-loading, .dashboard-kpi, .business-chart-card, .report-chart-section) {
+  :where(.dashboard-loading, .stat-card, .panel-card, .business-chart-card, .report-chart-section) {
   border-color: var(--border);
   background: var(--surface);
 }
 
 @media (max-width: 1100px) {
-  .dashboard-kpis {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
   .dashboard-chart-grid,
   .report-chart-grid {
     grid-template-columns: 1fr;
@@ -4777,9 +5737,6 @@ html[data-theme='dark']
   }
   .dashboard-head > button {
     width: 100%;
-  }
-  .dashboard-kpis {
-    grid-template-columns: 1fr;
   }
   .module-tools:has(.pill-search) .filter-field {
     margin-left: 0;
@@ -4830,6 +5787,11 @@ html[data-theme='dark'] .field-error {
   .operation-primary-action,
   .operation-page-head > .btn-secondary {
     width: 100%;
+  }
+
+  .operation-head-actions {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .operations-filters,
@@ -7620,10 +8582,20 @@ input[type='radio'] {
    ====================================================================== */
 @media (max-width: 700px) {
   /* Safari iOS hace zoom automático al enfocar un campo de menos de 16px.
-     Es la causa de que hoy todos los formularios "salten" en celular. */
+     Es la causa de que hoy todos los formularios "salten" en celular.
+
+     Los selectores con clase van aparte porque el `!important` no alcanza: contra otro
+     `!important` gana el más específico, y `.modal-form textarea` (una clase) le ganaba a
+     `textarea` (ninguna) dejando esos campos en 15px. Con `input` no pasaba de casualidad,
+     porque las dos negaciones ya lo hacían bastante específico. */
   input:not([type='checkbox']):not([type='radio']),
   select,
-  textarea {
+  textarea,
+  .modal-form select,
+  .modal-form textarea,
+  .step-fields select,
+  .product-line select,
+  .review-notes textarea {
     font-size: 16px !important;
   }
 
@@ -7779,8 +8751,11 @@ input[type='radio'] {
    el <thead>, así que esto cubre las 23 tablas sin tocar ninguna página.
    ====================================================================== */
 @media (max-width: 700px) {
-  /* El contenedor deja de ser la superficie: ahora la tarjeta es cada fila. */
-  .glass-table,
+  /* El contenedor deja de ser la superficie: ahora la tarjeta es cada fila.
+     `.glass-table-static` (cuentas por cobrar/pagar, kardex por producto: filas agrupables
+     o con subtotales fijos que no encajan en el apilado) queda afuera a propósito y se
+     desplaza horizontal en su lugar. */
+  .glass-table:not(.glass-table-static),
   .table-wrap {
     overflow-x: visible;
     border: 0;
@@ -7788,33 +8763,30 @@ input[type='radio'] {
     background: transparent;
   }
 
-  .module-tools + .glass-table,
+  .module-tools + .glass-table:not(.glass-table-static),
   .module-tools + .table-wrap {
     margin-top: 12px;
   }
 
   /* Anula los cuatro mínimos que hoy fuerzan scroll horizontal (780 / 900 /
      1040 / 1080 / 760px). */
-  .glass-table table,
-  .kardex-page .glass-table table,
-  .kardex-ledger .glass-table table,
-  .production-page .glass-table table,
+  .glass-table:not(.glass-table-static) table,
   .table-wrap table.table {
     display: block;
     min-width: 0;
   }
 
-  .glass-table thead,
+  .glass-table:not(.glass-table-static) thead,
   .table-wrap table.table thead {
     display: none;
   }
 
-  .glass-table tbody,
+  .glass-table:not(.glass-table-static) tbody,
   .table-wrap table.table tbody {
     display: block;
   }
 
-  .glass-table tbody tr,
+  .glass-table:not(.glass-table-static) tbody tr,
   .table-wrap table.table tbody tr {
     display: block;
     margin-bottom: 10px;
@@ -7824,7 +8796,7 @@ input[type='radio'] {
     padding: 2px 14px;
   }
 
-  .glass-table tbody td,
+  .glass-table:not(.glass-table-static) tbody td,
   .table-wrap table.table tbody td {
     display: flex;
     align-items: baseline;
@@ -7838,12 +8810,12 @@ input[type='radio'] {
 
   /* Muchas celdas traen un dato y su aclaración (código, cliente, lote): la
      aclaración baja a su propia línea en vez de pelear el ancho con el dato. */
-  .glass-table tbody td > small,
+  .glass-table:not(.glass-table-static) tbody td > small,
   .table-wrap table.table tbody td > small {
     flex-basis: 100%;
   }
 
-  :where(.glass-table, .table-wrap) tbody tr + tr td {
+  :where(.glass-table:not(.glass-table-static), .table-wrap) tbody tr + tr td {
     border-top: 0;
   }
 

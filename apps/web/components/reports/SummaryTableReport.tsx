@@ -134,7 +134,7 @@ export function SummaryTableReport() {
   const [grouping, setGrouping] = useState<Grouping>('dia');
   const [loading, setLoading] = useState(true);
   // Solo dispara la recarga: la unidad viaja al API desde `api()`.
-  const { clave: unidad } = useUnidad();
+  const { clave: unidad, resumen: unidadResumen } = useUnidad();
   // El puesto que solo registra ventas y gastos no produce: la columna sobra.
   const costoEstimado = Boolean(analytics?.costoEstimado);
   // Al inicio solo se ven los totales. Cada cabecera de total despliega sus propias
@@ -337,7 +337,11 @@ export function SummaryTableReport() {
 
   return (
     <div className="module-page report-page">
-      <ReportHeader eyebrow="Reportes" title="Resumen diario" />
+      <ReportHeader
+        eyebrow="Reportes"
+        title="Resumen diario"
+        caption={unidadResumen ? `Alcance: ${unidadResumen}` : undefined}
+      />
 
       <div className="summary-filters">
         <div className="summary-filter-step">

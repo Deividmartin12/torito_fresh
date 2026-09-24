@@ -1,11 +1,20 @@
 'use client';
 
-import { X } from 'lucide-react';
 import { FormEvent, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import { consultarDni, consultarRuc } from '../lib/consulta-documento';
 import { createProveedor, Proveedor, updateProveedor } from '../lib/proveedores';
+import { Button } from './ui/Button';
+import {
+  controlClass,
+  fieldErrorClass,
+  fieldLabelClass,
+  fieldWithActionClass,
+  modalActionsClass,
+  modalFormClass,
+} from './ui/Field';
+import { Modal, ModalHeader } from './ui/Modal';
 import {
   RE_RUC,
   soloDigitos,
@@ -140,119 +149,106 @@ export function ProveedorFormModal({ editando, onClose, onSaved }: Props) {
   const titulo = editando ? 'Editar proveedor' : 'Agregar proveedor';
 
   return createPortal(
-    <div
-      className="modal-backdrop"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !saving) onClose();
-      }}
-    >
-      <section className="crud-modal" role="dialog" aria-modal="true" aria-label={titulo}>
-        <div className="modal-top">
-          <h2>{titulo}</h2>
-          <button
-            type="button"
-            className="modal-close"
-            onClick={onClose}
-            aria-label="Cerrar modal"
-            disabled={saving}
-          >
-            <X size={18} />
-          </button>
-        </div>
-        <form className="modal-form" onSubmit={(event) => void guardar(event)} noValidate>
-          <label>
-            <span>RUC o DNI</span>
-            <div className="field-with-action">
-              <input
-                value={form.ruc}
-                onChange={(event) => updateField('ruc', soloDigitos(event.target.value, 11))}
-                inputMode="numeric"
-                pattern="\d{11}"
-                maxLength={11}
-                required
-                autoFocus
-              />
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => void buscarDocumento()}
-                disabled={
-                  buscando || (form.ruc.trim().length !== 8 && form.ruc.trim().length !== 11)
-                }
-              >
-                {buscando ? 'Buscando...' : 'Buscar'}
-              </button>
-            </div>
-            {fieldErrors.ruc ? <small className="field-error">{fieldErrors.ruc}</small> : null}
-          </label>
-          <label>
-            <span>Razon social</span>
+    <Modal onClose={onClose} closeDisabled={saving}>
+      <ModalHeader title={titulo} onClose={onClose} closeDisabled={saving} />
+      <form className={modalFormClass} onSubmit={(event) => void guardar(event)} noValidate>
+        <label>
+          <span className={fieldLabelClass}>RUC o DNI</span>
+          <div className={fieldWithActionClass}>
             <input
-              value={form.razonSocial}
-              onChange={(event) => updateField('razonSocial', soloTextoNombre(event.target.value))}
-              maxLength={150}
-              required
-            />
-            {fieldErrors.razonSocial ? (
-              <small className="field-error">{fieldErrors.razonSocial}</small>
-            ) : null}
-          </label>
-          <label>
-            <span>Nombre comercial</span>
-            <input
-              value={form.nombreComercial}
-              onChange={(event) =>
-                updateField('nombreComercial', soloTextoNombre(event.target.value))
-              }
-              maxLength={150}
-            />
-            {fieldErrors.nombreComercial ? (
-              <small className="field-error">{fieldErrors.nombreComercial}</small>
-            ) : null}
-          </label>
-          <label>
-            <span>Teléfono</span>
-            <input
-              value={form.telefono}
-              onChange={(event) => updateField('telefono', soloDigitos(event.target.value, 9))}
+              className={`${controlClass} min-w-0 flex-1`}
+              value={form.ruc}
+              onChange={(event) => updateField('ruc', soloDigitos(event.target.value, 11))}
               inputMode="numeric"
-              maxLength={9}
+              pattern="\d{11}"
+              maxLength={11}
+              required
+              autoFocus
             />
-            {fieldErrors.telefono ? (
-              <small className="field-error">{fieldErrors.telefono}</small>
-            ) : null}
-          </label>
-          <label>
-            <span>Correo</span>
-            <input
-              type="email"
-              value={form.correo}
-              onChange={(event) => updateField('correo', event.target.value)}
-              maxLength={150}
-            />
-            {fieldErrors.correo ? (
-              <small className="field-error">{fieldErrors.correo}</small>
-            ) : null}
-          </label>
-          <label>
-            <span>Dirección</span>
-            <input
-              value={form.direccion}
-              onChange={(event) => updateField('direccion', event.target.value)}
-              maxLength={250}
-            />
-          </label>
-          <div className="modal-actions">
-            <button className="btn-secondary" type="button" onClick={onClose} disabled={saving}>
-              Cancelar
-            </button>
-            <button className="btn-primary" disabled={saving}>
-              {saving ? 'Guardando...' : editando ? 'Guardar cambios' : 'Registrar proveedor'}
-            </button>
+            <Button
+              variant="secondary"
+              className="flex-none"
+              type="button"
+              onClick={() => void buscarDocumento()}
+              disabled={buscando || (form.ruc.trim().length !== 8 && form.ruc.trim().length !== 11)}
+            >
+              {buscando ? 'Buscando...' : 'Buscar'}
+            </Button>
           </div>
-        </form>
-      </section>
-    </div>,
+          {fieldErrors.ruc ? <small className={fieldErrorClass}>{fieldErrors.ruc}</small> : null}
+        </label>
+        <label>
+          <span className={fieldLabelClass}>Razon social</span>
+          <input
+            className={controlClass}
+            value={form.razonSocial}
+            onChange={(event) => updateField('razonSocial', soloTextoNombre(event.target.value))}
+            maxLength={150}
+            required
+          />
+          {fieldErrors.razonSocial ? (
+            <small className={fieldErrorClass}>{fieldErrors.razonSocial}</small>
+          ) : null}
+        </label>
+        <label>
+          <span className={fieldLabelClass}>Nombre comercial</span>
+          <input
+            className={controlClass}
+            value={form.nombreComercial}
+            onChange={(event) =>
+              updateField('nombreComercial', soloTextoNombre(event.target.value))
+            }
+            maxLength={150}
+          />
+          {fieldErrors.nombreComercial ? (
+            <small className={fieldErrorClass}>{fieldErrors.nombreComercial}</small>
+          ) : null}
+        </label>
+        <label>
+          <span className={fieldLabelClass}>Teléfono</span>
+          <input
+            className={controlClass}
+            value={form.telefono}
+            onChange={(event) => updateField('telefono', soloDigitos(event.target.value, 9))}
+            inputMode="numeric"
+            maxLength={9}
+          />
+          {fieldErrors.telefono ? (
+            <small className={fieldErrorClass}>{fieldErrors.telefono}</small>
+          ) : null}
+        </label>
+        <label>
+          <span className={fieldLabelClass}>Correo</span>
+          <input
+            className={controlClass}
+            type="email"
+            value={form.correo}
+            onChange={(event) => updateField('correo', event.target.value)}
+            maxLength={150}
+          />
+          {fieldErrors.correo ? (
+            <small className={fieldErrorClass}>{fieldErrors.correo}</small>
+          ) : null}
+        </label>
+        <label>
+          <span className={fieldLabelClass}>Dirección</span>
+          <input
+            className={controlClass}
+            value={form.direccion}
+            onChange={(event) => updateField('direccion', event.target.value)}
+            maxLength={250}
+          />
+        </label>
+        <div className={modalActionsClass}>
+          <Button variant="secondary" type="button" onClick={onClose} disabled={saving}>
+            Cancelar
+          </Button>
+          <Button disabled={saving}>
+            {saving ? 'Guardando...' : editando ? 'Guardar cambios' : 'Registrar proveedor'}
+          </Button>
+        </div>
+      </form>
+    </Modal>,
     document.body,
   );
 }

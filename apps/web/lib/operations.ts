@@ -13,6 +13,17 @@ export type CatalogItem = {
   deudaActual?: number;
   /** Cantidad de comprobantes con saldo pendiente. Solo en `clientes`. */
   comprobantesPendientes?: number;
+  /** Envases nuestros que el cliente todavía no devolvió. Solo en `clientes`. */
+  saldoEnvases?: number;
+  /** Tope de crédito. `null` = sin límite; 0 = no se le fía. Solo en `clientes`. */
+  limiteCredito?: number | null;
+  /** Cuánto más se le puede fiar hoy. `null` = sin límite. Solo en `clientes`. */
+  creditoDisponible?: number | null;
+  /** Cuentas suyas ya vencidas: con una sola, no se le vende a crédito. Solo en `clientes`. */
+  vencidas?: number;
+  vencido?: number;
+  /** Si el producto va en envase retornable (bidón). Solo en `productos`. */
+  esRetornable?: boolean;
 };
 
 export type OperationCatalogs = {
@@ -88,6 +99,20 @@ export type Sale = {
   estado: string;
   estadoPago: string;
   estadoDevolucion: string;
+  /**
+   * Si la venta fue anulada. No sale de `estado` —una venta anulada sigue CONFIRMADA— sino de
+   * su devolución de tipo anulación, que es lo que la deshace. Lo deriva el API.
+   */
+  anulada: boolean;
+  motivoAnulacion: string | null;
+  fechaAnulacion: string | null;
+  /** Quién autorizó pasar el límite de crédito del cliente, si hizo falta. */
+  creditoAutorizadoPor: string | null;
+  creditoAutorizadoNota: string | null;
+  /** Envases retornables que esta venta entregó, sumando las cantidades de sus líneas. */
+  envasesEntregados: number;
+  /** Vacíos que el cliente devolvió en el momento. En toda venta anterior a esta función, 0. */
+  vaciosRecibidos: number;
   kardexId: string | null;
   kardexRef: string | null;
   items: OperationDetailLine[];
@@ -138,6 +163,11 @@ export type SaleOperationPayload = {
   fechaVencimiento?: string;
   /** Fecha de emisión (YYYY-MM-DD). Solo se envía al editar una venta. */
   fecha?: string;
+  /**
+   * Envases vacíos que el cliente entregó en el momento. Lo normal es que devuelva tantos
+   * como se lleva, y entonces su saldo de envases no se mueve.
+   */
+  vaciosDevueltos?: number;
   items: OperationLine[];
 };
 
@@ -170,6 +200,15 @@ function dateRangeQuery(from?: string, to?: string) {
 export function getSales(from?: string, to?: string) {
   return api<Sale[]>(`/operations/sales${dateRangeQuery(from, to)}`);
 }
+/** Última venta confirmada del cliente, para ofrecer "repetir el pedido" en la venta rápida. */
+export type LastSale = {
+  fecha: string;
+  total: number;
+  items: { productoId: string; producto: string; cantidad: number; precioUnitario: number }[];
+};
+export function getLastSale(clienteId: string) {
+  return api<LastSale | null>(`/operations/last-sale?clienteId=${encodeURIComponent(clienteId)}`);
+}
 export function getSale(id: string) {
   return api<Sale>(`/operations/sales/${id}`);
 }
@@ -180,6 +219,28 @@ export function createSale(payload: SaleOperationPayload) {
 }
 export function updateSale(id: string, payload: SaleOperationPayload) {
   return api<Sale>(`/operations/sales/${id}`, { method: 'PATCH', body: JSON.stringify(payload) });
+}
+
+export type AnnulSalePayload = {
+  motivo: string;
+  /**
+   * Con qué medio se le devolvió la plata al cliente. Si no va, el reembolso espeja los
+   * cobros originales (cada método con su mismo monto).
+   */
+  metodoPagoId?: number;
+  observaciones?: string;
+};
+
+/**
+ * Anula una venta. Por dentro genera la devolución total de todo lo que quede por devolver y
+ * registra la salida de la plata que el cliente había pagado: no hay un estado "anulada" que
+ * se marque, lo que anula la venta es esa devolución. No se puede deshacer.
+ */
+export function annulSale(id: string, payload: AnnulSalePayload) {
+  return api<OperationalReturn>(`/operations/sales/${id}/anular`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
 }
 export function getOperationalAccounts(type: 'cobrar' | 'pagar', clienteId?: string) {
   const query = clienteId ? `?clienteId=${encodeURIComponent(clienteId)}` : '';
@@ -216,6 +277,13 @@ export type OperationalReturn = {
   motivo: string;
   total: number;
   estado: string;
+  /**
+   * Si nació de anular la venta en vez de un reclamo del cliente. Ojo con `tipo`, que es otra
+   * cosa: qué operación se está devolviendo (siempre una venta).
+   */
+  esAnulacion: boolean;
+  /** Plata que salió de la caja al anular, en positivo. Cero en una devolución comercial. */
+  reembolsado: number;
   kardexId: string | null;
   kardexRef: string | null;
   saldoFavor: number;

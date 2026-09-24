@@ -1,9 +1,20 @@
 'use client';
 
-import { CalendarClock, Pencil, Search, X } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { CalendarClock, Pencil, Search } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Pagination } from '../../../components/Pagination';
+import { DataTable, DataTableColumn } from '../../../components/DataTable';
+import { Badge } from '../../../components/ui/Badge';
+import { Button } from '../../../components/ui/Button';
+import {
+  controlClass,
+  fieldLabelClass,
+  modalActionsClass,
+  modalFormClass,
+} from '../../../components/ui/Field';
+import { IconButton } from '../../../components/ui/IconButton';
+import { Modal, ModalHeader } from '../../../components/ui/Modal';
 import { api } from '../../../lib/api';
 import { fechaCorta } from '../../../lib/format';
 
@@ -25,22 +36,22 @@ type Lote = {
 const soloFecha = (valor: string | null) => (valor ? valor.slice(0, 10) : '');
 
 export default function LotesPage() {
-  const [datos, setDatos] = useState<Lote[]>([]);
+  const queryClient = useQueryClient();
   const [buscar, setBuscar] = useState('');
   const [estado, setEstado] = useState('Todos');
-  const [pagina, setPagina] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
   const [editando, setEditando] = useState<Lote | null>(null);
   const [form, setForm] = useState({ fechaProduccion: '', fechaVencimiento: '', estado: 'ACTIVO' });
   const [guardando, setGuardando] = useState(false);
 
+  const query = useQuery({ queryKey: ['lots'], queryFn: () => api<Lote[]>('/operations/lots') });
+  const datos = query.data ?? [];
   useEffect(() => {
-    api<Lote[]>('/operations/lots')
-      .then(setDatos)
-      .catch((cause) =>
-        toast.error(cause instanceof Error ? cause.message : 'No se pudieron cargar los lotes'),
+    if (query.error) {
+      toast.error(
+        query.error instanceof Error ? query.error.message : 'No se pudieron cargar los lotes',
       );
-  }, []);
+    }
+  }, [query.error]);
   const lotes = useMemo(
     () =>
       datos.filter(
@@ -50,7 +61,6 @@ export default function LotesPage() {
       ),
     [buscar, datos, estado],
   );
-  const paginados = lotes.slice((pagina - 1) * pageSize, pagina * pageSize);
 
   function abrir(item: Lote) {
     setEditando(item);
@@ -82,8 +92,8 @@ export default function LotesPage() {
           estado: form.estado,
         }),
       });
-      setDatos((current) =>
-        current.map((item) => (item.id === actualizado.id ? actualizado : item)),
+      queryClient.setQueryData<Lote[]>(['lots'], (current) =>
+        current?.map((item) => (item.id === actualizado.id ? actualizado : item)),
       );
       toast.success('Lote actualizado.');
       setEditando(null);
@@ -93,6 +103,57 @@ export default function LotesPage() {
       setGuardando(false);
     }
   }
+
+  const columns: DataTableColumn<Lote>[] = [
+    {
+      key: 'lote',
+      header: 'Lote',
+      cardLabel: null,
+      render: (item) => (
+        <strong className="block text-[13px] font-medium text-fg">{item.codigo}</strong>
+      ),
+    },
+    { key: 'producto', header: 'Producto', render: (item) => item.producto },
+    {
+      key: 'produccion',
+      header: 'Producción',
+      render: (item) => fechaCorta(item.fechaProduccion),
+    },
+    {
+      key: 'vencimiento',
+      header: 'Vencimiento',
+      render: (item) => fechaCorta(item.fechaVencimiento),
+    },
+    {
+      key: 'costo',
+      header: 'Costo unitario',
+      render: (item) => `S/ ${item.costo.toFixed(4)}`,
+    },
+    { key: 'disponible', header: 'Disponible', render: (item) => item.disponible },
+    {
+      key: 'estado',
+      header: 'Estado',
+      render: (item) => (
+        <Badge tone={item.estado === 'ACTIVO' ? 'green' : 'red'}>{item.estado}</Badge>
+      ),
+    },
+    {
+      key: 'acciones',
+      header: 'Acciones',
+      cardLabel: null,
+      render: (item) => (
+        <div className="flex flex-wrap gap-[7px]">
+          <IconButton
+            onClick={() => abrir(item)}
+            title="Editar lote"
+            aria-label={`Editar lote ${item.codigo}`}
+          >
+            <Pencil size={16} />
+          </IconButton>
+        </div>
+      ),
+    },
+  ];
 
   return (
     <div className="module-page">
@@ -107,20 +168,14 @@ export default function LotesPage() {
           <Search size={17} />
           <input
             value={buscar}
-            onChange={(event) => {
-              setBuscar(event.target.value);
-              setPagina(1);
-            }}
+            onChange={(event) => setBuscar(event.target.value)}
             placeholder="Buscar por lote o producto"
           />
         </label>
         <select
           className="filter-pill"
           value={estado}
-          onChange={(event) => {
-            setEstado(event.target.value);
-            setPagina(1);
-          }}
+          onChange={(event) => setEstado(event.target.value)}
         >
           <option>Todos</option>
           {ESTADOS_LOTE.map((item) => (
@@ -128,166 +183,83 @@ export default function LotesPage() {
           ))}
         </select>
       </div>
-      <div className="glass-table">
-        <table>
-          <thead>
-            <tr>
-              <th>Lote</th>
-              <th>Producto</th>
-              <th>Producción</th>
-              <th>Vencimiento</th>
-              <th>Costo unitario</th>
-              <th>Disponible</th>
-              <th>Estado</th>
-              <th>Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {paginados.length ? (
-              paginados.map((item) => (
-                <tr key={item.id}>
-                  <td>
-                    <strong>{item.codigo}</strong>
-                  </td>
-                  <td>{item.producto}</td>
-                  <td>{fechaCorta(item.fechaProduccion)}</td>
-                  <td>{fechaCorta(item.fechaVencimiento)}</td>
-                  <td>S/ {item.costo.toFixed(4)}</td>
-                  <td>{item.disponible}</td>
-                  <td>
-                    <span
-                      className={
-                        item.estado === 'ACTIVO' ? 'status status-green' : 'status status-red'
-                      }
-                    >
-                      {item.estado}
-                    </span>
-                  </td>
-                  <td>
-                    <div className="row-actions">
-                      <button
-                        type="button"
-                        className="icon-soft"
-                        onClick={() => abrir(item)}
-                        title="Editar lote"
-                        aria-label={`Editar lote ${item.codigo}`}
-                      >
-                        <Pencil size={16} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan={8}>
-                  <div className="table-empty">
-                    <CalendarClock size={22} />
-                    <span>
-                      Aún no hay lotes. Se generan automáticamente al registrar producción.
-                    </span>
-                  </div>
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-      <Pagination
-        page={pagina}
-        pages={Math.max(1, Math.ceil(lotes.length / pageSize))}
-        total={lotes.length}
-        pageSize={pageSize}
-        onChange={setPagina}
-        onPageSizeChange={(size) => {
-          setPageSize(size);
-          setPagina(1);
-        }}
+      <DataTable
+        columns={columns}
+        rows={lotes}
+        rowKey={(item) => item.id}
+        emptyMessage={
+          <>
+            <CalendarClock size={22} />
+            <span>Aún no hay lotes. Se generan automáticamente al registrar producción.</span>
+          </>
+        }
       />
       {editando ? (
-        <div
-          className="modal-backdrop"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget && !guardando) setEditando(null);
-          }}
-        >
-          <section
-            className="crud-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label={`Editar lote ${editando.codigo}`}
-          >
-            <div className="modal-top">
-              <h2>Editar lote {editando.codigo}</h2>
-              <button
+        <Modal onClose={() => setEditando(null)} closeDisabled={guardando}>
+          <ModalHeader
+            title={`Editar lote ${editando.codigo}`}
+            onClose={() => setEditando(null)}
+            closeDisabled={guardando}
+          />
+          <form className={modalFormClass} onSubmit={guardar} noValidate>
+            <label>
+              <span className={fieldLabelClass}>Producto</span>
+              <input className={controlClass} value={editando.producto} disabled />
+            </label>
+            <label>
+              <span className={fieldLabelClass}>Costo unitario</span>
+              <input className={controlClass} value={`S/ ${editando.costo.toFixed(4)}`} disabled />
+            </label>
+            <label>
+              <span className={fieldLabelClass}>Fecha de producción</span>
+              <input
+                className={controlClass}
+                type="date"
+                value={form.fechaProduccion}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, fechaProduccion: event.target.value }))
+                }
+              />
+            </label>
+            <label>
+              <span className={fieldLabelClass}>Fecha de vencimiento</span>
+              <input
+                className={controlClass}
+                type="date"
+                value={form.fechaVencimiento}
+                min={form.fechaProduccion || undefined}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, fechaVencimiento: event.target.value }))
+                }
+              />
+            </label>
+            <label>
+              <span className={fieldLabelClass}>Estado</span>
+              <select
+                className={controlClass}
+                value={form.estado}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, estado: event.target.value }))
+                }
+              >
+                {ESTADOS_LOTE.map((item) => (
+                  <option key={item}>{item}</option>
+                ))}
+              </select>
+            </label>
+            <div className={modalActionsClass}>
+              <Button
+                variant="secondary"
                 type="button"
-                className="modal-close"
                 onClick={() => setEditando(null)}
                 disabled={guardando}
-                aria-label="Cerrar modal"
               >
-                <X size={18} />
-              </button>
+                Cancelar
+              </Button>
+              <Button disabled={guardando}>{guardando ? 'Guardando...' : 'Guardar cambios'}</Button>
             </div>
-            <form className="modal-form" onSubmit={guardar} noValidate>
-              <label>
-                <span>Producto</span>
-                <input value={editando.producto} disabled />
-              </label>
-              <label>
-                <span>Costo unitario</span>
-                <input value={`S/ ${editando.costo.toFixed(4)}`} disabled />
-              </label>
-              <label>
-                <span>Fecha de producción</span>
-                <input
-                  type="date"
-                  value={form.fechaProduccion}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, fechaProduccion: event.target.value }))
-                  }
-                />
-              </label>
-              <label>
-                <span>Fecha de vencimiento</span>
-                <input
-                  type="date"
-                  value={form.fechaVencimiento}
-                  min={form.fechaProduccion || undefined}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, fechaVencimiento: event.target.value }))
-                  }
-                />
-              </label>
-              <label>
-                <span>Estado</span>
-                <select
-                  value={form.estado}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, estado: event.target.value }))
-                  }
-                >
-                  {ESTADOS_LOTE.map((item) => (
-                    <option key={item}>{item}</option>
-                  ))}
-                </select>
-              </label>
-              <div className="modal-actions">
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={() => setEditando(null)}
-                  disabled={guardando}
-                >
-                  Cancelar
-                </button>
-                <button className="btn-primary" disabled={guardando}>
-                  {guardando ? 'Guardando...' : 'Guardar cambios'}
-                </button>
-              </div>
-            </form>
-          </section>
-        </div>
+          </form>
+        </Modal>
       ) : null}
     </div>
   );

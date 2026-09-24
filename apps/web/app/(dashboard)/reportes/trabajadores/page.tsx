@@ -1,58 +1,63 @@
 'use client';
 
-import { HandCoins, ReceiptText, Users, Wallet } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { Coins, HandCoins, ReceiptText, Users, Wallet } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import { DataTable, DataTableColumn } from '../../../../components/DataTable';
 import { PeriodFilter } from '../../../../components/PeriodFilter';
 import { useUnidad } from '../../../../components/UnidadProvider';
 import { ReportHeader, ReportMetric } from '../../../../components/reports/ReportNav';
+import { Button } from '../../../../components/ui/Button';
 import { moneda } from '../../../../lib/format';
-import {
-  conteoDe,
-  getWorkerReport,
-  montoDe,
-  WorkerReport,
-  WorkerReportRow,
-} from '../../../../lib/worker-report';
+import { conteoDe, getWorkerReport, montoDe, WorkerReportRow } from '../../../../lib/worker-report';
 
-type TabId = 'ventas' | 'pagos' | 'gastos';
+type TabId = 'ventas' | 'cobranzas' | 'pagos' | 'gastos';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'ventas', label: 'Ventas por método de pago' },
-  { id: 'pagos', label: 'Pagos recibidos' },
+  { id: 'cobranzas', label: 'Cobrado de deudas' },
+  // Se llama así y no "pagos recibidos" porque esto es plata que se le PAGA al trabajador
+  // (sueldos, adelantos). Lo que él cobra de los clientes está en la pestaña de al lado.
+  { id: 'pagos', label: 'Sueldos y pagos al trabajador' },
   { id: 'gastos', label: 'Gastos que registró' },
 ];
 
 /** Un trabajador entra en la tabla resumen si tuvo cualquier movimiento en el período. */
 const tuvoMovimiento = (row: WorkerReportRow) =>
-  row.ventas.count > 0 || row.pagosRecibidos.count > 0 || row.gastosRegistrados.count > 0;
+  row.ventas.count > 0 ||
+  row.cobranzas.count > 0 ||
+  row.pagosRecibidos.count > 0 ||
+  row.gastosRegistrados.count > 0;
 
 export default function ReporteTrabajadoresPage() {
-  const [report, setReport] = useState<WorkerReport | null>(null);
   const [rango, setRango] = useState<{ from: string; to: string } | null>(null);
   const [tab, setTab] = useState<TabId>('ventas');
   const [mostrarTodos, setMostrarTodos] = useState(false);
-  const [loading, setLoading] = useState(true);
   // Solo dispara la recarga: la unidad viaja al API desde `api()`.
-  const { clave: unidad } = useUnidad();
+  const { clave: unidad, resumen: unidadResumen } = useUnidad();
 
   const handlePeriod = useCallback((from: string, to: string) => {
     setRango({ from, to });
   }, []);
 
+  // `enabled` espera a que PeriodFilter publique su rango, para no pedir dos veces al montar.
+  const query = useQuery({
+    queryKey: ['worker-report', rango?.from, rango?.to, unidad],
+    queryFn: () => getWorkerReport(rango!.from, rango!.to),
+    enabled: Boolean(rango),
+  });
+  const report = query.data ?? null;
+  const loading = query.isPending;
   useEffect(() => {
-    // Se espera a que PeriodFilter publique su rango para no pedir dos veces al montar.
-    if (!rango) return;
-    setLoading(true);
-    getWorkerReport(rango.from, rango.to)
-      .then(setReport)
-      .catch((cause) =>
-        toast.error(
-          cause instanceof Error ? cause.message : 'No se pudo cargar el reporte por trabajador',
-        ),
-      )
-      .finally(() => setLoading(false));
-  }, [rango, unidad]);
+    if (query.error) {
+      toast.error(
+        query.error instanceof Error
+          ? query.error.message
+          : 'No se pudo cargar el reporte por trabajador',
+      );
+    }
+  }, [query.error]);
 
   const workers = report?.workers ?? [];
   const conMovimiento = useMemo(() => workers.filter(tuvoMovimiento), [workers]);
@@ -60,15 +65,91 @@ export default function ReporteTrabajadoresPage() {
   const sinMovimiento = workers.length - conMovimiento.length;
   const totals = report?.totals;
 
+  const columns: DataTableColumn<WorkerReportRow>[] = [
+    {
+      key: 'trabajador',
+      header: 'Trabajador',
+      cardLabel: null,
+      render: (row) => (
+        <>
+          <strong className="block text-[13px] font-medium text-fg">{row.nombre}</strong>
+          <small className="mt-0.5 block text-[11px] text-muted">
+            {row.cargo}
+            {row.activo ? '' : ' · inactivo'}
+          </small>
+        </>
+      ),
+    },
+    { key: 'ventas', header: 'Ventas', render: (row) => row.ventas.count },
+    {
+      key: 'vendido',
+      header: 'Vendido',
+      render: (row) => (
+        <strong className="text-[13px] font-medium text-fg">{moneda(row.ventas.total)}</strong>
+      ),
+    },
+    {
+      key: 'cobranzas',
+      header: 'Cobrado de deudas',
+      render: (row) => (
+        <>
+          <strong className="block text-[13px] font-medium text-fg">
+            {moneda(row.cobranzas.total)}
+          </strong>
+          <small className="mt-0.5 block text-[11px] text-muted">
+            {row.cobranzas.count} cobros
+          </small>
+        </>
+      ),
+    },
+    {
+      key: 'pagos',
+      header: 'Sueldos y pagos',
+      render: (row) => (
+        <>
+          <strong className="block text-[13px] font-medium text-fg">
+            {moneda(row.pagosRecibidos.total)}
+          </strong>
+          <small className="mt-0.5 block text-[11px] text-muted">
+            {row.pagosRecibidos.count} pagos
+          </small>
+        </>
+      ),
+    },
+    {
+      key: 'gastos',
+      header: 'Gastos que registró',
+      render: (row) => (
+        <>
+          <strong className="block text-[13px] font-medium text-fg">
+            {moneda(row.gastosRegistrados.total)}
+          </strong>
+          <small className="mt-0.5 block text-[11px] text-muted">
+            {row.gastosRegistrados.count} gastos
+          </small>
+        </>
+      ),
+    },
+  ];
+
   return (
     <div className="module-page report-page">
-      <ReportHeader eyebrow="Reportes" title="Reporte por trabajador" />
+      <ReportHeader
+        eyebrow="Reportes"
+        title="Reporte por trabajador"
+        caption={unidadResumen ? `Alcance: ${unidadResumen}` : undefined}
+      />
 
       <section className="report-metrics">
         <ReportMetric
           label="Vendido"
           value={moneda(totals?.montoVendido ?? 0)}
           detail={`${totals?.ventas ?? 0} ventas confirmadas, netas de devoluciones`}
+        />
+        <ReportMetric
+          label="Cobrado de deudas"
+          value={moneda(totals?.montoCobrado ?? 0)}
+          detail={`${totals?.cobranzas ?? 0} cobros en la calle, netos de anulaciones`}
         />
         <ReportMetric
           label="Pagado a trabajadores"
@@ -101,67 +182,29 @@ export default function ReporteTrabajadoresPage() {
         </div>
       ) : (
         <>
-          <div className="glass-table">
-            <table>
-              <thead>
-                <tr>
-                  <th>Trabajador</th>
-                  <th>Ventas</th>
-                  <th>Vendido</th>
-                  <th>Pagos recibidos</th>
-                  <th>Gastos que registró</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filas.length ? (
-                  filas.map((row) => (
-                    <tr key={row.id}>
-                      <td>
-                        <strong>{row.nombre}</strong>
-                        <small>
-                          {row.cargo}
-                          {row.activo ? '' : ' · inactivo'}
-                        </small>
-                      </td>
-                      <td>{row.ventas.count}</td>
-                      <td>
-                        <strong>{moneda(row.ventas.total)}</strong>
-                      </td>
-                      <td>
-                        <strong>{moneda(row.pagosRecibidos.total)}</strong>
-                        <small>{row.pagosRecibidos.count} pagos</small>
-                      </td>
-                      <td>
-                        <strong>{moneda(row.gastosRegistrados.total)}</strong>
-                        <small>{row.gastosRegistrados.count} gastos</small>
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={5}>
-                      <div className="table-empty">
-                        <Users size={22} />
-                        <span>Ningún trabajador tuvo movimiento en este período.</span>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+          <DataTable
+            columns={columns}
+            rows={filas}
+            rowKey={(row) => row.id}
+            emptyMessage={
+              <div className="flex flex-col items-center gap-2.5">
+                <Users size={22} />
+                <span>Ningún trabajador tuvo movimiento en este período.</span>
+              </div>
+            }
+          />
 
           {sinMovimiento > 0 ? (
             <div className="module-tools report-filters">
-              <button
-                className="btn-secondary"
+              <Button
+                variant="secondary"
                 type="button"
                 onClick={() => setMostrarTodos((current) => !current)}
               >
                 {mostrarTodos
                   ? 'Ocultar trabajadores sin movimiento'
                   : `Mostrar ${sinMovimiento} trabajador${sinMovimiento === 1 ? '' : 'es'} sin movimiento`}
-              </button>
+              </Button>
             </div>
           ) : null}
 
@@ -191,6 +234,20 @@ export default function ReporteTrabajadoresPage() {
               etiquetaConteo="Ventas"
               vacio="Nadie registró ventas en este período."
               sinColumnas="No hay formas de cobro registradas en el período."
+            />
+          ) : null}
+
+          {tab === 'cobranzas' ? (
+            <BreakdownTable
+              icon={<Coins size={22} />}
+              columnas={report?.metodosCobranza ?? []}
+              filas={filas.filter((row) => row.cobranzas.count > 0)}
+              breakdown={(row) => row.cobranzasPorMetodo}
+              total={(row) => row.cobranzas.total}
+              conteo={(row) => row.cobranzas.count}
+              etiquetaConteo="Cobros"
+              vacio="Nadie cobró deudas en este período. Los cobros se registran desde Cobranzas."
+              sinColumnas="Los cobros del período no tienen método de pago registrado."
             />
           ) : null}
 
@@ -255,7 +312,7 @@ function BreakdownTable({
 }) {
   if (!filas.length || !columnas.length) {
     return (
-      <div className="table-empty report-tab-empty">
+      <div className="flex min-h-[120px] flex-col items-center justify-center gap-2 text-muted">
         {icon}
         <span>{filas.length ? sinColumnas : vacio}</span>
       </div>
@@ -265,24 +322,36 @@ function BreakdownTable({
   const totalColumna = (name: string) =>
     filas.reduce((sum, row) => sum + montoDe(breakdown(row), name), 0);
 
+  // Columnas y totales fijos: en vez del apilado en tarjetas del resto de las tablas, este
+  // desglose se desplaza horizontalmente en móvil para no perder la comparación entre
+  // trabajadores y subcategorías (ver la convención de reportes por columnas).
   return (
-    <div className="glass-table">
-      <table>
+    <div className="overflow-x-auto rounded-ui border border-line bg-surface">
+      <table className="w-full min-w-[720px] border-collapse text-[13px]">
         <thead>
           <tr>
-            <th>Trabajador</th>
+            <th className="border-b border-line bg-surface px-4 py-3.5 text-left text-[10px] font-medium uppercase tracking-wide text-muted">
+              Trabajador
+            </th>
             {columnas.map((name) => (
-              <th key={name}>{name}</th>
+              <th
+                key={name}
+                className="border-b border-line bg-surface px-4 py-3.5 text-left text-[10px] font-medium uppercase tracking-wide text-muted"
+              >
+                {name}
+              </th>
             ))}
-            <th>Total</th>
+            <th className="border-b border-line bg-surface px-4 py-3.5 text-left text-[10px] font-medium uppercase tracking-wide text-muted">
+              Total
+            </th>
           </tr>
         </thead>
         <tbody>
           {filas.map((row) => (
-            <tr key={row.id}>
-              <td>
-                <strong>{row.nombre}</strong>
-                <small>
+            <tr key={row.id} className="border-t border-line hover:bg-surface-soft">
+              <td className="px-4 py-3.5 align-middle text-fg">
+                <strong className="block text-[13px] font-medium text-fg">{row.nombre}</strong>
+                <small className="mt-0.5 block text-[11px] text-muted">
                   {conteo(row)} {etiquetaConteo.toLowerCase()}
                 </small>
               </td>
@@ -290,33 +359,39 @@ function BreakdownTable({
                 const amount = montoDe(breakdown(row), name);
                 const count = conteoDe(breakdown(row), name);
                 return (
-                  <td key={name}>
+                  <td key={name} className="px-4 py-3.5 align-middle text-fg">
                     {amount ? (
                       <>
-                        <strong>{moneda(amount)}</strong>
-                        <small>
+                        <strong className="block text-[13px] font-medium text-fg">
+                          {moneda(amount)}
+                        </strong>
+                        <small className="mt-0.5 block text-[11px] text-muted">
                           {count} {count === 1 ? 'registro' : 'registros'}
                         </small>
                       </>
                     ) : (
-                      <span className="report-cell-empty">—</span>
+                      <span className="text-muted">—</span>
                     )}
                   </td>
                 );
               })}
-              <td>
-                <strong>{moneda(total(row))}</strong>
+              <td className="px-4 py-3.5 align-middle text-fg">
+                <strong className="text-[13px] font-medium text-fg">{moneda(total(row))}</strong>
               </td>
             </tr>
           ))}
         </tbody>
         <tfoot>
-          <tr>
-            <th>Total</th>
+          <tr className="border-t border-line-strong bg-surface-soft">
+            <th className="px-4 py-3.5 text-left text-[13px] font-medium text-fg">Total</th>
             {columnas.map((name) => (
-              <th key={name}>{moneda(totalColumna(name))}</th>
+              <th key={name} className="px-4 py-3.5 text-left text-[13px] font-medium text-fg">
+                {moneda(totalColumna(name))}
+              </th>
             ))}
-            <th>{moneda(filas.reduce((sum, row) => sum + total(row), 0))}</th>
+            <th className="px-4 py-3.5 text-left text-[13px] font-medium text-fg">
+              {moneda(filas.reduce((sum, row) => sum + total(row), 0))}
+            </th>
           </tr>
         </tfoot>
       </table>

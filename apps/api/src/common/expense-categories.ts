@@ -11,6 +11,12 @@
  */
 export const CATEGORIA_PAGO_TRABAJADOR = 'Pago a trabajador';
 
+/**
+ * Categoría fija de los gastos cargados como total del día desde la carga diaria. La crea
+ * esa pantalla la primera vez que hace falta, con `sistema = true`.
+ */
+export const CATEGORIA_GASTOS_DEL_DIA = 'Gastos del día';
+
 export function esPagoTrabajador(categoria: string): boolean {
   return categoria.trim().toLocaleLowerCase('es') === CATEGORIA_PAGO_TRABAJADOR.toLowerCase();
 }

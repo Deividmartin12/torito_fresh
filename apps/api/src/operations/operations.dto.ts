@@ -94,6 +94,16 @@ class BaseOperationDto {
   @Min(0)
   descuento?: number;
 
+  // Envases vacíos que el cliente entregó en el momento de la venta. El caso normal es que
+  // devuelva tantos como se lleva, y entonces su saldo de envases no se mueve. No puede
+  // superar lo que el cliente tiene nuestro: eso lo valida `aplicarEnvasesDeVenta`, que es
+  // quien conoce el saldo real.
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  vaciosDevueltos?: number;
+
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })
@@ -153,6 +163,14 @@ export class UpdateOperationalSaleDto {
   @IsNumber()
   @Min(0)
   descuento?: number;
+
+  // Ver el comentario en `BaseOperationDto`. Al editar se reemplaza el valor anterior: la
+  // venta vuelve a aplicar su efecto en envases desde cero, igual que hace con el stock.
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  vaciosDevueltos?: number;
 
   @IsArray()
   @ArrayMinSize(1)
@@ -367,6 +385,37 @@ export class CreateReturnDto {
   @ValidateNested({ each: true })
   @Type(() => ReturnItemDto)
   items: ReturnItemDto[];
+}
+
+/**
+ * Anular una venta. No lleva líneas: la anulación devuelve todo lo que quede por devolver,
+ * que es justamente lo que la distingue de una devolución comercial.
+ */
+export class AnnulSaleDto {
+  @IsString()
+  @Matches(/\S/, { message: 'El motivo de la anulación es obligatorio' })
+  @MaxLength(300)
+  motivo: string;
+
+  // Con qué medio se le devolvió la plata al cliente. Si no viene, el reembolso espeja los
+  // cobros originales (cada método con su mismo monto, cambiado de signo).
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  metodoPagoId?: number;
+
+  // A nombre de quién queda la anulación. Solo ADMIN puede hacerlo por otro.
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  trabajadorId?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  observaciones?: string;
 }
 
 // Los lotes nacen automáticamente al completar una producción; esto solo permite corregir

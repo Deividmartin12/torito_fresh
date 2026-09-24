@@ -6,6 +6,7 @@ import { FormEvent, useState } from 'react';
 import { toast } from 'sonner';
 import { api, guardarSesion } from '../../../lib/api';
 import { ThemeToggle } from '../../../components/ThemeToggle';
+import { Button } from '../../../components/ui/Button';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -70,10 +71,10 @@ export default function LoginPage() {
               required
             />
           </label>
-          <button className="btn-primary w-full" disabled={loading}>
+          <Button type="submit" className="w-full" disabled={loading}>
             <LogIn size={17} />
             {loading ? 'Ingresando...' : 'Ingresar'}
-          </button>
+          </Button>
         </div>
       </form>
     </main>

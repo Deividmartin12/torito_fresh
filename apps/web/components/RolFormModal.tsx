@@ -1,10 +1,21 @@
 'use client';
 
-import { Search, X } from 'lucide-react';
+import { Search } from 'lucide-react';
 import { FormEvent, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import { createRol, GrupoPermisos, Rol, updateRol } from '../lib/roles';
+import { Button } from './ui/Button';
+import {
+  controlClass,
+  fieldErrorClass,
+  fieldLabelClass,
+  fieldWideClass,
+  formHintClass,
+  modalActionsClass,
+  modalFormClass,
+} from './ui/Field';
+import { Modal, ModalHeader } from './ui/Modal';
 import { validarNombreLibre } from '../lib/validacion';
 
 type Props = {
@@ -130,141 +141,125 @@ export function RolFormModal({ catalogo, editando, onClose, onSaved }: Props) {
   const titulo = editando ? `Editar ${editando.nombre}` : 'Crear rol';
 
   return createPortal(
-    <div
-      className="modal-backdrop"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !saving) onClose();
-      }}
-    >
-      <section className="crud-modal rol-modal" role="dialog" aria-modal="true" aria-label={titulo}>
-        <div className="modal-top">
-          <h2>{titulo}</h2>
-          <button
-            type="button"
-            className="modal-close"
-            onClick={onClose}
-            aria-label="Cerrar modal"
-            disabled={saving}
-          >
-            <X size={18} />
-          </button>
-        </div>
-        <form className="modal-form" onSubmit={(event) => void guardar(event)} noValidate>
-          <label className="field-wide">
-            <span>Nombre del rol</span>
-            <input
-              value={nombre}
-              onChange={(event) => {
-                setNombre(event.target.value);
-                setError(undefined);
-              }}
-              maxLength={60}
-              placeholder="Supervisor de planta"
-              required
-              autoFocus
-            />
-            {error ? <small className="field-error">{error}</small> : null}
-          </label>
+    <Modal onClose={onClose} closeDisabled={saving} className="max-w-[820px]">
+      <ModalHeader title={titulo} onClose={onClose} closeDisabled={saving} />
+      <form className={modalFormClass} onSubmit={(event) => void guardar(event)} noValidate>
+        <label className={fieldWideClass}>
+          <span className={fieldLabelClass}>Nombre del rol</span>
+          <input
+            className={controlClass}
+            value={nombre}
+            onChange={(event) => {
+              setNombre(event.target.value);
+              setError(undefined);
+            }}
+            maxLength={60}
+            placeholder="Supervisor de planta"
+            required
+            autoFocus
+          />
+          {error ? <small className={fieldErrorClass}>{error}</small> : null}
+        </label>
 
-          <label className="field-wide">
-            <span>Para qué es</span>
-            <input
-              value={descripcion}
-              onChange={(event) => setDescripcion(event.target.value)}
-              maxLength={250}
-              placeholder="Revisa la producción del turno y cierra los lotes"
-            />
-          </label>
+        <label className={fieldWideClass}>
+          <span className={fieldLabelClass}>Para qué es</span>
+          <input
+            className={controlClass}
+            value={descripcion}
+            onChange={(event) => setDescripcion(event.target.value)}
+            maxLength={250}
+            placeholder="Revisa la producción del turno y cierra los lotes"
+          />
+        </label>
 
-          {soloLectura ? (
-            <p className="form-hint field-wide">
-              Este rol tiene <strong>acceso total</strong>: puede hacer todo lo que existe hoy y
-              todo lo que se agregue más adelante. Por eso sus permisos no se marcan uno por uno. Si
-              necesitas un rol más acotado, crea uno nuevo.
-            </p>
-          ) : (
-            <>
-              <div className="field-wide rol-permisos-head">
-                <span className="modal-form-label">
-                  Permisos · {permisos.size} de {totalPermisos}
-                </span>
-                <label className="pill-search rol-permisos-buscar">
-                  <Search size={15} />
-                  <input
-                    value={buscar}
-                    onChange={(event) => setBuscar(event.target.value)}
-                    placeholder="Buscar un permiso"
-                  />
-                </label>
-              </div>
+        {soloLectura ? (
+          <p className={`${formHintClass} ${fieldWideClass}`}>
+            Este rol tiene <strong>acceso total</strong>: puede hacer todo lo que existe hoy y todo
+            lo que se agregue más adelante. Por eso sus permisos no se marcan uno por uno. Si
+            necesitas un rol más acotado, crea uno nuevo.
+          </p>
+        ) : (
+          <>
+            <div className={`rol-permisos-head ${fieldWideClass}`}>
+              <span className={fieldLabelClass}>
+                Permisos · {permisos.size} de {totalPermisos}
+              </span>
+              <label className="pill-search rol-permisos-buscar">
+                <Search size={15} />
+                <input
+                  value={buscar}
+                  onChange={(event) => setBuscar(event.target.value)}
+                  placeholder="Buscar un permiso"
+                />
+              </label>
+            </div>
 
-              <div className="field-wide rol-permisos">
-                {grupos.map((grupo) => {
-                  const marcados = grupo.permisos.filter((permiso) =>
-                    permisos.has(permiso.clave),
-                  ).length;
-                  const todos = marcados === grupo.permisos.length;
-                  return (
-                    <section className="rol-permiso-grupo" key={grupo.grupo}>
-                      <header>
-                        <strong>{grupo.grupo}</strong>
-                        <button
-                          type="button"
-                          className="rol-permiso-todos"
-                          onClick={() => alternarGrupo(grupo, !todos)}
+            <div className={`rol-permisos ${fieldWideClass}`}>
+              {grupos.map((grupo) => {
+                const marcados = grupo.permisos.filter((permiso) =>
+                  permisos.has(permiso.clave),
+                ).length;
+                const todos = marcados === grupo.permisos.length;
+                return (
+                  <section className="rol-permiso-grupo" key={grupo.grupo}>
+                    <header>
+                      <strong>{grupo.grupo}</strong>
+                      <button
+                        type="button"
+                        className="rol-permiso-todos"
+                        onClick={() => alternarGrupo(grupo, !todos)}
+                        disabled={saving}
+                      >
+                        {todos ? 'Quitar todo' : 'Marcar todo'}
+                      </button>
+                      <small>
+                        {marcados} de {grupo.permisos.length}
+                      </small>
+                    </header>
+                    {grupo.permisos.map((permiso) => (
+                      <label className="rol-permiso" key={permiso.clave}>
+                        <input
+                          type="checkbox"
+                          checked={permisos.has(permiso.clave)}
+                          onChange={() => alternar(permiso.clave)}
                           disabled={saving}
-                        >
-                          {todos ? 'Quitar todo' : 'Marcar todo'}
-                        </button>
-                        <small>
-                          {marcados} de {grupo.permisos.length}
-                        </small>
-                      </header>
-                      {grupo.permisos.map((permiso) => (
-                        <label className="rol-permiso" key={permiso.clave}>
-                          <input
-                            type="checkbox"
-                            checked={permisos.has(permiso.clave)}
-                            onChange={() => alternar(permiso.clave)}
-                            disabled={saving}
-                          />
-                          <span>
-                            <strong>{permiso.etiqueta}</strong>
-                            <small>{permiso.descripcion}</small>
-                          </span>
-                        </label>
-                      ))}
-                    </section>
-                  );
-                })}
-                {grupos.length === 0 ? (
-                  <div className="table-empty">
-                    <Search size={22} />
-                    <span>Ningún permiso coincide con “{buscar}”.</span>
-                  </div>
-                ) : null}
-              </div>
-
-              {permisos.size === 0 ? (
-                <p className="form-hint field-wide">
-                  Sin ningún permiso marcado, quien tenga este rol entra pero no ve ninguna
-                  pantalla. Marca al menos “Ver el resumen”.
-                </p>
+                        />
+                        <span>
+                          <strong>{permiso.etiqueta}</strong>
+                          <small>{permiso.descripcion}</small>
+                        </span>
+                      </label>
+                    ))}
+                  </section>
+                );
+              })}
+              {grupos.length === 0 ? (
+                <div className="table-empty">
+                  <Search size={22} />
+                  <span>Ningún permiso coincide con “{buscar}”.</span>
+                </div>
               ) : null}
-            </>
-          )}
+            </div>
 
-          <div className="modal-actions">
-            <button className="btn-secondary" type="button" onClick={onClose} disabled={saving}>
-              Cancelar
-            </button>
-            <button className="btn-primary" disabled={saving}>
-              {saving ? 'Guardando...' : editando ? 'Guardar cambios' : 'Crear rol'}
-            </button>
-          </div>
-        </form>
-      </section>
-    </div>,
+            {permisos.size === 0 ? (
+              <p className={`${formHintClass} ${fieldWideClass}`}>
+                Sin ningún permiso marcado, quien tenga este rol entra pero no ve ninguna pantalla.
+                Marca al menos “Ver el resumen”.
+              </p>
+            ) : null}
+          </>
+        )}
+
+        <div className={modalActionsClass}>
+          <Button variant="secondary" type="button" onClick={onClose} disabled={saving}>
+            Cancelar
+          </Button>
+          <Button disabled={saving}>
+            {saving ? 'Guardando...' : editando ? 'Guardar cambios' : 'Crear rol'}
+          </Button>
+        </div>
+      </form>
+    </Modal>,
     document.body,
   );
 }

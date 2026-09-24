@@ -27,6 +27,8 @@ const PERMISO_POR_RUTA: Record<string, string> = {
   '/lotes': 'lotes.ver',
   '/clientes': 'clientes.ver',
   '/ventas': 'ventas.ver',
+  // Más específica que `/ventas`: entrar a registrar pide poder registrar, no solo mirar.
+  '/ventas/rapida': 'ventas.registrar',
   '/recargas': 'recargas.ver',
   '/devoluciones': 'devoluciones.ver',
   '/envases': 'envases.ver',
@@ -34,9 +36,11 @@ const PERMISO_POR_RUTA: Record<string, string> = {
   '/productos': 'productos.ver',
   '/almacenes': 'almacenes.ver',
   '/movimientos': 'kardex.ver',
+  '/conteo-inventario': 'stock.ajustar',
   '/cobranzas': 'cobranzas.registrar',
   '/cuentas-cobrar': 'cobranzas.registrar',
   '/metodos-pago': 'metodosPago.administrar',
+  '/carga-diaria': 'cargaDiaria.registrar',
   '/reportes/resumen': 'reportes.ver',
   '/reportes/ventas': 'reportes.ver',
   '/reportes/gastos': 'reportes.ver',
@@ -86,6 +90,7 @@ const RUTAS_DE_INVENTARIO = [
   '/lotes',
   '/almacenes',
   '/movimientos',
+  '/conteo-inventario',
   '/reportes/stock',
 ];
 

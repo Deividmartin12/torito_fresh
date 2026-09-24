@@ -1,37 +1,53 @@
 'use client';
 
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Droplets } from 'lucide-react';
 import { FormEvent, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '../../../lib/api';
 import { fechaHora } from '../../../lib/format';
 import { SearchableSelect } from '../../../components/SearchableSelect';
+import { Button } from '../../../components/ui/Button';
 
 export default function ContainersPage() {
-  const [clients, setClients] = useState<any[]>([]);
-  const [pending, setPending] = useState<any[]>([]);
-  const [movements, setMovements] = useState<any[]>([]);
+  const queryClient = useQueryClient();
   const [form, setForm] = useState({
     clientId: '',
     movementType: 'RETORNO',
     cantidad: 1,
     notes: '',
   });
-  async function load() {
-    const [clientData, pendingData, movementData] = await Promise.all([
-      api<any[]>('/clients?active=true'),
-      api<any[]>('/containers/pending'),
-      api<any[]>('/containers/movements'),
-    ]);
-    setClients(clientData);
-    setPending(pendingData);
-    setMovements(movementData);
-    setForm((current) => ({ ...current, clientId: current.clientId || clientData[0]?.id || '' }));
-  }
 
+  const clientsQuery = useQuery({
+    queryKey: ['clients', 'active'],
+    queryFn: () => api<any[]>('/clients?active=true'),
+  });
+  const clients = clientsQuery.data ?? [];
+  const pendingQuery = useQuery({
+    queryKey: ['containers-pending'],
+    queryFn: () => api<any[]>('/containers/pending'),
+  });
+  const pending = pendingQuery.data ?? [];
+  const movementsQuery = useQuery({
+    queryKey: ['containers-movements'],
+    queryFn: () => api<any[]>('/containers/movements'),
+  });
+  const movements = movementsQuery.data ?? [];
+
+  async function load() {
+    await Promise.all([clientsQuery.refetch(), pendingQuery.refetch(), movementsQuery.refetch()]);
+  }
   useEffect(() => {
-    load().catch((err) => toast.error(err.message));
-  }, []);
+    if (clients.length && !form.clientId) {
+      setForm((current) => ({ ...current, clientId: clients[0]?.id ?? '' }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clients]);
+  useEffect(() => {
+    const fallo = [clientsQuery, pendingQuery, movementsQuery].find((query) => query.error)?.error;
+    if (fallo) toast.error(fallo instanceof Error ? fallo.message : 'No se pudo cargar la página');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientsQuery.error, pendingQuery.error, movementsQuery.error]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -124,10 +140,10 @@ export default function ContainersPage() {
             onChange={(e) => setForm({ ...form, notes: e.target.value })}
           />
         </label>
-        <div className="envases-submit">
-          <button className="btn-primary">
+        <div>
+          <Button className="w-full">
             <Droplets size={17} /> Registrar movimiento
-          </button>
+          </Button>
         </div>
       </form>
 
@@ -182,6 +198,7 @@ export default function ContainersPage() {
                 <th>Tipo</th>
                 <th>Cantidad</th>
                 <th>Saldo</th>
+                <th>Origen</th>
                 <th>Nota</th>
               </tr>
             </thead>
@@ -197,8 +214,13 @@ export default function ContainersPage() {
                         ? 'ENTREGA'
                         : 'AJUSTE'}
                   </td>
-                  <td>{movement.cantidad}</td>
+                  {/* El API lo devuelve como `quantity`. Decía `cantidad` y la columna salía
+                      siempre vacía. */}
+                  <td>{movement.quantity}</td>
                   <td>{movement.balanceAfter}</td>
+                  {/* De dónde salió el movimiento: una venta lo trae con su código, y lo que
+                      se cargó desde esta misma pantalla no tiene venta. */}
+                  <td>{movement.venta ?? 'Ajuste manual'}</td>
                   <td>{movement.notes ?? '-'}</td>
                 </tr>
               ))}

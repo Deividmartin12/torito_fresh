@@ -30,7 +30,7 @@ export function TransactionReport({ kind }: { kind: ReportKind }) {
   const [period, setPeriod] = useState<PeriodKind>('week');
   const [loading, setLoading] = useState(true);
   // Solo dispara la recarga: la unidad viaja al API desde `api()`.
-  const { clave: unidad } = useUnidad();
+  const { clave: unidad, resumen: unidadResumen } = useUnidad();
 
   useEffect(() => {
     // Se espera a que PeriodFilter publique su rango antes del primer pedido, para que el
@@ -126,6 +126,7 @@ export function TransactionReport({ kind }: { kind: ReportKind }) {
       <ReportHeader
         eyebrow="Reportes"
         title={sales ? 'Ventas y rentabilidad' : 'Gastos y ventas'}
+        caption={unidadResumen ? `Alcance: ${unidadResumen}` : undefined}
       />
       <section className="report-metrics">
         <ReportMetric

@@ -32,7 +32,7 @@ enum ContainerMovementType {
 // Roles y permisos, sin tocar el código. Antes era el enum `RoleName`, y por eso agregar un
 // puesto nuevo obligaba a una migración y a un despliegue.
 model Role {
-  id String @id @default(cuid())
+  id          String  @id @default(cuid())
   // Identificador estable que NO cambia al renombrar el rol. Los cinco que trae el sistema
   // conservan la clave que tenía el enum (ADMIN, SELLER, ...), así los datos viejos y los
   // tokens emitidos antes de la migración siguen valiendo.
@@ -41,7 +41,7 @@ model Role {
   descripcion String? @db.VarChar(250)
   // Un rol del sistema no se puede eliminar ni cambiar de clave: hay código que depende de
   // que existan (el seed, y el administrador que tiene que poder entrar siempre).
-  sistema Boolean @default(false)
+  sistema     Boolean @default(false)
   // Lo puede todo, incluidos los permisos que se agreguen al catálogo después. Con una lista
   // fija de permisos, el administrador se quedaría afuera de cada función nueva.
   accesoTotal Boolean @default(false) @map("acceso_total")
@@ -73,22 +73,22 @@ model RolPermiso {
 }
 
 model User {
-  id             String              @id @default(cuid())
-  name           String
-  email          String              @unique
-  username       String?             @unique
-  passwordHash   String              @map("password_hash")
-  active         Boolean             @default(true)
-  roleId         String              @map("role_id")
-  role           Role                @relation(fields: [roleId], references: [id])
-  assignedOrders Order[]             @relation("AssignedDelivery")
-  createdOrders  Order[]             @relation("CreatedOrders")
-  containerMoves ContainerMovement[]
-  trabajador     Trabajador?
+  id               String                 @id @default(cuid())
+  name             String
+  email            String                 @unique
+  username         String?                @unique
+  passwordHash     String                 @map("password_hash")
+  active           Boolean                @default(true)
+  roleId           String                 @map("role_id")
+  role             Role                   @relation(fields: [roleId], references: [id])
+  assignedOrders   Order[]                @relation("AssignedDelivery")
+  createdOrders    Order[]                @relation("CreatedOrders")
+  containerMoves   ContainerMovement[]
+  trabajador       Trabajador?
   // Qué unidades de negocio mira esta persona. Sin filas = todas (ver UsuarioUnidadVisible).
   unidadesVisibles UsuarioUnidadVisible[]
-  createdAt      DateTime            @default(now()) @map("created_at")
-  updatedAt      DateTime            @updatedAt @map("updated_at")
+  createdAt        DateTime               @default(now()) @map("created_at")
+  updatedAt        DateTime               @updatedAt @map("updated_at")
 
   @@map("users")
 }
@@ -166,6 +166,10 @@ model ContainerMovement {
   clientId     String?               @map("client_id")
   clienteId    BigInt?               @map("cliente_id")
   orderId      String?               @map("order_id")
+  // La venta que movió estos envases, cuando el movimiento no se cargó a mano desde la
+  // pantalla "Envases". Es lo que permite leer el historial y saber de dónde salió cada
+  // línea, y lo que usa la reversión para deshacer exactamente lo que esa venta hizo.
+  ventaId      BigInt?               @map("venta_id")
   userId       String?               @map("user_id")
   type         ContainerMovementType
   quantity     Int
@@ -175,10 +179,12 @@ model ContainerMovement {
   client       Client?               @relation(fields: [clientId], references: [id])
   cliente      Cliente?              @relation(fields: [clienteId], references: [id])
   order        Order?                @relation(fields: [orderId], references: [id])
+  venta        Venta?                @relation(fields: [ventaId], references: [id])
   user         User?                 @relation(fields: [userId], references: [id])
 
   @@index([movedAt])
   @@index([clienteId])
+  @@index([ventaId])
   @@map("container_movements")
 }
 
@@ -190,13 +196,13 @@ model ContainerMovement {
 // El catálogo de productos, las categorías de gasto, los proveedores y los métodos de pago
 // son compartidos: lo que separa a una unidad de otra son sus números, no sus catálogos.
 model UnidadNegocio {
-  id        BigInt @id @default(autoincrement())
-  codigo    String @unique @db.VarChar(30)
-  nombre    String @unique @db.VarChar(100)
+  id                 BigInt   @id @default(autoincrement())
+  codigo             String   @unique @db.VarChar(30)
+  nombre             String   @unique @db.VarChar(100)
   // La operación principal. Exactamente una fila la tiene en true: la migración crea un
   // índice único parcial que lo garantiza (Prisma no sabe expresarlo con @@unique).
-  principal Boolean @default(false)
-  estado    Boolean @default(true)
+  principal          Boolean  @default(false)
+  estado             Boolean  @default(true)
   // Un puesto que solo registra lo que vende y lo que gasta.
   //
   // En false la unidad no lleva stock: sus ventas no descuentan inventario ni generan kardex, y
@@ -216,12 +222,12 @@ model UnidadNegocio {
   // CuentaCobrar y SaldoFavorCliente por cliente, PagoCliente por cuentaCobrar.venta,
   // DevolucionVenta por venta, StockAlmacen por almacen, MovimientoInventario por
   // detalles.almacen, ContainerMovement por cliente y OrdenProduccion por su almacén.
-  ventas       Venta[]
-  gastos       Gasto[]
-  clientes     Cliente[]
-  almacenes    Almacen[]
-  trabajadores Trabajador[]
-  bidonesRotos BidonRoto[]
+  ventas           Venta[]
+  gastos           Gasto[]
+  clientes         Cliente[]
+  almacenes        Almacen[]
+  trabajadores     Trabajador[]
+  bidonesRotos     BidonRoto[]
   // Quiénes la tienen marcada para mirarla. No es dato del negocio, es preferencia de usuario.
   vistaPorUsuarios UsuarioUnidadVisible[]
 
@@ -248,7 +254,9 @@ model Trabajador {
 
   user                  User?                  @relation(fields: [userId], references: [id])
   unidadNegocio         UnidadNegocio          @relation(fields: [unidadNegocioId], references: [id])
-  ventas                Venta[]
+  ventas                Venta[]                @relation("VentasRegistradas")
+  // Ventas en las que esta persona autorizó pasar el límite de crédito del cliente.
+  creditosAutorizados   Venta[]                @relation("CreditosAutorizados")
   pagosCliente          PagoCliente[]
   devolucionesVenta     DevolucionVenta[]
   almacenesResponsables Almacen[]
@@ -259,6 +267,7 @@ model Trabajador {
   // pagos que RECIBIÓ, no los que registró: por eso son una relación aparte de `gastos`.
   pagosRecibidos        Gasto[]                @relation("GastosRecibidos")
   bidonesRotos          BidonRoto[]
+  conteosInventario     ConteoInventario[]
   metodosPago           MetodoPago[]
 
   @@index([unidadNegocioId])
@@ -333,27 +342,125 @@ model CategoriaGasto {
   @@map("categoria_gasto")
 }
 
+// Bitácora de la carga diaria: qué se registró como total de un día (producción, venta por
+// categoría de pago, gasto) y qué registro real generó. Es la que dice que un día ya está
+// cargado, para no duplicarlo. Las columnas de enlace no llevan FK a propósito: la venta, la
+// orden o el gasto viven su vida (se anulan, se editan) y esta fila solo recuerda el origen.
+model RegistroDiario {
+  id                    BigInt   @id @default(autoincrement())
+  unidadNegocioId       BigInt   @map("unidad_negocio_id")
+  fecha                 DateTime @db.Date
+  // PRODUCCION | VENTA | GASTO
+  concepto              String   @db.VarChar(20)
+  // Solo en las ventas; 0 en los demás conceptos para que el índice único funcione (los
+  // NULL no colisionan en Postgres).
+  categoriaMetodoPagoId BigInt   @default(0) @map("categoria_metodo_pago_id")
+  monto                 Decimal  @default(0) @db.Decimal(12, 2)
+  cantidad              Int      @default(0)
+  ventaId               BigInt?  @map("venta_id")
+  ordenProduccionId     BigInt?  @map("orden_produccion_id")
+  gastoId               BigInt?  @map("gasto_id")
+  trabajadorId          BigInt   @map("trabajador_id")
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  @@unique([unidadNegocioId, fecha, concepto, categoriaMetodoPagoId], map: "registro_diario_dia_concepto_key")
+  @@index([unidadNegocioId, fecha])
+  @@map("registro_diario")
+}
+
 // Registro diario de bidones que se rompen. Es solo un conteo operativo: no
 // genera movimientos de inventario ni afecta el stock.
 model BidonRoto {
-  id BigInt @id @default(autoincrement())
+  id                     BigInt                @id @default(autoincrement())
   // La unidad va acá y no se hereda del trabajador: a una persona la pueden mover de puesto,
   // y entonces su historial de bidones rotos se mudaría con ella. El registro es un hecho que
   // ocurrió en un puesto concreto. Además `trabajadorId` es opcional, así que heredarla
   // dejaría las filas sin autor fuera de todo listado.
-  unidadNegocioId BigInt        @map("unidad_negocio_id")
-  fecha           DateTime      @default(now()) @db.Date
-  cantidad        Int
-  observaciones   String?
-  trabajadorId    BigInt?       @map("trabajador_id")
-  createdAt       DateTime      @default(now()) @map("created_at")
-  updatedAt       DateTime      @updatedAt @map("updated_at")
-  trabajador      Trabajador?   @relation(fields: [trabajadorId], references: [id])
-  unidadNegocio   UnidadNegocio @relation(fields: [unidadNegocioId], references: [id])
+  unidadNegocioId        BigInt                @map("unidad_negocio_id")
+  fecha                  DateTime              @default(now()) @db.Date
+  cantidad               Int
+  observaciones          String?
+  trabajadorId           BigInt?               @map("trabajador_id")
+  // Qué se rompió y de dónde salió, para poder descontarlo del inventario. Son opcionales
+  // porque las roturas anteriores a esta función se anotaron sin esa información, y porque
+  // una rotura fuera del almacén (la que se cae del camión) se registra igual sin descontar.
+  // `movimientoInventarioId` en null es justamente eso: "quedó anotada, no se descontó".
+  productoId             BigInt?               @map("producto_id")
+  almacenId              BigInt?               @map("almacen_id")
+  movimientoInventarioId BigInt?               @map("movimiento_inventario_id")
+  createdAt              DateTime              @default(now()) @map("created_at")
+  updatedAt              DateTime              @updatedAt @map("updated_at")
+  trabajador             Trabajador?           @relation(fields: [trabajadorId], references: [id])
+  unidadNegocio          UnidadNegocio         @relation(fields: [unidadNegocioId], references: [id])
+  producto               Producto?             @relation(fields: [productoId], references: [id])
+  almacen                Almacen?              @relation(fields: [almacenId], references: [id])
+  movimientoInventario   MovimientoInventario? @relation(fields: [movimientoInventarioId], references: [id])
 
   @@index([fecha])
   @@index([unidadNegocioId, fecha])
   @@map("bidon_roto")
+}
+
+/// Un conteo físico del inventario de un almacén: la hoja de cuadre que se guardó.
+///
+/// Existe aunque no haya generado ningún movimiento, porque "conté todo y cuadraba" es
+/// información: sin esta tabla, un cuadre perfecto no dejaría rastro. Y guarda el `teorico`
+/// de cada posición como SNAPSHOT: recalcularlo después daría el número ya corregido y toda
+/// diferencia histórica se vería como cero.
+///
+/// No lleva `unidadNegocioId`: la hereda del almacén, igual que `StockAlmacen` y
+/// `MovimientoInventario`. A diferencia de `BidonRoto`, un conteo siempre tiene un almacén
+/// concreto y un autor obligatorio, así que no hay nada que perder al heredarla.
+model ConteoInventario {
+  id                BigInt                    @id @default(autoincrement())
+  almacenId         BigInt                    @map("almacen_id")
+  fecha             DateTime                  @db.Date
+  /// CONTEO (cuadre contra lo que hay) | CARGA_INICIAL (el inventario de arranque).
+  tipo              String                    @db.VarChar(20)
+  trabajadorId      BigInt                    @map("trabajador_id")
+  /// Cuántas posiciones se ofrecieron y cuántas se llenaron de verdad: mide la cobertura.
+  posiciones        Int
+  contadas          Int
+  diferencias       Int
+  unidadesSobrantes Decimal                   @default(0) @map("unidades_sobrantes") @db.Decimal(12, 3)
+  unidadesFaltantes Decimal                   @default(0) @map("unidades_faltantes") @db.Decimal(12, 3)
+  observaciones     String?
+  createdAt         DateTime                  @default(now()) @map("created_at")
+  almacen           Almacen                   @relation(fields: [almacenId], references: [id])
+  trabajador        Trabajador                @relation(fields: [trabajadorId], references: [id])
+  detalles          DetalleConteoInventario[]
+  /// Hasta tres: una cabecera por dirección (entradas, salidas) y otra para la carga inicial.
+  movimientos       MovimientoInventario[]
+
+  @@index([almacenId, fecha])
+  @@index([fecha])
+  @@map("conteo_inventario")
+}
+
+/// Una posición contada dentro de un cuadre: qué decía el sistema y qué había de verdad.
+model DetalleConteoInventario {
+  id                 BigInt           @id @default(autoincrement())
+  conteoId           BigInt           @map("conteo_id")
+  productoId         BigInt           @map("producto_id")
+  loteId             BigInt?          @map("lote_id")
+  estadoInventarioId BigInt           @map("estado_inventario_id")
+  /// El saldo que mostraba el sistema al momento de contar. No se recalcula nunca.
+  teorico            Decimal          @db.Decimal(12, 3)
+  contado            Decimal          @db.Decimal(12, 3)
+  /// Redundante a propósito: el historial ordena y filtra por esto.
+  diferencia         Decimal          @db.Decimal(12, 3)
+  costoUnitario      Decimal          @map("costo_unitario") @db.Decimal(12, 4)
+  /// ROTURA | MERMA | ERROR_DE_CARGA | ROBO | OTRO. Por qué no coincidía.
+  motivo             String?          @db.VarChar(30)
+  nota               String?
+  createdAt          DateTime         @default(now()) @map("created_at")
+  conteo             ConteoInventario @relation(fields: [conteoId], references: [id], onDelete: Cascade)
+  producto           Producto         @relation(fields: [productoId], references: [id])
+  lote               Lote?            @relation(fields: [loteId], references: [id])
+  estadoInventario   EstadoInventario @relation(fields: [estadoInventarioId], references: [id])
+
+  @@index([conteoId])
+  @@map("detalle_conteo_inventario")
 }
 
 model TipoProducto {
@@ -392,6 +499,8 @@ model Producto {
   detallesMovimiento      DetalleMovimientoInventario[]
   ordenesComoProducto     OrdenProduccion[]             @relation("ProductoTerminado")
   consumosProduccion      ConsumoOrdenProduccion[]
+  detallesConteo          DetalleConteoInventario[]
+  bidonesRotos            BidonRoto[]
 
   @@index([nombre])
   @@map("producto")
@@ -411,6 +520,7 @@ model Lote {
   detallesDevolucionVenta DetalleDevolucionVenta[]
   stocks                  StockAlmacen[]
   detallesMovimiento      DetalleMovimientoInventario[]
+  detallesConteo          DetalleConteoInventario[]
   ordenProduccion         OrdenProduccion?
 
   @@unique([productoId, codigoLote])
@@ -481,6 +591,8 @@ model Almacen {
   detallesMovimiento DetalleMovimientoInventario[]
   ordenesInsumos     OrdenProduccion[]             @relation("AlmacenInsumos")
   ordenesTerminados  OrdenProduccion[]             @relation("AlmacenTerminados")
+  conteos            ConteoInventario[]
+  bidonesRotos       BidonRoto[]
 
   @@index([unidadNegocioId])
   @@map("almacen")
@@ -496,6 +608,7 @@ model EstadoInventario {
   stocks                  StockAlmacen[]
   detallesMovimiento      DetalleMovimientoInventario[]
   detallesDevolucionVenta DetalleDevolucionVenta[]
+  detallesConteo          DetalleConteoInventario[]
 
   @@map("estado_inventario")
 }
@@ -516,6 +629,19 @@ model Cliente {
   // igual que `containerBalance` allá: positivo = el cliente tiene bidones
   // nuestros pendientes de devolver.
   saldoEnvases       Int                 @default(0) @map("saldo_envases")
+  // Cuánto se le puede fiar, en soles.
+  //
+  //   NULL  sin límite de monto. Es lo que quedan todos los clientes ya cargados, así que
+  //         nadie cambia de comportamiento el día que esto se despliega.
+  //   0     no se le vende a crédito, punto.
+  //   > 0   tope de deuda vigente.
+  //
+  // Ojo: la otra regla del crédito —no fiarle a quien tiene una cuenta vencida— vale SIEMPRE,
+  // también con el límite en NULL. El límite es sobre el monto, no sobre la puntualidad.
+  limiteCredito      Decimal?            @map("limite_credito") @db.Decimal(12, 2)
+  // Cliente que crea el sistema, no una persona: hoy solo "Ventas del día", que recibe las
+  // ventas cargadas como totales diarios. No aparece en la lista de clientes ni en los combos.
+  sistema            Boolean             @default(false)
   createdAt          DateTime            @default(now()) @map("created_at")
   updatedAt          DateTime            @updatedAt @map("updated_at")
   unidadNegocio      UnidadNegocio       @relation(fields: [unidadNegocioId], references: [id])
@@ -551,17 +677,33 @@ model Venta {
   estado                String                 @db.VarChar(25)
   estadoPago            String                 @default("PENDIENTE") @map("estado_pago") @db.VarChar(20)
   estadoDevolucion      String                 @default("SIN_DEVOLUCION") @map("estado_devolucion") @db.VarChar(25)
+  // Envases vacíos que el cliente entregó en el momento de la venta. Se guarda en la venta,
+  // y no solo en el movimiento de envases, por dos razones: el formulario de edición lo tiene
+  // que precargar, y revertir la venta tiene que saber qué deshacer.
+  //
+  // Toda venta anterior a esta función queda en 0, que es la verdad disponible: a nadie se le
+  // preguntó, y el saldo de envases de esos clientes se venía llevando a mano desde la
+  // pantalla "Envases". Inferirlo de `esRetornable` sería inventar datos.
+  vaciosRecibidos       Int                    @default(0) @map("vacios_recibidos")
+  // Quién autorizó pasar por encima del límite de crédito del cliente, y con qué números.
+  // NULL en toda venta que no necesitó excepción, que son casi todas. Existe para que la
+  // autorización se pueda mirar después: si no queda anotada, el permiso de excepción es un
+  // cheque en blanco.
+  creditoAutorizadoPorId BigInt?               @map("credito_autorizado_por_id")
+  creditoAutorizadoNota  String?               @map("credito_autorizado_nota")
   observaciones         String?
   createdAt             DateTime               @default(now()) @map("created_at")
   updatedAt             DateTime               @updatedAt @map("updated_at")
   unidadNegocio         UnidadNegocio          @relation(fields: [unidadNegocioId], references: [id])
   cliente               Cliente                @relation(fields: [clienteId], references: [id])
   almacenOrigen         Almacen                @relation("VentasOrigen", fields: [almacenOrigenId], references: [id])
-  trabajador            Trabajador             @relation(fields: [trabajadorId], references: [id])
+  trabajador            Trabajador             @relation("VentasRegistradas", fields: [trabajadorId], references: [id])
+  creditoAutorizadoPor  Trabajador?            @relation("CreditosAutorizados", fields: [creditoAutorizadoPorId], references: [id])
   detalles              DetalleVenta[]
   cuentaCobrar          CuentaCobrar?
   devoluciones          DevolucionVenta[]
   movimientosInventario MovimientoInventario[]
+  movimientosEnvases    ContainerMovement[]
 
   @@index([fecha])
   // Los reportes filtran por estado + fecha, y el panel del repartidor por trabajador + fecha.
@@ -572,6 +714,7 @@ model Venta {
   // con la unidad al frente.
   @@index([unidadNegocioId, fecha])
   @@index([unidadNegocioId, estado, fecha])
+  @@index([creditoAutorizadoPorId])
   @@map("venta")
 }
 
@@ -629,13 +772,29 @@ model PagoCliente {
   monto          Decimal      @db.Decimal(12, 2)
   observaciones  String?
   estado         String       @default("CONFIRMADO") @db.VarChar(20)
+  // De dónde sale este movimiento de dinero. Sin esta columna no se puede armar la caja del
+  // día: el cobro que la propia venta registra al nacer ya está contado en las ventas por
+  // método, así que sumarlo de nuevo como cobranza duplicaría la plata.
+  //
+  //   VENTA     el cobro automático de la venta al registrarse (ver `applyInitialPayments`)
+  //   COBRANZA  lo que se cobró después, de una deuda vieja, desde Cobranzas
+  //   REEMBOLSO plata que SALIÓ: la devolución en efectivo de una anulación (monto negativo)
+  origen            String           @default("COBRANZA") @db.VarChar(20)
+  // La anulación que generó este reembolso. Solo lo llevan los de origen REEMBOLSO, y el
+  // CHECK de constraints.sql exige que lo tengan: así ningún monto negativo puede aparecer
+  // sin decir de dónde salió.
+  devolucionVentaId BigInt?          @map("devolucion_venta_id")
   createdAt      DateTime     @default(now()) @map("created_at")
   cuentaCobrar   CuentaCobrar @relation(fields: [cuentaCobrarId], references: [id])
   metodoPago     MetodoPago   @relation(fields: [metodoPagoId], references: [id])
   trabajador     Trabajador   @relation(fields: [trabajadorId], references: [id])
+  devolucionVenta DevolucionVenta? @relation(fields: [devolucionVentaId], references: [id])
 
   @@index([fechaPago])
   @@index([cuentaCobrarId, estado])
+  // El reporte de caja por trabajador filtra por fecha y descarta el origen VENTA.
+  @@index([fechaPago, origen])
+  @@index([devolucionVentaId])
   @@map("pago_cliente")
 }
 
@@ -647,6 +806,16 @@ model DevolucionVenta {
   motivo                String
   total                 Decimal                  @db.Decimal(12, 2)
   estado                String                   @db.VarChar(20)
+  // Por qué existe esta devolución:
+  //   COMERCIAL  el cliente devolvió mercadería y se le acredita
+  //   ANULACION  la venta se dio de baja entera porque estaba mal, y la plata que se había
+  //              cobrado se le devolvió en efectivo, en persona
+  //
+  // No hay un estado `ANULADA` en `Venta`: anular ES esta devolución. Se hizo así para que
+  // deshacer una venta siga el mismo criterio que el resto del sistema —escribir el hecho
+  // contrario, no reescribir el original— y para no partir en dos los reportes, que ya netean
+  // las devoluciones y filtran las ventas por `estado: 'CONFIRMADA'`.
+  tipo                  String                   @default("COMERCIAL") @db.VarChar(20)
   codigo                String                   @unique @db.VarChar(30)
   observaciones         String?
   createdAt             DateTime                 @default(now()) @map("created_at")
@@ -655,9 +824,12 @@ model DevolucionVenta {
   detalles              DetalleDevolucionVenta[]
   movimientosInventario MovimientoInventario[]
   saldosFavor           SaldoFavorCliente[]
+  // Los reembolsos en efectivo que generó, cuando es una anulación.
+  reembolsos            PagoCliente[]
 
   @@index([fecha])
   @@index([ventaId, estado])
+  @@index([tipo])
   @@map("devolucion_venta")
 }
 
@@ -775,29 +947,34 @@ model StockAlmacen {
 }
 
 model MovimientoInventario {
-  id                BigInt                        @id @default(autoincrement())
-  fecha             DateTime                      @default(now())
-  tipoMovimiento    String                        @map("tipo_movimiento") @db.VarChar(25)
-  tipoOperacion     String                        @map("tipo_operacion") @db.VarChar(30)
-  almacenOrigenId   BigInt?                       @map("almacen_origen_id")
-  almacenDestinoId  BigInt?                       @map("almacen_destino_id")
-  ventaId           BigInt?                       @map("venta_id")
-  devolucionVentaId BigInt?                       @map("devolucion_venta_id")
-  ordenProduccionId BigInt?                       @map("orden_produccion_id")
-  trabajadorId      BigInt                        @map("trabajador_id")
-  estado            String                        @db.VarChar(20)
-  numeroReferencia  String?                       @map("numero_referencia") @db.VarChar(50)
-  observaciones     String?
-  createdAt         DateTime                      @default(now()) @map("created_at")
-  almacenOrigen     Almacen?                      @relation("MovimientosOrigen", fields: [almacenOrigenId], references: [id])
-  almacenDestino    Almacen?                      @relation("MovimientosDestino", fields: [almacenDestinoId], references: [id])
-  venta             Venta?                        @relation(fields: [ventaId], references: [id])
-  devolucionVenta   DevolucionVenta?              @relation(fields: [devolucionVentaId], references: [id])
-  ordenProduccion   OrdenProduccion?              @relation(fields: [ordenProduccionId], references: [id])
-  trabajador        Trabajador                    @relation(fields: [trabajadorId], references: [id])
-  detalles          DetalleMovimientoInventario[]
+  id                 BigInt                        @id @default(autoincrement())
+  fecha              DateTime                      @default(now())
+  tipoMovimiento     String                        @map("tipo_movimiento") @db.VarChar(25)
+  tipoOperacion      String                        @map("tipo_operacion") @db.VarChar(30)
+  almacenOrigenId    BigInt?                       @map("almacen_origen_id")
+  almacenDestinoId   BigInt?                       @map("almacen_destino_id")
+  ventaId            BigInt?                       @map("venta_id")
+  devolucionVentaId  BigInt?                       @map("devolucion_venta_id")
+  ordenProduccionId  BigInt?                       @map("orden_produccion_id")
+  /// El cuadre que lo generó, cuando el movimiento sale de un conteo físico.
+  conteoInventarioId BigInt?                       @map("conteo_inventario_id")
+  trabajadorId       BigInt                        @map("trabajador_id")
+  estado             String                        @db.VarChar(20)
+  numeroReferencia   String?                       @map("numero_referencia") @db.VarChar(50)
+  observaciones      String?
+  createdAt          DateTime                      @default(now()) @map("created_at")
+  almacenOrigen      Almacen?                      @relation("MovimientosOrigen", fields: [almacenOrigenId], references: [id])
+  almacenDestino     Almacen?                      @relation("MovimientosDestino", fields: [almacenDestinoId], references: [id])
+  venta              Venta?                        @relation(fields: [ventaId], references: [id])
+  devolucionVenta    DevolucionVenta?              @relation(fields: [devolucionVentaId], references: [id])
+  ordenProduccion    OrdenProduccion?              @relation(fields: [ordenProduccionId], references: [id])
+  conteoInventario   ConteoInventario?             @relation(fields: [conteoInventarioId], references: [id])
+  trabajador         Trabajador                    @relation(fields: [trabajadorId], references: [id])
+  detalles           DetalleMovimientoInventario[]
+  bidonesRotos       BidonRoto[]
 
   @@index([fecha])
+  @@index([conteoInventarioId])
   @@index([tipoOperacion, estado])
   // Los movimientos de una venta se buscan al mostrarla, al editarla (para revertir la
   // salida) y en los reportes. Sin estos índices se recorría la tabla completa cada vez.
@@ -835,5 +1012,8 @@ model DetalleMovimientoInventario {
   // del sistema; sin estos índices recorren la tabla más grande de la base.
   @@index([movimientoId])
   @@index([productoId, movimientoId])
+  // La hoja de cuadre pide "las líneas de este almacén en este día". En los índices de arriba
+  // el almacén nunca es la columna líder, así que sin este la consulta recorre todo el ledger.
+  @@index([almacenId, productoId])
   @@map("detalle_movimiento_inventario")
 }

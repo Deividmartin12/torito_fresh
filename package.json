@@ -29,6 +29,7 @@
     "seed": "tsx packages/database/prisma/seed.ts"
   },
   "dependencies": {
+    "expo": "^57.0.24",
     "geist": "^1.7.2"
   }
 }

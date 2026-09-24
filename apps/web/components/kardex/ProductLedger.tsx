@@ -7,6 +7,7 @@ import { moneda, cantidad, fechaCorta } from '../../lib/format';
 import { CatalogItem, KardexLedger, getKardex, getOperationCatalogs } from '../../lib/operations';
 import { PeriodFilter } from '../PeriodFilter';
 import { SearchableSelect } from '../SearchableSelect';
+import { Badge } from '../ui/Badge';
 
 const csvCell = (value: string | number) => `"${String(value).replaceAll('"', '""')}"`;
 
@@ -149,7 +150,11 @@ export function ProductLedger({
               {ledger.producto.codigo || 'Sin código'} · {ledger.almacen}
             </small>
           </div>
-          <div className="glass-table">
+          {/* Trae filas fijas de saldo inicial/final fuera de cualquier paginación: no encaja
+              en el <DataTable> genérico. `glass-table-static` la saca del apilado en tarjetas
+              del móvil (sin las etiquetas por columna que ponía TableEnhancer) y la deja
+              desplazarse horizontal, que además ya era su comportamiento en escritorio. */}
+          <div className="glass-table glass-table-static">
             <table>
               <thead>
                 <tr>
@@ -179,11 +184,9 @@ export function ProductLedger({
                         <small>{row.tercero}</small>
                       </td>
                       <td>
-                        <span
-                          className={`status ${row.direccion === 'ENTRADA' ? 'status-green' : 'status-blue'}`}
-                        >
+                        <Badge tone={row.direccion === 'ENTRADA' ? 'green' : 'blue'}>
                           {row.operacionLabel}
-                        </span>
+                        </Badge>
                         <small>
                           {row.lote} · {row.estadoInventario}
                         </small>

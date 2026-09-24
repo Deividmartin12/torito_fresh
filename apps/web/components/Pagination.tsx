@@ -24,7 +24,7 @@ function visiblePages(page: number, pages: number) {
 }
 
 export function Pagination({ page, pages, total, pageSize, onChange, onPageSizeChange }: Props) {
-  // El marcador evita que TableEnhancer agregue otra paginación mientras cargan los datos.
+  // Con 0 resultados no hay nada que paginar: se oculta en vez de mostrar controles vacíos.
   if (total === 0)
     return (
       <div className="table-pagination manual-table-pagination-marker" hidden aria-hidden="true" />

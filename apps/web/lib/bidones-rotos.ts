@@ -6,12 +6,21 @@ export type BidonRoto = {
   cantidad: number;
   observaciones: string | null;
   registradoPor: string | null;
+  producto: string | null;
+  almacen: string | null;
+  /** false = quedó anotada pero no movió el inventario (no había stock, o no se eligió producto). */
+  descontado: boolean;
 };
+
+/** Lo que devuelve el alta: el registro más el aviso cuando el inventario no se pudo mover. */
+export type BidonRotoCreado = BidonRoto & { aviso: string | null };
 
 export type CreateBidonRotoPayload = {
   fecha: string;
   cantidad: number;
   observaciones?: string;
+  productoId?: string;
+  almacenId?: string;
 };
 
 export function getBidonesRotos(from?: string, to?: string) {
@@ -22,5 +31,5 @@ export function getBidonesRotos(from?: string, to?: string) {
 }
 
 export function createBidonRoto(payload: CreateBidonRotoPayload) {
-  return api<BidonRoto>('/bidones-rotos', { method: 'POST', body: JSON.stringify(payload) });
+  return api<BidonRotoCreado>('/bidones-rotos', { method: 'POST', body: JSON.stringify(payload) });
 }

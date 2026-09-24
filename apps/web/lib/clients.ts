@@ -11,6 +11,10 @@ export type Cliente = {
   pendingReceivables: number;
   overdueBalance: number;
   overdueCount: number;
+  /** Tope de crédito. null = sin límite; 0 = no se le vende a crédito. */
+  creditLimit: number | null;
+  /** Cuánto más se le puede fiar hoy. null = sin límite. */
+  creditAvailable: number | null;
   containerBalance: number;
   active: boolean;
 };
@@ -21,6 +25,11 @@ export type ClientePayload = {
   address: string;
   documentType?: string;
   document?: string;
+  /**
+   * Tope de crédito. Mandar null lo deja sin límite; 0 significa que no se le vende a
+   * crédito. No mandarlo (undefined) deja el que ya tenía.
+   */
+  creditLimit?: number | null;
 };
 
 export function createCliente(payload: ClientePayload) {

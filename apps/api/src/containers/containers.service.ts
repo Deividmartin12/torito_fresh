@@ -44,7 +44,14 @@ export class ContainersService {
         ...(clienteId ? { clienteId } : { clienteId: { not: null } }),
       },
       orderBy: { movedAt: 'desc' },
-      include: { cliente: true, user: { select: { id: true, name: true } } },
+      include: {
+        cliente: true,
+        // De qué venta salió el movimiento. Sin esto el historial muestra la línea pero no
+        // deja rastrear de dónde vino, que es justo lo que se pregunta cuando un saldo no
+        // cuadra: si lo movió una venta o lo cargó alguien a mano.
+        venta: { select: { id: true } },
+        user: { select: { id: true, name: true } },
+      },
       take: 200,
     });
     return rows.map((row) => ({
@@ -56,6 +63,8 @@ export class ContainersService {
       balanceAfter: row.balanceAfter,
       notes: row.notes,
       movedAt: row.movedAt,
+      ventaId: row.ventaId?.toString() ?? null,
+      venta: row.venta ? `V-${row.venta.id.toString().padStart(6, '0')}` : null,
       user: row.user,
     }));
   }

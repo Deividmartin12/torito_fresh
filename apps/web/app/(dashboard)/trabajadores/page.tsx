@@ -1,42 +1,38 @@
 'use client';
 
-import { Pencil, Plus, Search, UserCheck, UserX } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Pencil, Search, UserCheck, UserX } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Pagination } from '../../../components/Pagination';
+import { DataTable, DataTableColumn } from '../../../components/DataTable';
 import { TrabajadorFormModal } from '../../../components/TrabajadorFormModal';
+import { AddButton } from '../../../components/ui/AddButton';
+import { Badge } from '../../../components/ui/Badge';
+import { IconButton } from '../../../components/ui/IconButton';
 import { getTrabajadores, Trabajador, updateTrabajador } from '../../../lib/trabajadores';
 
 export default function TrabajadoresPage() {
-  const [trabajadores, setTrabajadores] = useState<Trabajador[]>([]);
+  const queryClient = useQueryClient();
   const [buscar, setBuscar] = useState('');
   const [estado, setEstado] = useState('Todos');
-  const [pagina, setPagina] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
   const [modal, setModal] = useState(false);
   const [editando, setEditando] = useState<Trabajador | null>(null);
-  const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      setTrabajadores(await getTrabajadores());
-    } catch (requestError) {
-      toast.error(
-        requestError instanceof Error
-          ? requestError.message
-          : 'No se pudieron cargar los trabajadores',
-        { action: { label: 'Reintentar', onClick: () => void load() } },
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
+  const query = useQuery({ queryKey: ['trabajadores'], queryFn: () => getTrabajadores() });
+  const trabajadores = query.data ?? [];
+  const loading = query.isPending;
+  const load = query.refetch;
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (query.error) {
+      toast.error(
+        query.error instanceof Error
+          ? query.error.message
+          : 'No se pudieron cargar los trabajadores',
+        { action: { label: 'Reintentar', onClick: () => void query.refetch() } },
+      );
+    }
+  }, [query.error, query.refetch]);
 
   const visibles = useMemo(() => {
     const term = buscar.trim().toLowerCase();
@@ -51,20 +47,16 @@ export default function TrabajadoresPage() {
       return matchesStatus && matchesSearch;
     });
   }, [buscar, estado, trabajadores]);
-  const pages = Math.max(1, Math.ceil(visibles.length / pageSize));
-  const currentPage = Math.min(pagina, pages);
-  const paginados = visibles.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-
   function abrir(item?: Trabajador) {
     setEditando(item ?? null);
     setModal(true);
   }
 
   function handleGuardado(saved: Trabajador) {
-    setTrabajadores((current) =>
-      (current.some((item) => item.id === saved.id)
+    queryClient.setQueryData<Trabajador[]>(['trabajadores'], (current) =>
+      (current?.some((item) => item.id === saved.id)
         ? current.map((item) => (item.id === saved.id ? saved : item))
-        : [...current, saved]
+        : [...(current ?? []), saved]
       ).sort((left, right) => left.nombres.localeCompare(right.nombres, 'es')),
     );
     setModal(false);
@@ -79,7 +71,9 @@ export default function TrabajadoresPage() {
     setProcessingId(item.id);
     try {
       const updated = await updateTrabajador(item.id, { estado: !item.estado });
-      setTrabajadores((current) => current.map((row) => (row.id === updated.id ? updated : row)));
+      queryClient.setQueryData<Trabajador[]>(['trabajadores'], (current) =>
+        current?.map((row) => (row.id === updated.id ? updated : row)),
+      );
     } catch (requestError) {
       toast.error(
         requestError instanceof Error
@@ -92,6 +86,94 @@ export default function TrabajadoresPage() {
     }
   }
 
+  const columns: DataTableColumn<Trabajador>[] = [
+    {
+      key: 'trabajador',
+      header: 'Trabajador',
+      cardLabel: null,
+      render: (item) => (
+        <>
+          <strong className="block text-[13px] font-medium text-fg">
+            {item.nombres} {item.apellidos}
+          </strong>
+          <small className="mt-0.5 block text-[11px] text-muted">
+            {item.tipoDocumento} {item.numeroDocumento}
+          </small>
+        </>
+      ),
+    },
+    {
+      key: 'cargo',
+      header: 'Cargo',
+      render: (item) => (
+        <>
+          {item.cargo}
+          {/* La unidad solo se nombra cuando no es la principal: en el caso normal
+              sería ruido en cada fila. */}
+          {item.unidad && item.unidad !== 'Principal' ? (
+            <small className="mt-0.5 block text-[11px] text-muted">{item.unidad}</small>
+          ) : null}
+        </>
+      ),
+    },
+    {
+      key: 'contacto',
+      header: 'Contacto',
+      render: (item) => (
+        <>
+          {item.telefono || 'Sin teléfono'}
+          <small className="mt-0.5 block text-[11px] text-muted">
+            {item.correo || 'Sin correo'}
+          </small>
+        </>
+      ),
+    },
+    {
+      key: 'cuenta',
+      header: 'Cuenta de acceso',
+      render: (item) =>
+        item.usuario ? (
+          <>
+            {item.usuario.username ?? item.usuario.email}
+            <small className="mt-0.5 block text-[11px] text-muted">{item.usuario.rolNombre}</small>
+          </>
+        ) : (
+          'Sin cuenta'
+        ),
+    },
+    {
+      key: 'estado',
+      header: 'Estado',
+      render: (item) => (
+        <Badge tone={item.estado ? 'green' : 'red'}>{item.estado ? 'Activo' : 'Inactivo'}</Badge>
+      ),
+    },
+    {
+      key: 'acciones',
+      header: 'Acciones',
+      cardLabel: null,
+      render: (item) => (
+        <div className="flex flex-wrap gap-[7px]">
+          <IconButton
+            onClick={() => abrir(item)}
+            title="Editar trabajador"
+            aria-label={`Editar ${item.nombres}`}
+          >
+            <Pencil size={16} />
+          </IconButton>
+          <IconButton
+            onClick={() => void cambiarEstado(item)}
+            disabled={processingId === item.id}
+            title={item.estado ? 'Desactivar trabajador' : 'Activar trabajador'}
+            aria-label={`${item.estado ? 'Desactivar' : 'Activar'} ${item.nombres}`}
+          >
+            {item.estado ? <UserX size={16} /> : <UserCheck size={16} />}
+          </IconButton>
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div className="module-page">
       <div className="module-head">
@@ -99,36 +181,21 @@ export default function TrabajadoresPage() {
           <h1>Trabajadores</h1>
           <span>{trabajadores.length} trabajadores</span>
         </div>
-        <button
-          type="button"
-          className="round-add"
-          onClick={() => abrir()}
-          title="Agregar trabajador"
-          aria-label="Agregar trabajador"
-          disabled={loading}
-        >
-          <Plus size={20} />
-        </button>
+        <AddButton label="Agregar trabajador" onClick={() => abrir()} disabled={loading} />
       </div>
       <div className="module-tools">
         <label className="pill-search">
           <Search size={17} />
           <input
             value={buscar}
-            onChange={(event) => {
-              setBuscar(event.target.value);
-              setPagina(1);
-            }}
+            onChange={(event) => setBuscar(event.target.value)}
             placeholder="Buscar por nombre, documento, cargo o usuario"
           />
         </label>
         <select
           className="filter-pill"
           value={estado}
-          onChange={(event) => {
-            setEstado(event.target.value);
-            setPagina(1);
-          }}
+          onChange={(event) => setEstado(event.target.value)}
           aria-label="Filtrar por estado"
         >
           <option>Todos</option>
@@ -136,125 +203,31 @@ export default function TrabajadoresPage() {
           <option>Inactivos</option>
         </select>
       </div>
-      {loading ? (
-        <div className="table-loading" role="status">
-          <span className="loading-spinner" /> Cargando trabajadores...
-        </div>
-      ) : (
-        <>
-          <div className="glass-table">
-            <table>
-              <thead>
-                <tr>
-                  <th>Trabajador</th>
-                  <th>Cargo</th>
-                  <th>Contacto</th>
-                  <th>Cuenta de acceso</th>
-                  <th>Estado</th>
-                  <th>Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {paginados.length ? (
-                  paginados.map((item) => (
-                    <tr key={item.id}>
-                      <td>
-                        <strong>
-                          {item.nombres} {item.apellidos}
-                        </strong>
-                        <small>
-                          {item.tipoDocumento} {item.numeroDocumento}
-                        </small>
-                      </td>
-                      <td>
-                        {item.cargo}
-                        {/* La unidad solo se nombra cuando no es la principal: en el caso
-                            normal sería ruido en cada fila. */}
-                        {item.unidad && item.unidad !== 'Principal' ? (
-                          <small>{item.unidad}</small>
-                        ) : null}
-                      </td>
-                      <td>
-                        {item.telefono || 'Sin teléfono'}
-                        <small>{item.correo || 'Sin correo'}</small>
-                      </td>
-                      <td>
-                        {item.usuario ? (
-                          <>
-                            {item.usuario.username ?? item.usuario.email}
-                            <small>{item.usuario.rolNombre}</small>
-                          </>
-                        ) : (
-                          'Sin cuenta'
-                        )}
-                      </td>
-                      <td>
-                        <span className={item.estado ? 'status status-green' : 'status status-red'}>
-                          {item.estado ? 'Activo' : 'Inactivo'}
-                        </span>
-                      </td>
-                      <td>
-                        <div className="row-actions">
-                          <button
-                            type="button"
-                            className="icon-soft"
-                            onClick={() => abrir(item)}
-                            title="Editar trabajador"
-                            aria-label={`Editar ${item.nombres}`}
-                          >
-                            <Pencil size={16} />
-                          </button>
-                          <button
-                            type="button"
-                            className="icon-soft"
-                            onClick={() => void cambiarEstado(item)}
-                            disabled={processingId === item.id}
-                            title={item.estado ? 'Desactivar trabajador' : 'Activar trabajador'}
-                            aria-label={`${item.estado ? 'Desactivar' : 'Activar'} ${item.nombres}`}
-                          >
-                            {item.estado ? <UserX size={16} /> : <UserCheck size={16} />}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={6}>
-                      <div className="table-empty">
-                        <Search size={22} />
-                        <span>No hay trabajadores que coincidan con los filtros.</span>
-                        {buscar || estado !== 'Todos' ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setBuscar('');
-                              setEstado('Todos');
-                            }}
-                          >
-                            Limpiar filtros
-                          </button>
-                        ) : null}
-                      </div>
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+      <DataTable
+        columns={columns}
+        rows={visibles}
+        rowKey={(item) => item.id}
+        loading={loading}
+        loadingLabel="Cargando trabajadores..."
+        emptyMessage={
+          <div className="flex flex-col items-center gap-2.5">
+            <Search size={22} />
+            <span>No hay trabajadores que coincidan con los filtros.</span>
+            {buscar || estado !== 'Todos' ? (
+              <button
+                type="button"
+                className="text-accent underline"
+                onClick={() => {
+                  setBuscar('');
+                  setEstado('Todos');
+                }}
+              >
+                Limpiar filtros
+              </button>
+            ) : null}
           </div>
-          <Pagination
-            page={currentPage}
-            pages={pages}
-            total={visibles.length}
-            pageSize={pageSize}
-            onChange={setPagina}
-            onPageSizeChange={(size) => {
-              setPageSize(size);
-              setPagina(1);
-            }}
-          />
-        </>
-      )}
+        }
+      />
       {modal ? (
         <TrabajadorFormModal
           editando={editando}

@@ -50,15 +50,20 @@ export function SalesTrendChart({
   const labelEvery = tickEvery(rows.length);
 
   return (
-    <section className="business-chart-card" aria-labelledby={`${gradientId}-title`}>
-      <div className="chart-card-head">
-        <div>
-          <span className="chart-card-icon">
+    <section
+      className="min-w-0 rounded-[17px] border border-line bg-surface p-[17px] [container-type:inline-size]"
+      aria-labelledby={`${gradientId}-title`}
+    >
+      <div className="mb-[13px] flex items-start justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <span className="grid h-[35px] w-[35px] flex-none place-items-center rounded-[10px] bg-surface-soft text-accent">
             <TrendingUp size={18} />
           </span>
           <div>
-            <h3 id={`${gradientId}-title`}>{title}</h3>
-            <p>{subtitle}</p>
+            <h3 className="m-0 text-base text-fg" id={`${gradientId}-title`}>
+              {title}
+            </h3>
+            <p className="m-0 mt-0.5 text-[11px] text-muted">{subtitle}</p>
           </div>
         </div>
         <div className="chart-legend">
@@ -170,17 +175,22 @@ export function ProductRankingChart({
   const max = Math.max(1, ...rows.map((row) => Number(row.cantidad)));
   return (
     <section
-      className="business-chart-card product-chart"
+      className="min-w-0 rounded-[17px] border border-line bg-surface p-[17px] [container-type:inline-size]"
       aria-labelledby={`product-chart-${compact ? 'compact' : 'full'}`}
     >
-      <div className="chart-card-head">
-        <div>
-          <span className="chart-card-icon">
+      <div className="mb-[13px] flex items-start justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <span className="grid h-[35px] w-[35px] flex-none place-items-center rounded-[10px] bg-surface-soft text-accent">
             <BarChart3 size={18} />
           </span>
           <div>
-            <h3 id={`product-chart-${compact ? 'compact' : 'full'}`}>{title}</h3>
-            <p>{subtitle}</p>
+            <h3
+              className="m-0 text-base text-fg"
+              id={`product-chart-${compact ? 'compact' : 'full'}`}
+            >
+              {title}
+            </h3>
+            <p className="m-0 mt-0.5 text-[11px] text-muted">{subtitle}</p>
           </div>
         </div>
       </div>

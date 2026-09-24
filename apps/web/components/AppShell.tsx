@@ -6,6 +6,8 @@ import {
   Boxes,
   CalendarClock,
   ChevronRight,
+  ClipboardCheck,
+  ClipboardList,
   CreditCard,
   Eye,
   Factory,
@@ -28,6 +30,7 @@ import {
   Users,
   WalletCards,
   X,
+  Zap,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
@@ -43,37 +46,8 @@ import {
   UsuarioSesion,
 } from '../lib/api';
 import { aliasRuta, puede, puedeVer } from '../lib/permissions';
-import { usePermisos } from '../lib/useCurrentUser';
 import { ThemeToggle } from './ThemeToggle';
 import { useUnidad } from './UnidadProvider';
-
-/**
- * Qué se está mirando ahora mismo. Con una sola unidad no hay nada que aclarar.
- *
- * Para quien puede elegir unidad es un enlace a Configuración, que es donde se cambia; para el
- * resto es una etiqueta fija, porque su unidad no se elige.
- */
-function IndicadorUnidad() {
-  const { resumen, disponibles } = useUnidad();
-  const permisos = usePermisos();
-  if (disponibles.length < 2 || !resumen) return null;
-  if (!puede(permisos, 'unidades.elegir')) {
-    return (
-      <span className="unidad-badge" title="Unidad de negocio en la que estás trabajando">
-        {resumen}
-      </span>
-    );
-  }
-  return (
-    <Link
-      href="/unidades-visibles"
-      className="unidad-badge"
-      title="Estás viendo estas unidades. Toca para cambiarlas."
-    >
-      <Eye size={13} /> {resumen}
-    </Link>
-  );
-}
 
 /** Iniciales para el avatar: "Juan Pérez Soto" → "JP". */
 function iniciales(nombre: string) {
@@ -93,7 +67,15 @@ function iniciales(nombre: string) {
  * La unidad sigue la misma regla que el resto de la app: quien puede elegir unidad ve la que
  * está mirando ahora (que puede ser "Todas las unidades"), y quien no, la suya.
  */
-function IdentidadUsuario({ user, colapsado }: { user: UsuarioSesion | null; colapsado: boolean }) {
+function IdentidadUsuario({
+  user,
+  colapsado,
+  variant = 'sidebar',
+}: {
+  user: UsuarioSesion | null;
+  colapsado: boolean;
+  variant?: 'sidebar' | 'menu';
+}) {
   const { resumen, disponibles } = useUnidad();
   const permisos = user?.permisos ?? [];
   if (!user) return null;
@@ -106,21 +88,40 @@ function IdentidadUsuario({ user, colapsado }: { user: UsuarioSesion | null; col
     : (user.unidad ?? '');
   const resumenCompleto = [user.name, cargo, unidad].filter(Boolean).join(' · ');
 
+  const surface =
+    variant === 'menu'
+      ? 'mb-1 rounded-ui border border-line bg-surface-soft'
+      : 'border-t border-line bg-surface';
+
   return (
-    <div className="sidebar-identity" title={colapsado ? resumenCompleto : undefined}>
-      <span className="sidebar-identity-avatar" aria-hidden="true">
+    <div
+      className={`flex flex-none items-center gap-2.5 py-3 ${colapsado ? 'justify-center px-2.5' : 'px-3.5'} ${surface}`}
+      title={colapsado ? resumenCompleto : undefined}
+    >
+      <span
+        aria-hidden="true"
+        className="flex h-[34px] w-[34px] flex-[0_0_34px] items-center justify-center rounded-control bg-accent-soft text-[13px] font-semibold text-accent-soft-text"
+      >
         {iniciales(user.name)}
       </span>
-      <div className="sidebar-identity-copy">
-        <strong>{user.name}</strong>
-        {cargo ? <span>{cargo}</span> : null}
-        {unidad ? (
-          <small>
-            <Building2 size={11} aria-hidden="true" />
-            {unidad}
-          </small>
-        ) : null}
-      </div>
+      {colapsado ? null : (
+        <div className="flex min-w-0 flex-col gap-px">
+          <strong className="overflow-hidden text-ellipsis whitespace-nowrap text-[13px] text-fg">
+            {user.name}
+          </strong>
+          {cargo ? (
+            <span className="overflow-hidden text-ellipsis whitespace-nowrap text-xs text-muted">
+              {cargo}
+            </span>
+          ) : null}
+          {unidad ? (
+            <small className="flex items-center gap-1 overflow-hidden text-ellipsis whitespace-nowrap text-[11px] text-muted">
+              <Building2 size={11} aria-hidden="true" className="shrink-0" />
+              {unidad}
+            </small>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }
@@ -153,6 +154,7 @@ const groups = [
     icon: ReceiptText,
     links: [
       { href: '/clientes', label: 'Clientes', icon: Users },
+      { href: '/ventas/rapida', label: 'Venta rápida', icon: Zap },
       { href: '/ventas', label: 'Ventas', icon: ReceiptText },
       { href: '/recargas', label: 'Frecuencia de recarga', icon: CalendarClock },
       { href: '/devoluciones', label: 'Devoluciones comerciales', icon: ReceiptText },
@@ -172,6 +174,7 @@ const groups = [
     links: [
       { href: '/productos', label: 'Productos e insumos', icon: Package },
       { href: '/almacenes', label: 'Almacenes', icon: Store },
+      { href: '/conteo-inventario', label: 'Conteo y cuadre', icon: ClipboardCheck },
       { href: '/movimientos', label: 'Kardex', icon: ArrowLeftRight },
     ],
   },
@@ -181,6 +184,7 @@ const groups = [
     links: [
       { href: '/cobranzas', label: 'Cobranzas', icon: WalletCards },
       { href: '/metodos-pago', label: 'Métodos de pago', icon: CreditCard },
+      { href: '/carga-diaria', label: 'Carga diaria', icon: ClipboardList },
     ],
   },
   {
@@ -205,6 +209,63 @@ const groups = [
     ],
   },
 ];
+
+/** Botón/enlace disparador de un grupo del sidebar de escritorio, en sus cuatro combinaciones:
+ *  compactado o expandido, cruzado con si el grupo está activo (contiene la página actual). */
+function sidebarTriggerClass({
+  collapsed,
+  active,
+  isSingle,
+}: {
+  collapsed: boolean;
+  active: boolean;
+  isSingle: boolean;
+}) {
+  const base =
+    'relative flex items-center gap-[9px] text-muted no-underline transition-colors duration-150';
+  if (collapsed) {
+    const tone = active
+      ? 'bg-accent-soft text-accent-soft-text'
+      : 'hover:bg-surface-hover hover:text-fg';
+    return `${base} h-[42px] w-[48px] cursor-pointer justify-center rounded-xl ${tone}`;
+  }
+  const cursor = isSingle ? 'cursor-pointer' : 'cursor-default';
+  const hover = isSingle
+    ? ''
+    : 'hover:bg-[color-mix(in_srgb,var(--surface-hover)_70%,transparent)]';
+  const tone = active ? (isSingle ? 'bg-accent-soft text-accent-soft-text' : 'text-fg') : '';
+  return `${base} min-h-[37px] w-full ${cursor} justify-start rounded-[11px] px-[5px] py-[7px] ${hover} ${tone}`;
+}
+
+const sidebarLabelClass =
+  'flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-sm font-medium text-fg';
+
+/** El submenú de un grupo del sidebar: acordeón embebido si está expandido, popover flotante
+ *  (abre con el mouse) si está compactado. */
+function sidebarSubmenuClass({
+  collapsed,
+  expanded,
+  suppressed,
+}: {
+  collapsed: boolean;
+  expanded: boolean;
+  suppressed: boolean;
+}) {
+  if (!collapsed) return expanded ? 'grid gap-[2px]' : 'hidden';
+  const forced = suppressed ? '!opacity-0 !invisible !pointer-events-none' : '';
+  return [
+    'invisible absolute -top-[5px] left-[calc(100%+11px)] z-[60] w-[224px] -translate-x-1 rounded-[14px]',
+    'border border-line bg-surface p-[7px] opacity-0 shadow-flyout pointer-events-none',
+    'transition-[opacity,transform,visibility] duration-150 ease-out',
+    "before:absolute before:top-0 before:right-full before:h-[50px] before:w-[13px] before:content-['']",
+    'group-hover:visible group-hover:translate-x-0 group-hover:opacity-100 group-hover:pointer-events-auto',
+    'group-focus-within:visible group-focus-within:translate-x-0 group-focus-within:opacity-100 group-focus-within:pointer-events-auto',
+    forced,
+  ].join(' ');
+}
+
+const sidebarLinkClass =
+  'flex min-h-[34px] items-center gap-2 rounded-[9px] px-2.5 py-[6px] text-xs font-medium text-muted no-underline transition-colors duration-150 hover:bg-surface-hover hover:text-fg aria-[current=page]:bg-accent-soft aria-[current=page]:text-accent-soft-text aria-[current=page]:hover:bg-accent-soft';
 
 export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
@@ -335,8 +396,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   // vería el panel parpadear, una recarga y varios mensajes de error sobre el login.
   if (!ready) {
     return (
-      <div className="app-shell">
-        <main className="app-main" id="main-content" tabIndex={-1}>
+      <div className="min-h-screen">
+        <main
+          className="w-full pt-4 focus:outline-none desktop:pt-[22px]"
+          id="main-content"
+          tabIndex={-1}
+        >
           <div className="table-loading" role="status">
             <span className="loading-spinner" /> Cargando...
           </div>
@@ -346,22 +411,49 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className={sidebarCollapsed ? 'app-shell sidebar-is-collapsed' : 'app-shell'}>
-      <a className="skip-link" href="#main-content">
+    <div
+      className={`min-h-screen px-[10px] py-0 tablet:px-4 desktop:py-0 desktop:pr-5 desktop:pb-[34px] desktop:transition-[padding-left] desktop:duration-200 desktop:ease-linear print:!m-0 print:!block print:!p-0 ${
+        sidebarCollapsed ? 'desktop:pl-[88px]' : 'desktop:pl-[252px]'
+      }`}
+      // Lo lee el CSS de las barras fijas de acciones (`.operation-sticky-actions`), que se
+      // corren a la izquierda cuando la barra lateral está compactada.
+      data-sidebar={sidebarCollapsed ? 'collapsed' : 'expanded'}
+    >
+      <a
+        className="fixed left-3 top-[10px] z-[120] -translate-y-[160%] rounded-[10px] bg-accent px-3.5 py-2.5 text-white no-underline transition-transform duration-150 ease-out focus:translate-y-0 print:!hidden"
+        href="#main-content"
+      >
         Saltar al contenido
       </a>
       <aside
-        className={`desktop-sidebar${sidebarCollapsed ? ' collapsed' : ''}${
-          flyoutSuppressed ? ' flyout-suppressed' : ''
+        className={`fixed inset-y-0 left-0 z-[35] hidden overflow-hidden rounded-r-[18px] border-0 border-r border-line bg-surface transition-[width] duration-200 ease desktop:flex desktop:flex-col desktop:overflow-visible print:!hidden ${
+          sidebarCollapsed ? 'w-[68px]' : 'w-[232px]'
         }`}
         onMouseLeave={() => setFlyoutSuppressed(false)}
       >
-        <div className="sidebar-brand">
-          <span className="sidebar-logo">
-            <img src="/torito-logo.jpg" alt="Torito Fresh" />
+        <div
+          className={`relative flex min-h-16 items-center border-b border-line ${
+            sidebarCollapsed ? 'justify-center p-2' : 'justify-start py-0 pl-3.5 pr-2.5'
+          }`}
+        >
+          <span
+            className={`flex w-[42px] flex-[0_0_42px] items-center justify-center overflow-hidden bg-transparent ${
+              sidebarCollapsed ? 'h-9 rounded-[10px]' : 'h-[62px] rounded-[13px]'
+            }`}
+          >
+            <img
+              src="/torito-logo.jpg"
+              alt="Torito Fresh"
+              className={`block w-full object-contain ${sidebarCollapsed ? 'h-auto' : 'h-full'}`}
+            />
           </span>
         </div>
-        <nav className="sidebar-nav" aria-label="Navegacion lateral">
+        <nav
+          className={`min-h-0 flex-1 overflow-y-auto [scrollbar-width:thin] desktop:overflow-visible ${
+            sidebarCollapsed ? 'px-2 pt-2.5 pb-[18px]' : 'px-3 pt-3.5 pb-6'
+          }`}
+          aria-label="Navegacion lateral"
+        >
           {visibleGroups.map((group) => {
             const groupActive = group.links.some(
               ({ href }) => pathname === href || pathname.startsWith(`${href}/`),
@@ -374,11 +466,15 @@ export function AppShell({ children }: { children: ReactNode }) {
                 pathname === single.href || pathname.startsWith(`${single.href}/`);
               return (
                 <section
-                  className={`sidebar-group sidebar-single${singleActive ? ' active' : ''}`}
+                  className={sidebarCollapsed ? 'mb-1 grid justify-items-center' : 'mb-[3px]'}
                   key={group.label}
                 >
                   <Link
-                    className={`sidebar-group-trigger sidebar-single-link${singleActive ? ' active' : ''}`}
+                    className={sidebarTriggerClass({
+                      collapsed: sidebarCollapsed,
+                      active: singleActive,
+                      isSingle: true,
+                    })}
                     href={single.href}
                     aria-current={singleActive ? 'page' : undefined}
                     aria-label={sidebarCollapsed ? single.label : undefined}
@@ -388,8 +484,10 @@ export function AppShell({ children }: { children: ReactNode }) {
                       event.currentTarget.blur();
                     }}
                   >
-                    <SingleIcon size={18} />
-                    <strong>{single.label}</strong>
+                    <SingleIcon size={18} className="shrink-0" />
+                    {sidebarCollapsed ? null : (
+                      <strong className={sidebarLabelClass}>{single.label}</strong>
+                    )}
                   </Link>
                 </section>
               );
@@ -398,36 +496,59 @@ export function AppShell({ children }: { children: ReactNode }) {
             const GroupIcon = group.icon;
             return (
               <section
-                className={`sidebar-group${groupActive ? ' active' : ''}${expanded ? ' expanded' : ''}`}
+                className={`group relative ${sidebarCollapsed ? 'mb-1 grid justify-items-center' : 'mb-[3px]'}`}
                 key={group.label}
               >
                 <button
-                  className="sidebar-group-trigger"
+                  className={sidebarTriggerClass({
+                    collapsed: sidebarCollapsed,
+                    active: groupActive,
+                    isSingle: false,
+                  })}
                   type="button"
                   onClick={() => toggleGroup(group.label)}
                   aria-expanded={expanded}
                   aria-controls={`sidebar-group-${group.label.toLowerCase().replaceAll(' ', '-')}`}
                   aria-label={sidebarCollapsed ? `${group.label}: mostrar subapartados` : undefined}
                 >
-                  <GroupIcon size={18} />
-                  <strong>{group.label}</strong>
-                  <ChevronRight className="sidebar-group-chevron" size={15} />
+                  <GroupIcon size={18} className="shrink-0" />
+                  {sidebarCollapsed ? null : (
+                    <strong className={sidebarLabelClass}>{group.label}</strong>
+                  )}
+                  {sidebarCollapsed ? null : (
+                    <ChevronRight
+                      size={15}
+                      className={`ml-auto shrink-0 text-muted opacity-65 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
+                    />
+                  )}
                 </button>
                 <div
-                  className="sidebar-submenu"
+                  className={sidebarSubmenuClass({
+                    collapsed: sidebarCollapsed,
+                    expanded,
+                    suppressed: flyoutSuppressed,
+                  })}
                   id={`sidebar-group-${group.label.toLowerCase().replaceAll(' ', '-')}`}
                 >
-                  <div className="sidebar-submenu-title">
-                    <GroupIcon size={17} />
-                    <strong>{group.label}</strong>
-                  </div>
-                  <div className="sidebar-submenu-links">
+                  {sidebarCollapsed ? (
+                    <div className="mb-[5px] flex min-h-[36px] items-center gap-2 border-b border-line px-[7px] pb-2 pt-0.5 text-fg">
+                      <GroupIcon size={17} className="shrink-0" />
+                      <strong className="text-sm font-medium">{group.label}</strong>
+                    </div>
+                  ) : null}
+                  <div
+                    className={
+                      sidebarCollapsed
+                        ? 'grid gap-[2px]'
+                        : "relative ml-[7px] mb-[5px] grid gap-[2px] pl-[18px] pt-px before:absolute before:bottom-1 before:left-[5px] before:top-px before:w-px before:bg-[color-mix(in_srgb,var(--border-strong)_46%,transparent)] before:content-['']"
+                    }
+                  >
                     {group.links.map(({ href, label, icon: Icon }) => {
                       const active = pathname === href || pathname.startsWith(`${href}/`);
                       return (
                         <Link
                           aria-current={active ? 'page' : undefined}
-                          className={active ? 'sidebar-link active' : 'sidebar-link'}
+                          className={sidebarLinkClass}
                           href={href}
                           key={href}
                           onClick={(event) => {
@@ -435,7 +556,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                             event.currentTarget.blur();
                           }}
                         >
-                          <Icon size={16} />
+                          <Icon size={16} className="shrink-0" />
                           <span>{label}</span>
                         </Link>
                       );
@@ -454,10 +575,10 @@ export function AppShell({ children }: { children: ReactNode }) {
         <IdentidadUsuario user={user} colapsado={sidebarCollapsed} />
       </aside>
 
-      <header className="admin-bar">
-        <div className="admin-identity">
+      <header className="sticky top-0 z-30 -mx-2.5 flex min-h-[60px] items-center justify-between gap-3 border-b border-line bg-surface px-4 tablet:-mx-4 tablet:min-h-16 tablet:px-5 desktop:-mx-5 desktop:px-5 print:!hidden">
+        <div className="flex min-w-0 items-center gap-3">
           <button
-            className="sidebar-collapse-button"
+            className="hidden h-[31px] w-[31px] flex-none place-items-center rounded-[9px] border border-line bg-surface-soft text-muted transition-colors duration-150 hover:border-line-strong hover:bg-surface-hover hover:text-accent desktop:grid"
             type="button"
             onClick={toggleSidebar}
             aria-label={sidebarCollapsed ? 'Expandir barra lateral' : 'Contraer barra lateral'}
@@ -466,12 +587,15 @@ export function AppShell({ children }: { children: ReactNode }) {
             {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
           </button>
         </div>
-        <div className="admin-actions">
-          <IndicadorUnidad />
-          <ThemeToggle />
+        <div className="flex items-center gap-2">
+          {/* La unidad que se está mirando y el rol con el que se trabaja salían acá como dos
+              etiquetas. Se sacaron: la barra lateral ya las muestra al pie, junto al nombre de
+              la persona, y repetirlas arriba llenaba la cabecera sin decir nada nuevo. */}
+          {/* En el celular los botones de la barra son objetivos táctiles: 44px mínimo. */}
+          <ThemeToggle className="max-[720px]:min-h-11 max-[720px]:min-w-11 max-[720px]:flex-none" />
           <button
             type="button"
-            className="admin-logout"
+            className="inline-flex min-h-[39px] flex-none items-center justify-center gap-[7px] rounded-full border border-line bg-surface px-3.5 text-xs font-medium text-muted transition-colors duration-150 hover:border-line-strong hover:bg-surface-hover hover:text-accent max-[720px]:min-h-11 max-[720px]:min-w-11"
             onClick={() => {
               limpiarSesion();
               router.replace('/login');
@@ -483,7 +607,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span>Salir</span>
           </button>
           <button
-            className="menu-button"
+            className="grid h-[39px] w-[39px] flex-none place-items-center rounded-full border border-line bg-surface text-muted max-[720px]:h-11 max-[720px]:w-11 desktop:hidden"
             onClick={() => setMenuOpen((value) => !value)}
             title={menuOpen ? 'Cerrar menú' : 'Abrir menú'}
             aria-label={menuOpen ? 'Cerrar menú' : 'Abrir menú'}
@@ -499,19 +623,23 @@ export function AppShell({ children }: { children: ReactNode }) {
       {menuOpen ? (
         <>
           <button
-            className="app-menu-backdrop"
+            className="fixed inset-0 z-[38] block cursor-default border-0 bg-[rgba(4,12,24,0.45)] dark:bg-[rgba(0,4,12,0.72)] desktop:hidden print:!hidden"
             type="button"
             aria-label="Cerrar menú"
             onClick={() => setMenuOpen(false)}
           />
-          <nav className="app-menu" id="mobile-navigation" aria-label="Menú principal">
+          <nav
+            className="fixed inset-y-0 right-0 z-40 block w-[min(86vw,360px)] overflow-y-auto rounded-l-[20px] border-0 border-l border-line bg-surface p-[10px] pb-[calc(10px+env(safe-area-inset-bottom))] [overscroll-behavior:contain] desktop:hidden print:!hidden"
+            id="mobile-navigation"
+            aria-label="Menú principal"
+          >
             {/* En el celular no hay barra lateral, así que la identidad va acá arriba: es lo
                 primero que se ve al abrir el menú y responde "¿con qué cuenta estoy?" sin
                 tener que entrar a ninguna pantalla. */}
-            <IdentidadUsuario user={user} colapsado={false} />
-            <div className="app-menu-title">
-              <span>Navegación</span>
-              <small>Selecciona una sección</small>
+            <IdentidadUsuario user={user} colapsado={false} variant="menu" />
+            <div className="mx-1 mb-[9px] mt-[3px] grid gap-0.5 border-b border-line px-2 pb-3 pt-[7px] text-fg">
+              <span className="text-[17px]">Navegación</span>
+              <small className="text-xs text-muted">Selecciona una sección</small>
             </div>
             {visibleGroups.map((group) => {
               const groupActive = group.links.some(
@@ -524,12 +652,12 @@ export function AppShell({ children }: { children: ReactNode }) {
                 return (
                   <Link
                     aria-current={groupActive ? 'page' : undefined}
-                    className={groupActive ? 'app-menu-link active' : 'app-menu-link'}
+                    className="my-[3px] flex min-h-11 items-center gap-2 rounded-[10px] border border-transparent px-3 text-sm text-muted no-underline aria-[current=page]:border-line-strong aria-[current=page]:bg-surface-hover aria-[current=page]:text-accent"
                     href={single.href}
                     key={group.label}
                     onClick={() => setMenuOpen(false)}
                   >
-                    <SingleIcon size={16} />
+                    <SingleIcon size={16} className="shrink-0" />
                     {single.label}
                   </Link>
                 );
@@ -538,35 +666,37 @@ export function AppShell({ children }: { children: ReactNode }) {
               const GroupIcon = group.icon;
               const panelId = `app-menu-group-${group.label.toLowerCase().replaceAll(' ', '-')}`;
               return (
-                <section
-                  className={`app-menu-group${groupActive ? ' active' : ''}${
-                    expanded ? ' expanded' : ''
-                  }`}
-                  key={group.label}
-                >
+                <section className="my-[3px]" key={group.label}>
                   <button
-                    className="app-menu-group-trigger"
+                    className={`flex min-h-[48px] w-full items-center gap-2.5 rounded-[10px] border border-transparent bg-transparent px-3 text-left text-sm font-semibold ${groupActive ? 'text-accent' : 'text-fg'}`}
                     type="button"
                     onClick={() => toggleGroup(group.label)}
                     aria-expanded={expanded}
                     aria-controls={panelId}
                   >
-                    <GroupIcon size={18} />
-                    <strong>{group.label}</strong>
-                    <ChevronRight className="app-menu-group-chevron" size={16} />
+                    <GroupIcon size={18} className="shrink-0" />
+                    <strong className="font-semibold">{group.label}</strong>
+                    <ChevronRight
+                      size={16}
+                      className={`ml-auto text-muted transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
+                    />
                   </button>
-                  <div className="app-menu-sublinks" id={panelId} hidden={!expanded}>
+                  <div
+                    className="ml-[13px] mt-0.5 mb-1.5 border-l border-line pl-[9px]"
+                    id={panelId}
+                    hidden={!expanded}
+                  >
                     {group.links.map(({ href, label, icon: Icon }) => {
                       const active = pathname === href || pathname.startsWith(`${href}/`);
                       return (
                         <Link
                           aria-current={active ? 'page' : undefined}
-                          className={active ? 'app-menu-link active' : 'app-menu-link'}
+                          className="my-[3px] flex min-h-11 items-center gap-2 rounded-[10px] border border-transparent px-3 text-sm text-muted no-underline aria-[current=page]:border-line-strong aria-[current=page]:bg-surface-hover aria-[current=page]:text-accent"
                           href={href}
                           key={href}
                           onClick={() => setMenuOpen(false)}
                         >
-                          <Icon size={16} />
+                          <Icon size={16} className="shrink-0" />
                           {label}
                         </Link>
                       );
@@ -581,7 +711,12 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       {/* La `key` remonta la pantalla al cambiar de unidad: así ninguna se queda mostrando
           los datos de la anterior porque su `load()` no dependía de la unidad. */}
-      <main className="app-main" id="main-content" tabIndex={-1} key={unidadClave}>
+      <main
+        className="w-full pt-4 focus:outline-none desktop:pt-[22px] print:!m-0 print:!block print:!p-0"
+        id="main-content"
+        tabIndex={-1}
+        key={unidadClave}
+      >
         {children}
       </main>
     </div>

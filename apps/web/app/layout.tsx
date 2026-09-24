@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import { AppToaster } from '../components/AppToaster';
+import { QueryProvider } from '../components/QueryProvider';
 import './globals.css';
 
 const inter = Inter({
@@ -32,8 +33,10 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         />
       </head>
       <body className={inter.className}>
-        {children}
-        <AppToaster />
+        <QueryProvider>
+          {children}
+          <AppToaster />
+        </QueryProvider>
       </body>
     </html>
   );

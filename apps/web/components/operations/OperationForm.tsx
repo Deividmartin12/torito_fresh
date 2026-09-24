@@ -38,11 +38,14 @@ import { AlmacenCreado, AlmacenFormModal } from '../AlmacenFormModal';
 import { ClienteFormModal } from '../ClienteFormModal';
 import { PaymentMethodFormModal } from '../PaymentMethodFormModal';
 import { SearchableSelect } from '../SearchableSelect';
+import { Button, buttonClass } from '../ui/Button';
+import { fieldErrorClass } from '../ui/Field';
 import { PaymentMethod } from '../../lib/payment-methods';
+import { evaluarCredito, resumenCredito } from '../../lib/credito';
 import { puede } from '../../lib/permissions';
 import { usePermisos } from '../../lib/useCurrentUser';
 
-type FieldErrors = Partial<Record<'entity' | 'items' | 'payment' | 'dueDate', string>>;
+type FieldErrors = Partial<Record<'entity' | 'items' | 'payment' | 'dueDate' | 'envases', string>>;
 
 type PagoLinea = { metodoPagoId: string; monto: number };
 
@@ -137,9 +140,13 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
   const [entityId, setEntityId] = useState('');
   const [clienteModal, setClienteModal] = useState(false);
   const [almacenModal, setAlmacenModal] = useState(false);
+  const permisos = usePermisos();
   // Dar de alta un almacén no lo permite el API a todos los roles: al resto se le oculta la
   // acción inline en vez de dejar que reciba un error recién al guardar.
-  const puedeCrearAlmacen = puede(usePermisos(), 'almacenes.crear');
+  const puedeCrearAlmacen = puede(permisos, 'almacenes.crear');
+  // Quien tiene el permiso de excepción no queda trabado por el límite de crédito: se le
+  // avisa y decide, y la venta guarda que él la autorizó.
+  const puedeExcepcion = puede(permisos, 'creditos.excepcion');
   // Fila de pago que abrió "+ Agregar método de pago" (null = modal cerrado).
   const [metodoModalRow, setMetodoModalRow] = useState<number | null>(null);
   const [warehouseId, setWarehouseId] = useState('');
@@ -151,6 +158,11 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
   // Fecha de emisión. Al registrar es siempre hoy; al editar se puede corregir.
   const [fecha, setFecha] = useState('');
   const [items, setItems] = useState<OperationLine[]>([emptyLine()]);
+  // Vacíos que el cliente entrega en el momento. `vaciosTocados` distingue "todavía no lo
+  // miró" de "puso ese número a propósito": mientras no lo toque, el campo sigue al carrito
+  // (el caso normal es el intercambio uno a uno); en cuanto escribe, manda lo que escribió.
+  const [vacios, setVacios] = useState(0);
+  const [vaciosTocados, setVaciosTocados] = useState(false);
   // Solo al editar: la venta tal como estaba guardada. Sirve para calcular bien el stock
   // disponible, porque lo que esta venta ya descontó vuelve al almacén al guardar los cambios.
   const [ventaOriginal, setVentaOriginal] = useState<Sale | null>(null);
@@ -193,6 +205,11 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
               descuento: item.descuento,
             })),
           );
+          // Al editar vale lo que quedó guardado, no el intercambio uno a uno: una venta vieja
+          // (anterior a esta función) tiene 0 y no hay que "corregirla" sola a la cantidad del
+          // carrito, porque nunca se le preguntó al cliente.
+          setVacios(sale.vaciosRecibidos ?? 0);
+          setVaciosTocados(true);
           setVentaOriginal(sale);
         } else {
           setPagos([{ metodoPagoId: methods[0]?.id ?? '', monto: 0 }]);
@@ -215,12 +232,32 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
   );
   const total = subtotal;
   const selectedClient = catalogs.clientes.find((item) => item.id === entityId);
+  // Envases que esta venta entrega: la cantidad de las líneas cuyo producto es retornable.
+  const envasesEntregados = useMemo(() => {
+    const retornables = new Set(
+      catalogs.productos.filter((item) => item.esRetornable).map((item) => item.id),
+    );
+    return items.reduce(
+      (sum, item) => sum + (retornables.has(item.productoId) ? item.cantidad || 0 : 0),
+      0,
+    );
+  }, [catalogs.productos, items]);
+  // Cuántos vacíos puede devolver como mucho: los que se lleva ahora más los que ya tenía.
+  const vaciosMaximos = envasesEntregados + (selectedClient?.saldoEnvases ?? 0);
+  const resumen = resumenCredito(selectedClient);
+  useEffect(() => {
+    if (!vaciosTocados) setVacios(envasesEntregados);
+  }, [envasesEntregados, vaciosTocados]);
   const pagosTotal = useMemo(
     () => Math.round(pagos.reduce((sum, pago) => sum + (pago.monto || 0), 0) * 100) / 100,
     [pagos],
   );
   const creditAmount =
     paymentType === 'MIXTO' ? Math.max(Math.round((total - pagosTotal) * 100) / 100, 0) : total;
+  // Lo que esta venta va a dejar a deber. Es lo que se evalúa contra el crédito del cliente:
+  // una venta al contado no deja nada, así que nunca lo toca.
+  const saldoQueDeja = paymentType === 'CONTADO' ? 0 : creditAmount;
+  const avisoCredito = evaluarCredito(selectedClient, saldoQueDeja);
   // En pago completo con un solo método el monto es el total y no se escribe a mano.
   const contadoSingle = paymentType === 'CONTADO' && pagos.length === 1;
   useEffect(() => {
@@ -415,6 +452,13 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
     // En un puesto que solo registra ventas y gastos no hay stock contra el cual validar.
     else if (controlaInventario && items.some((item) => item.cantidad > available(item.productoId)))
       next.items = 'Una cantidad supera el stock disponible del almacén seleccionado.';
+    // El mismo límite que aplica el servidor en `aplicarEnvasesDeVenta`, para que el error
+    // salga antes de guardar y no después de haber llenado toda la venta.
+    if (vacios > vaciosMaximos)
+      next.envases = `El cliente tendría ${vaciosMaximos} envases nuestros, así que no puede devolver ${vacios}.`;
+    // Sin el permiso de excepción, el crédito corta acá con el mismo texto que devolvería el
+    // servidor: no tiene sentido dejar guardar para que falle del otro lado.
+    if (avisoCredito && !puedeExcepcion) next.entity = avisoCredito;
     setFieldErrors(next);
     return Object.keys(next).length === 0;
   }
@@ -437,6 +481,7 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
         fechaVencimiento: paymentType === 'CONTADO' ? undefined : dueDate || undefined,
         // La fecha solo se puede tocar al editar; en una venta nueva la pone el servidor (hoy).
         fecha: editing ? fecha || undefined : undefined,
+        vaciosDevueltos: vacios,
       };
       if (editing && saleId) await updateSale(saleId, payload);
       else await createSale(payload);
@@ -493,13 +538,14 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
             <div>
               <h2 id="sale-items-title">Productos vendidos</h2>
             </div>
-            <button
+            <Button
               type="button"
-              className="btn-secondary operation-add-line"
+              variant="secondary"
+              shape="rect"
               onClick={() => setItems((current) => [...current, emptyLine()])}
             >
               <Plus size={16} /> Agregar producto
-            </button>
+            </Button>
           </div>
           <div className="operation-line-head" aria-hidden="true">
             <span>Producto</span>
@@ -574,7 +620,7 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
             ))}
           </div>
           {fieldErrors.items ? (
-            <p className="field-error operation-lines-error">{fieldErrors.items}</p>
+            <p className={`operation-lines-error ${fieldErrorClass}`}>{fieldErrors.items}</p>
           ) : null}
         </section>
 
@@ -630,12 +676,22 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
                 onAction={() => setClienteModal(true)}
               />
               {fieldErrors.entity ? (
-                <small className="field-error">{fieldErrors.entity}</small>
-              ) : selectedClient && (selectedClient.deudaActual ?? 0) > 0 ? (
-                <small className="client-debt-hint">
-                  Deuda actual: {moneda(selectedClient.deudaActual)} ·{' '}
-                  {selectedClient.comprobantesPendientes}{' '}
-                  {selectedClient.comprobantesPendientes === 1 ? 'comprobante' : 'comprobantes'}
+                <small className={fieldErrorClass}>{fieldErrors.entity}</small>
+              ) : resumen ? (
+                <small className={resumen.alerta ? 'client-debt-hint alerta' : 'client-debt-hint'}>
+                  {resumen.texto}
+                </small>
+              ) : null}
+              {/* El problema de crédito se avisa apenas se elige el cliente y la forma de pago,
+                  no recién al guardar: si aparece al final, ya se llenó toda la venta al pedo.
+                  Con el permiso de excepción no corta, pero igual dice que va a quedar
+                  registrado a nombre de quien la registra. */}
+              {avisoCredito ? (
+                <small className={puedeExcepcion ? 'auto-note alerta' : fieldErrorClass}>
+                  {avisoCredito}
+                  {puedeExcepcion
+                    ? ' Podés registrarla igual: va a quedar anotado que vos la autorizaste.'
+                    : ''}
                 </small>
               ) : null}
             </label>
@@ -659,6 +715,42 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
                   onAction={puedeCrearAlmacen ? () => setAlmacenModal(true) : undefined}
                 />
               </label>
+            ) : null}
+
+            {/* Solo aparece cuando la venta entrega envases retornables, o cuando ya se había
+                registrado algo (una venta que se edita y se le sacaron los bidones). El campo
+                viene precargado con el intercambio uno a uno, que es lo que pasa casi siempre;
+                se corrige solo cuando el cliente se queda con los vacíos. */}
+            {envasesEntregados > 0 || vacios > 0 ? (
+              <div className="envases-field">
+                <span className="label">Vacíos que devolvió</span>
+                <div className="envases-row">
+                  <NumericField
+                    value={vacios}
+                    integer
+                    onCommit={(next) => {
+                      setVaciosTocados(true);
+                      setVacios(next);
+                      setFieldErrors((current) => ({ ...current, envases: undefined }));
+                    }}
+                  />
+                  <small>
+                    Entrega {envasesEntregados} {envasesEntregados === 1 ? 'envase' : 'envases'}
+                    {selectedClient ? ` · ya tenía ${selectedClient.saldoEnvases ?? 0}` : ''}
+                  </small>
+                </div>
+                {fieldErrors.envases ? (
+                  <small className={fieldErrorClass}>{fieldErrors.envases}</small>
+                ) : (
+                  <small className="auto-note">
+                    {envasesEntregados - vacios === 0
+                      ? 'El cliente queda igual: se lleva tantos envases como devuelve.'
+                      : envasesEntregados - vacios > 0
+                        ? `Le quedan ${envasesEntregados - vacios} envases nuestros de más.`
+                        : `Devuelve ${vacios - envasesEntregados} envases de los que ya tenía.`}
+                  </small>
+                )}
+              </div>
             ) : null}
 
             <div className="payment-type-field">
@@ -827,26 +919,34 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
                   </small>
                 ) : null}
                 {fieldErrors.dueDate ? (
-                  <small className="field-error">{fieldErrors.dueDate}</small>
+                  <small className={fieldErrorClass}>{fieldErrors.dueDate}</small>
                 ) : null}
               </div>
             ) : null}
-            {fieldErrors.payment ? <p className="field-error">{fieldErrors.payment}</p> : null}
+            {fieldErrors.payment ? <p className={fieldErrorClass}>{fieldErrors.payment}</p> : null}
           </div>
         </aside>
       </div>
 
       <div className="operation-sticky-actions">
-        <Link href="/ventas" className="btn-secondary">
+        <Link
+          href="/ventas"
+          className={buttonClass('secondary', 'max-[700px]:col-start-1', 'rect')}
+        >
           Cancelar
         </Link>
         <div className="operation-running-total">
           <span>Total estimado</span>
           <strong>S/ {total.toFixed(2)}</strong>
         </div>
-        <button type="submit" className="btn-primary" disabled={saving || !catalogs.preparado}>
+        <Button
+          type="submit"
+          shape="rect"
+          className="max-[700px]:col-span-2 max-[700px]:row-start-2 max-[700px]:w-full"
+          disabled={saving || !catalogs.preparado}
+        >
           <ReceiptText size={17} /> Revisar y continuar
-        </button>
+        </Button>
       </div>
 
       {reviewOpen ? (
@@ -952,23 +1052,26 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
               </div>
             </div>
             <div className="operation-review-actions">
-              <button
+              <Button
                 type="button"
-                className="btn-secondary"
+                variant="secondary"
+                shape="rect"
+                className="w-full tablet:w-auto"
                 disabled={saving}
                 onClick={() => setReviewOpen(false)}
               >
                 Volver a editar
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
-                className="btn-primary"
+                shape="rect"
+                className="w-full tablet:w-auto"
                 disabled={saving}
                 onClick={() => void save()}
               >
                 <Check size={16} />{' '}
                 {saving ? 'Procesando...' : editing ? 'Guardar cambios' : 'Confirmar venta'}
-              </button>
+              </Button>
             </div>
           </section>
         </div>

@@ -37,7 +37,7 @@ export function ThemeToggle({ className = '' }: { className?: string }) {
   return (
     <button
       aria-label={`Cambiar a tema ${nextThemeLabel}`}
-      className={`theme-toggle ${className}`.trim()}
+      className={`inline-flex min-h-[39px] items-center justify-center gap-[7px] rounded-full border border-line bg-surface px-3.5 text-xs font-medium text-accent transition-colors duration-150 hover:border-line-strong hover:bg-surface-hover ${className}`.trim()}
       onClick={toggleTheme}
       title={`Cambiar a tema ${nextThemeLabel}`}
       type="button"

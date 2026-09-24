@@ -14,6 +14,7 @@ import { Permisos } from '../auth/permisos.decorator';
 import { UnidadQuery } from '../auth/unidad-query.decorator';
 import { AuthUser } from '../common/auth-user';
 import {
+  AnnulSaleDto,
   CreateOperationalProductDto,
   CreateOperationalSaleDto,
   CreateOperationalWarehouseDto,
@@ -109,6 +110,18 @@ export class OperationsController {
   sale(@Param('id') id: string, @CurrentUser() user: AuthUser, @UnidadQuery() unidad?: string) {
     return this.operations.sale(id, user, unidad);
   }
+  // Va fuera de `sales/...` para no competir con `@Get('sales/:id')`, que capturaría
+  // cualquier palabra puesta en ese lugar.
+  @Permisos('ventas.ver')
+  @Get('last-sale')
+  lastSale(
+    @CurrentUser() user: AuthUser,
+    @Query('clienteId') clienteId: string,
+    @UnidadQuery() unidad?: string,
+  ) {
+    if (!clienteId) throw new BadRequestException('Falta el cliente');
+    return this.operations.lastSale(clienteId, user, unidad);
+  }
   // Registrar una venta es un solo paso: queda confirmada de inmediato (descuenta stock y
   // genera kardex en la misma operación), sin un paso de confirmación aparte.
   @Permisos('ventas.registrar')
@@ -129,6 +142,20 @@ export class OperationsController {
     @UnidadQuery() unidad?: string,
   ) {
     return this.operations.updateSale(id, dto, user, unidad);
+  }
+
+  // Anular NO es un PATCH sobre la venta: genera una devolución total y un reembolso, así que
+  // es una operación propia con su propio permiso. No compite con `@Get('sales/:id')` porque
+  // es POST y lleva un segmento más.
+  @Permisos('ventas.anular')
+  @Post('sales/:id/anular')
+  annulSale(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: AnnulSaleDto,
+    @UnidadQuery() unidad?: string,
+  ) {
+    return this.operations.annulSale(id, dto, user, unidad);
   }
 
   @Permisos('stock.ver')

@@ -1,6 +1,5 @@
 'use client';
 
-import { X } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
@@ -16,6 +15,17 @@ import {
 import { soloTextoNombre } from '../lib/validacion';
 import { PaymentMethodCategoryFormModal } from './PaymentMethodCategoryFormModal';
 import { SearchableSelect } from './SearchableSelect';
+import { Button } from './ui/Button';
+import {
+  checkboxFieldClass,
+  checkboxInputClass,
+  controlClass,
+  fieldLabelClass,
+  fieldWideClass,
+  modalActionsClass,
+  modalFormClass,
+} from './ui/Field';
+import { Modal, ModalHeader } from './ui/Modal';
 
 type Props = {
   editando?: PaymentMethod | null;
@@ -123,95 +133,81 @@ export function PaymentMethodFormModal({
   const titulo = editando ? 'Editar método de pago' : 'Agregar método de pago';
 
   return createPortal(
-    <div
-      className="modal-backdrop"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !saving) onClose();
-      }}
-    >
-      <section className="crud-modal" role="dialog" aria-modal="true" aria-label={titulo}>
-        <div className="modal-top">
-          <h2>{titulo}</h2>
-          <button
-            className="modal-close"
-            onClick={onClose}
-            disabled={saving}
-            aria-label="Cerrar modal"
-          >
-            <X size={18} />
-          </button>
-        </div>
-        <form className="modal-form" onSubmit={(event) => void guardar(event)}>
-          <label className="field-wide">
-            <span>Categoría</span>
-            <SearchableSelect
-              value={categoriaId}
-              onChange={setCategoriaId}
-              options={categorias.map((item) => ({ value: item.id, label: item.nombre }))}
-              placeholder={cargandoCategorias ? 'Cargando categorías...' : 'Seleccionar categoría'}
-              disabled={cargandoCategorias}
-              required
-              actionLabel={inline ? undefined : '+ Agregar categoría'}
-              onAction={inline ? undefined : () => setCategoriaModal(true)}
-            />
-          </label>
+    <Modal onClose={onClose} closeDisabled={saving}>
+      <ModalHeader title={titulo} onClose={onClose} closeDisabled={saving} />
+      <form className={modalFormClass} onSubmit={(event) => void guardar(event)}>
+        <label className={fieldWideClass}>
+          <span className={fieldLabelClass}>Categoría</span>
+          <SearchableSelect
+            value={categoriaId}
+            onChange={setCategoriaId}
+            options={categorias.map((item) => ({ value: item.id, label: item.nombre }))}
+            placeholder={cargandoCategorias ? 'Cargando categorías...' : 'Seleccionar categoría'}
+            disabled={cargandoCategorias}
+            required
+            actionLabel={inline ? undefined : '+ Agregar categoría'}
+            onAction={inline ? undefined : () => setCategoriaModal(true)}
+          />
+        </label>
 
-          <label className="field-wide">
-            <span>Referencia {exigeReferencia ? '' : '(opcional)'}</span>
+        <label className={fieldWideClass}>
+          <span className={fieldLabelClass}>Referencia {exigeReferencia ? '' : '(opcional)'}</span>
+          <input
+            className={controlClass}
+            value={referencia}
+            maxLength={50}
+            onChange={(event) => setReferencia(event.target.value)}
+            placeholder="Número de Yape/Plin o cuenta bancaria"
+            required={exigeReferencia}
+          />
+        </label>
+
+        {!inline ? (
+          <label className={fieldWideClass}>
+            <span className={fieldLabelClass}>Etiqueta (opcional)</span>
             <input
-              value={referencia}
+              className={controlClass}
+              value={nombreLibre}
               maxLength={50}
-              onChange={(event) => setReferencia(event.target.value)}
-              placeholder="Número de Yape/Plin o cuenta bancaria"
-              required={exigeReferencia}
+              onChange={(event) => setNombreLibre(soloTextoNombre(event.target.value))}
+              placeholder='Ej. "Yape del negocio"'
             />
           </label>
+        ) : null}
 
-          {!inline ? (
-            <label className="field-wide">
-              <span>Etiqueta (opcional)</span>
-              <input
-                value={nombreLibre}
-                maxLength={50}
-                onChange={(event) => setNombreLibre(soloTextoNombre(event.target.value))}
-                placeholder='Ej. "Yape del negocio"'
-              />
-            </label>
-          ) : null}
+        {!inline && trabajadores && trabajadores.length ? (
+          <label className={fieldWideClass}>
+            <span className={fieldLabelClass}>Dueño</span>
+            <SearchableSelect
+              value={trabajadorId}
+              onChange={setTrabajadorId}
+              options={trabajadores.map((item) => ({ value: item.id, label: item.nombre }))}
+              placeholder="Disponible para todos"
+            />
+          </label>
+        ) : null}
 
-          {!inline && trabajadores && trabajadores.length ? (
-            <label className="field-wide">
-              <span>Dueño</span>
-              <SearchableSelect
-                value={trabajadorId}
-                onChange={setTrabajadorId}
-                options={trabajadores.map((item) => ({ value: item.id, label: item.nombre }))}
-                placeholder="Disponible para todos"
-              />
-            </label>
-          ) : null}
+        {!inline && editando ? (
+          <label className={`${checkboxFieldClass} ${fieldWideClass}`}>
+            <input
+              className={checkboxInputClass}
+              type="checkbox"
+              checked={estado}
+              onChange={(event) => setEstado(event.target.checked)}
+            />
+            <span className="text-[13px] font-medium">Método activo</span>
+          </label>
+        ) : null}
 
-          {!inline && editando ? (
-            <label className="check-field field-wide">
-              <input
-                type="checkbox"
-                checked={estado}
-                onChange={(event) => setEstado(event.target.checked)}
-              />
-              <span>Método activo</span>
-            </label>
-          ) : null}
-
-          <div className="modal-actions">
-            <button className="btn-secondary" type="button" onClick={onClose} disabled={saving}>
-              Cancelar
-            </button>
-            <button className="btn-primary" disabled={saving || cargandoCategorias}>
-              {saving ? 'Guardando...' : editando ? 'Guardar cambios' : 'Registrar método'}
-            </button>
-          </div>
-        </form>
-      </section>
+        <div className={modalActionsClass}>
+          <Button variant="secondary" type="button" onClick={onClose} disabled={saving}>
+            Cancelar
+          </Button>
+          <Button disabled={saving || cargandoCategorias}>
+            {saving ? 'Guardando...' : editando ? 'Guardar cambios' : 'Registrar método'}
+          </Button>
+        </div>
+      </form>
 
       {categoriaModal ? (
         <PaymentMethodCategoryFormModal
@@ -219,7 +215,7 @@ export function PaymentMethodFormModal({
           onSaved={handleCategoriaCreada}
         />
       ) : null}
-    </div>,
+    </Modal>,
     document.body,
   );
 }

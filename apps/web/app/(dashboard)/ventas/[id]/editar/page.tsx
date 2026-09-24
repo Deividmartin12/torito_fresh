@@ -1,6 +1,7 @@
 import { ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { OperationForm } from '../../../../../components/operations/OperationForm';
+import { buttonClass } from '../../../../../components/ui/Button';
 
 export default async function EditarVentaPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -11,7 +12,7 @@ export default async function EditarVentaPage({ params }: { params: Promise<{ id
           <span className="operation-eyebrow">Ventas</span>
           <h1>Editar venta</h1>
         </div>
-        <Link href="/ventas" className="btn-secondary">
+        <Link href="/ventas" className={buttonClass('secondary', '', 'rect')}>
           <ArrowLeft size={16} /> Volver a ventas
         </Link>
       </div>

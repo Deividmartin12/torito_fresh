@@ -1,18 +1,33 @@
 'use client';
 
-import { Eye, Plus, Search, X } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Eye, Plus, Search } from 'lucide-react';
 import Link from 'next/link';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { fechaCorta, fechaHora, moneda } from '../../../lib/format';
+import { DataTable, DataTableColumn } from '../../../components/DataTable';
 import { NumericField } from '../../../components/operations/OperationForm';
 import { SearchableSelect } from '../../../components/SearchableSelect';
+import { Segmented } from '../../../components/Segmented';
+import { Badge } from '../../../components/ui/Badge';
+import { Button } from '../../../components/ui/Button';
+import {
+  checkboxFieldClass,
+  checkboxInputClass,
+  fieldLabelClass,
+  fieldWideClass,
+  modalActionsClass,
+  modalFormClass,
+  textareaClass,
+} from '../../../components/ui/Field';
+import { IconButton } from '../../../components/ui/IconButton';
+import { Modal, ModalHeader } from '../../../components/ui/Modal';
 import {
   createOperationalReturn,
   getOperationCatalogs,
   getOperationalReturns,
   getSales,
-  OperationCatalogs,
   OperationalReturn,
   ReturnsData,
   Sale,
@@ -28,42 +43,45 @@ type LineDraft = {
 const emptyData: ReturnsData = { devoluciones: [], saldosFavor: [] };
 
 export default function DevolucionesPage() {
-  const [data, setData] = useState<ReturnsData>(emptyData);
-  const [sales, setSales] = useState<Sale[]>([]);
-  const [catalogs, setCatalogs] = useState<OperationCatalogs>(emptyCatalogs);
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [tab, setTab] = useState<'devoluciones' | 'saldos'>('devoluciones');
+  // Comerciales (el cliente devolvió algo) vs anulaciones (la venta se dio de baja entera).
+  const [clase, setClase] = useState<'comerciales' | 'anulaciones' | 'todas'>('comerciales');
   const [modal, setModal] = useState(false);
   const [detail, setDetail] = useState<OperationalReturn | null>(null);
   const [operationId, setOperationId] = useState('');
   const [reason, setReason] = useState('');
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState<LineDraft[]>([]);
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
+  const returnsQuery = useQuery({
+    queryKey: ['operational-returns'],
+    queryFn: getOperationalReturns,
+  });
+  const data = returnsQuery.data ?? emptyData;
+  const salesQuery = useQuery({ queryKey: ['sales'], queryFn: () => getSales() });
+  const sales = salesQuery.data ?? [];
+  const catalogsQuery = useQuery({
+    queryKey: ['operation-catalogs'],
+    queryFn: getOperationCatalogs,
+  });
+  const catalogs = catalogsQuery.data ?? emptyCatalogs;
+  const loading = returnsQuery.isPending || salesQuery.isPending || catalogsQuery.isPending;
   const load = useCallback(async () => {
-    try {
-      const [returnsData, saleData, catalogData] = await Promise.all([
-        getOperationalReturns(),
-        getSales(),
-        getOperationCatalogs(),
-      ]);
-      setData(returnsData);
-      setSales(saleData);
-      setCatalogs(catalogData);
-    } catch (cause) {
+    await Promise.all([returnsQuery.refetch(), salesQuery.refetch(), catalogsQuery.refetch()]);
+  }, [returnsQuery, salesQuery, catalogsQuery]);
+  useEffect(() => {
+    const fallo = [returnsQuery, salesQuery, catalogsQuery].find((query) => query.error)?.error;
+    if (fallo) {
       toast.error(
-        cause instanceof Error ? cause.message : 'No se pudieron cargar las devoluciones',
+        fallo instanceof Error ? fallo.message : 'No se pudieron cargar las devoluciones',
         { action: { label: 'Reintentar', onClick: () => void load() } },
       );
-    } finally {
-      setLoading(false);
     }
-  }, []);
-  useEffect(() => {
-    void load();
-  }, [load]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [returnsQuery.error, salesQuery.error, catalogsQuery.error]);
 
   const sources = useMemo<Sale[]>(
     () =>
@@ -75,10 +93,14 @@ export default function DevolucionesPage() {
     [sales],
   );
   const source = sources.find((item) => item.id === operationId);
-  const visible = data.devoluciones.filter((item) =>
-    `${item.codigo} ${item.comprobante} ${item.tercero} ${item.motivo}`
-      .toLowerCase()
-      .includes(search.toLowerCase()),
+  const visible = data.devoluciones.filter(
+    (item) =>
+      // Una anulación de venta también es una devolución por dentro, pero no es lo mismo que
+      // un cliente que devolvió mercadería: mezclarlas hace ilegible este listado.
+      (clase === 'todas' || (clase === 'anulaciones' ? item.esAnulacion : !item.esAnulacion)) &&
+      `${item.codigo} ${item.comprobante} ${item.tercero} ${item.motivo}`
+        .toLowerCase()
+        .includes(search.toLowerCase()),
   );
   const availableState =
     catalogs.estadosInventario.find((item) => item.codigo === 'DISPONIBLE') ??
@@ -145,13 +167,100 @@ export default function DevolucionesPage() {
       toast.success(
         'Devolución confirmada. Se actualizaron el saldo y el inventario correspondiente.',
       );
-      await load();
+      // Una devolución cambia las tres cosas a la vez: aparece en la lista, la venta original
+      // queda con `cantidadDevuelta` al día, y puede tocar el stock del catálogo.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['operational-returns'] }),
+        queryClient.invalidateQueries({ queryKey: ['sales'] }),
+        queryClient.invalidateQueries({ queryKey: ['operation-catalogs'] }),
+      ]);
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : 'No se pudo registrar la devolución');
     } finally {
       setSaving(false);
     }
   }
+
+  const returnColumns: DataTableColumn<OperationalReturn>[] = [
+    {
+      key: 'devolucion',
+      header: 'Devolución',
+      cardLabel: null,
+      render: (item) => (
+        <>
+          <strong className="block text-[13px] font-medium text-fg">{item.codigo}</strong>
+          <small className="mt-0.5 block text-[11px] text-muted">{fechaHora(item.fecha)}</small>
+        </>
+      ),
+    },
+    { key: 'venta', header: 'Venta original', render: (item) => item.comprobante },
+    { key: 'cliente', header: 'Cliente', render: (item) => item.tercero },
+    { key: 'motivo', header: 'Motivo', render: (item) => item.motivo },
+    {
+      key: 'total',
+      header: 'Total',
+      render: (item) => (
+        <strong className="text-[13px] font-medium text-fg">{moneda(item.total)}</strong>
+      ),
+    },
+    {
+      key: 'efecto',
+      header: 'Efecto',
+      render: (item) =>
+        item.saldoFavor > 0 ? (
+          <Badge tone="amber">Saldo {moneda(item.saldoFavor)}</Badge>
+        ) : item.kardexId ? (
+          <Link
+            className="kardex-link"
+            href={`/movimientos?ref=${encodeURIComponent(item.kardexRef ?? '')}`}
+          >
+            {item.kardexRef ?? 'Ver kardex'}
+          </Link>
+        ) : (
+          <small className="text-[11px] text-muted">Solo ajuste financiero</small>
+        ),
+    },
+    {
+      key: 'estado',
+      header: 'Estado',
+      render: (item) => <Badge tone="green">{item.estado}</Badge>,
+    },
+    {
+      key: 'detalle',
+      header: 'Detalle',
+      cardLabel: null,
+      render: (item) => (
+        <IconButton onClick={() => setDetail(item)} aria-label={`Ver ${item.codigo}`}>
+          <Eye size={16} />
+        </IconButton>
+      ),
+    },
+  ];
+
+  const balanceColumns: DataTableColumn<ReturnsData['saldosFavor'][number]>[] = [
+    {
+      key: 'cliente',
+      header: 'Cliente',
+      cardLabel: null,
+      render: (item) => (
+        <strong className="block text-[13px] font-medium text-fg">{item.tercero}</strong>
+      ),
+    },
+    { key: 'generado', header: 'Generado', render: (item) => fechaCorta(item.fecha) },
+    { key: 'original', header: 'Original', render: (item) => `S/ ${item.original.toFixed(2)}` },
+    {
+      key: 'disponible',
+      header: 'Disponible',
+      render: (item) => (
+        <strong className="text-[13px] font-medium text-fg">S/ {item.disponible.toFixed(2)}</strong>
+      ),
+    },
+    {
+      key: 'estado',
+      header: 'Estado',
+      render: (item) => <Badge tone="green">{item.estado}</Badge>,
+    },
+  ];
 
   return (
     <div className="module-page operations-list-page">
@@ -160,9 +269,9 @@ export default function DevolucionesPage() {
           <span className="operation-eyebrow">Operaciones relacionadas</span>
           <h1>Devoluciones y saldos a favor</h1>
         </div>
-        <button className="btn-primary operation-primary-action" onClick={openCreate}>
+        <Button className="min-h-[44px] shrink-0 px-[19px]" onClick={openCreate}>
           <Plus size={18} /> Nueva devolución
-        </button>
+        </Button>
       </div>
       <div className="summary-row">
         <div className="summary-glass">
@@ -204,333 +313,219 @@ export default function DevolucionesPage() {
                 placeholder="Buscar devolución, comprobante o cliente"
               />
             </label>
+            <Segmented
+              value={clase}
+              onChange={(value) => setClase(value as typeof clase)}
+              options={[
+                { value: 'comerciales', label: 'Comerciales' },
+                { value: 'anulaciones', label: 'Anulaciones' },
+                { value: 'todas', label: 'Todas' },
+              ]}
+              ariaLabel="Tipo de devolución"
+            />
           </div>
-          {loading ? (
-            <div className="table-loading">
-              <span className="loading-spinner" /> Cargando devoluciones...
-            </div>
-          ) : (
-            <div className="glass-table">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Devolución</th>
-                    <th>Venta original</th>
-                    <th>Cliente</th>
-                    <th>Motivo</th>
-                    <th>Total</th>
-                    <th>Efecto</th>
-                    <th>Estado</th>
-                    <th>Detalle</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {visible.length ? (
-                    visible.map((item) => (
-                      <tr key={item.id}>
-                        <td>
-                          <strong>{item.codigo}</strong>
-                          <small>{fechaHora(item.fecha)}</small>
-                        </td>
-                        <td>{item.comprobante}</td>
-                        <td>{item.tercero}</td>
-                        <td>{item.motivo}</td>
-                        <td>
-                          <strong>{moneda(item.total)}</strong>
-                        </td>
-                        <td>
-                          {item.saldoFavor > 0 ? (
-                            <span className="status status-amber">
-                              Saldo {moneda(item.saldoFavor)}
-                            </span>
-                          ) : item.kardexId ? (
-                            <Link
-                              className="kardex-link"
-                              href={`/movimientos?ref=${encodeURIComponent(item.kardexRef ?? '')}`}
-                            >
-                              {item.kardexRef ?? 'Ver kardex'}
-                            </Link>
-                          ) : (
-                            <small>Solo ajuste financiero</small>
-                          )}
-                        </td>
-                        <td>
-                          <span className="status status-green">{item.estado}</span>
-                        </td>
-                        <td>
-                          <button
-                            className="icon-soft"
-                            onClick={() => setDetail(item)}
-                            aria-label={`Ver ${item.codigo}`}
-                          >
-                            <Eye size={16} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={8}>
-                        <div className="table-empty">No hay devoluciones para estos filtros.</div>
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <DataTable
+            columns={returnColumns}
+            rows={visible}
+            rowKey={(item) => item.id}
+            loading={loading}
+            loadingLabel="Cargando devoluciones..."
+            emptyMessage={<span>No hay devoluciones para estos filtros.</span>}
+          />
         </>
       ) : (
-        <div className="glass-table">
-          <table>
-            <thead>
-              <tr>
-                <th>Cliente</th>
-                <th>Generado</th>
-                <th>Original</th>
-                <th>Disponible</th>
-                <th>Estado</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.saldosFavor.length ? (
-                data.saldosFavor.map((item) => (
-                  <tr key={item.id}>
-                    <td>
-                      <strong>{item.tercero}</strong>
-                    </td>
-                    <td>{fechaCorta(item.fecha)}</td>
-                    <td>S/ {item.original.toFixed(2)}</td>
-                    <td>
-                      <strong>S/ {item.disponible.toFixed(2)}</strong>
-                    </td>
-                    <td>
-                      <span className="status status-green">{item.estado}</span>
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={5}>
-                    <div className="table-empty">No existen saldos a favor pendientes.</div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        <DataTable
+          columns={balanceColumns}
+          rows={data.saldosFavor}
+          rowKey={(item) => item.id}
+          loading={loading}
+          loadingLabel="Cargando saldos a favor..."
+          emptyMessage={<span>No existen saldos a favor pendientes.</span>}
+        />
       )}
 
       {modal ? (
-        <div
-          className="modal-backdrop"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget && !saving) setModal(false);
-          }}
-        >
-          <section
-            className="crud-modal return-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="return-title"
-          >
-            <div className="modal-top">
-              <div>
-                <h2 id="return-title">Registrar devolución</h2>
-                <small>Solo puedes devolver productos y cantidades de la venta seleccionada.</small>
+        <Modal onClose={() => setModal(false)} closeDisabled={saving} className="max-w-[940px]">
+          <ModalHeader
+            title="Registrar devolución"
+            subtitle="Solo puedes devolver productos y cantidades de la venta seleccionada."
+            onClose={() => setModal(false)}
+          />
+          <form className={modalFormClass} onSubmit={submit}>
+            <label className={fieldWideClass}>
+              <span className={fieldLabelClass}>Venta original</span>
+              <SearchableSelect
+                value={operationId}
+                onChange={(value) => selectOperation(value)}
+                options={sources.map((item) => ({
+                  value: item.id,
+                  label: `${item.codigo} · ${item.cliente}`,
+                }))}
+                placeholder="Buscar venta"
+                required
+              />
+            </label>
+            {source ? (
+              <div className="return-source-summary">
+                <span>
+                  Total original<strong>S/ {source.total.toFixed(2)}</strong>
+                </span>
+                <span>
+                  Total neto actual<strong>S/ {source.totalNeto.toFixed(2)}</strong>
+                </span>
+                <span>
+                  Pagado<strong>S/ {source.pagado.toFixed(2)}</strong>
+                </span>
+                <span>
+                  Saldo<strong>S/ {source.saldo.toFixed(2)}</strong>
+                </span>
               </div>
-              <button className="modal-close" onClick={() => setModal(false)}>
-                <X size={18} />
-              </button>
-            </div>
-            <form className="modal-form" onSubmit={submit}>
-              <label className="field-wide">
-                <span>Venta original</span>
-                <SearchableSelect
-                  value={operationId}
-                  onChange={(value) => selectOperation(value)}
-                  options={sources.map((item) => ({
-                    value: item.id,
-                    label: `${item.codigo} · ${item.cliente}`,
-                  }))}
-                  placeholder="Buscar venta"
-                  required
-                />
-              </label>
-              {source ? (
-                <div className="return-source-summary">
-                  <span>
-                    Total original<strong>S/ {source.total.toFixed(2)}</strong>
-                  </span>
-                  <span>
-                    Total neto actual<strong>S/ {source.totalNeto.toFixed(2)}</strong>
-                  </span>
-                  <span>
-                    Pagado<strong>S/ {source.pagado.toFixed(2)}</strong>
-                  </span>
-                  <span>
-                    Saldo<strong>S/ {source.saldo.toFixed(2)}</strong>
-                  </span>
-                </div>
-              ) : null}
-              <div className="return-lines">
-                <div className="return-line-head">
-                  <span>Producto</span>
-                  <span>Disponible para devolver</span>
-                  <span>Cantidad</span>
-                  <span>Destino físico</span>
-                </div>
-                {source?.items.map((item, index) => {
-                  const draft = lines[index];
-                  const remaining = item.cantidad - item.cantidadDevuelta;
-                  return (
-                    <div className="return-line" key={item.id}>
-                      <div>
-                        <strong>{item.producto}</strong>
-                        <small>
-                          {item.cantidad} vendidos · {item.cantidadDevuelta} ya devueltos
-                        </small>
-                      </div>
-                      <span>
-                        <span className="return-line-label">Disponible para devolver</span>
-                        {remaining}
-                      </span>
-                      <label className="return-line-qty">
-                        <span className="return-line-label">Cantidad</span>
-                        <NumericField
-                          value={draft?.cantidad ?? 0}
-                          integer
-                          onCommit={(cantidad) =>
-                            setLines((current) =>
-                              current.map((line, position) =>
-                                position === index ? { ...line, cantidad } : line,
-                              ),
-                            )
-                          }
-                        />
-                      </label>
-                      {/* El destino físico solo existe si la unidad lleva stock. En un puesto que
+            ) : null}
+            <div className="return-lines">
+              <div className="return-line-head">
+                <span>Producto</span>
+                <span>Disponible para devolver</span>
+                <span>Cantidad</span>
+                <span>Destino físico</span>
+              </div>
+              {source?.items.map((item, index) => {
+                const draft = lines[index];
+                const remaining = item.cantidad - item.cantidadDevuelta;
+                return (
+                  <div className="return-line" key={item.id}>
+                    <div>
+                      <strong>{item.producto}</strong>
+                      <small>
+                        {item.cantidad} vendidos · {item.cantidadDevuelta} ya devueltos
+                      </small>
+                    </div>
+                    <span>
+                      <span className="return-line-label">Disponible para devolver</span>
+                      {remaining}
+                    </span>
+                    <label className="return-line-qty">
+                      <span className="return-line-label">Cantidad</span>
+                      <NumericField
+                        value={draft?.cantidad ?? 0}
+                        integer
+                        onCommit={(cantidad) =>
+                          setLines((current) =>
+                            current.map((line, position) =>
+                              position === index ? { ...line, cantidad } : line,
+                            ),
+                          )
+                        }
+                      />
+                    </label>
+                    {/* El destino físico solo existe si la unidad lleva stock. En un puesto que
                           solo registra ventas y gastos la devolución ajusta lo que el cliente
                           debe, y nada más: no hay inventario al que regresar. */}
-                      {draft && controlaInventario ? (
-                        <div className="return-destination">
-                          <span className="return-line-label">Destino físico</span>
-                          <label className="check-field">
-                            <input
-                              type="checkbox"
-                              checked={draft.reintegraInventario}
-                              onChange={(event) =>
-                                setLines((current) =>
-                                  current.map((line, position) =>
-                                    position === index
-                                      ? { ...line, reintegraInventario: event.target.checked }
-                                      : line,
-                                  ),
-                                )
-                              }
-                            />
-                            <span>Regresa al stock</span>
-                          </label>
-                          {draft.reintegraInventario ? (
-                            <select
-                              value={draft.estadoDestinoId}
-                              onChange={(event) =>
-                                setLines((current) =>
-                                  current.map((line, position) =>
-                                    position === index
-                                      ? { ...line, estadoDestinoId: event.target.value }
-                                      : line,
-                                  ),
-                                )
-                              }
-                            >
-                              {catalogs.estadosInventario.map((state) => (
-                                <option key={state.id} value={state.id}>
-                                  {state.nombre}
-                                </option>
-                              ))}
-                            </select>
-                          ) : (
-                            <small>Dañado, desechado o no recibido</small>
-                          )}
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-              <label className="field-wide">
-                <span>Motivo</span>
-                <textarea
-                  value={reason}
-                  onChange={(event) => setReason(event.target.value)}
-                  required
-                  placeholder="Explica por qué se realiza la devolución"
-                />
-              </label>
-              <label className="field-wide">
-                <span>Observaciones</span>
-                <textarea
-                  value={notes}
-                  onChange={(event) => setNotes(event.target.value)}
-                  placeholder="Información adicional opcional"
-                />
-              </label>
-              <div className="modal-actions field-wide">
-                <button className="btn-secondary" type="button" onClick={() => setModal(false)}>
-                  Cancelar
-                </button>
-                <button className="btn-primary" disabled={saving}>
-                  {saving ? 'Procesando...' : 'Confirmar devolución'}
-                </button>
-              </div>
-            </form>
-          </section>
-        </div>
+                    {draft && controlaInventario ? (
+                      <div className="return-destination">
+                        <span className="return-line-label">Destino físico</span>
+                        <label className={checkboxFieldClass}>
+                          <input
+                            className={checkboxInputClass}
+                            type="checkbox"
+                            checked={draft.reintegraInventario}
+                            onChange={(event) =>
+                              setLines((current) =>
+                                current.map((line, position) =>
+                                  position === index
+                                    ? { ...line, reintegraInventario: event.target.checked }
+                                    : line,
+                                ),
+                              )
+                            }
+                          />
+                          <span className="text-[13px] font-medium">Regresa al stock</span>
+                        </label>
+                        {draft.reintegraInventario ? (
+                          <select
+                            value={draft.estadoDestinoId}
+                            onChange={(event) =>
+                              setLines((current) =>
+                                current.map((line, position) =>
+                                  position === index
+                                    ? { ...line, estadoDestinoId: event.target.value }
+                                    : line,
+                                ),
+                              )
+                            }
+                          >
+                            {catalogs.estadosInventario.map((state) => (
+                              <option key={state.id} value={state.id}>
+                                {state.nombre}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <small>Dañado, desechado o no recibido</small>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+            <label className={fieldWideClass}>
+              <span className={fieldLabelClass}>Motivo</span>
+              <textarea
+                className={textareaClass}
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
+                required
+                placeholder="Explica por qué se realiza la devolución"
+              />
+            </label>
+            <label className={fieldWideClass}>
+              <span className={fieldLabelClass}>Observaciones</span>
+              <textarea
+                className={textareaClass}
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
+                placeholder="Información adicional opcional"
+              />
+            </label>
+            <div className={`${modalActionsClass} ${fieldWideClass}`}>
+              <Button variant="secondary" type="button" onClick={() => setModal(false)}>
+                Cancelar
+              </Button>
+              <Button disabled={saving}>{saving ? 'Procesando...' : 'Confirmar devolución'}</Button>
+            </div>
+          </form>
+        </Modal>
       ) : null}
       {detail ? (
-        <div
-          className="modal-backdrop"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setDetail(null);
-          }}
-        >
-          <section className="crud-modal">
-            <div className="modal-top">
-              <div>
-                <h2>{detail.codigo}</h2>
-                <small>
-                  {detail.comprobante} · {detail.tercero}
-                </small>
+        <Modal onClose={() => setDetail(null)}>
+          <ModalHeader
+            title={detail.codigo}
+            subtitle={`${detail.comprobante} · ${detail.tercero}`}
+            onClose={() => setDetail(null)}
+          />
+          <div className="operation-detail-items">
+            {detail.items.map((item, index) => (
+              <div className="detail-line" key={index}>
+                <span>
+                  {item.producto}
+                  <small>
+                    {item.cantidad} · {item.destino}
+                  </small>
+                </span>
+                <strong>S/ {item.importe.toFixed(2)}</strong>
               </div>
-              <button className="modal-close" onClick={() => setDetail(null)}>
-                <X size={18} />
-              </button>
-            </div>
-            <div className="operation-detail-items">
-              {detail.items.map((item, index) => (
-                <div className="detail-line" key={index}>
-                  <span>
-                    {item.producto}
-                    <small>
-                      {item.cantidad} · {item.destino}
-                    </small>
-                  </span>
-                  <strong>S/ {item.importe.toFixed(2)}</strong>
-                </div>
-              ))}
-            </div>
-            <div className="review-total">
-              <span>Total devuelto</span>
-              <strong>S/ {detail.total.toFixed(2)}</strong>
-            </div>
-            <div className="modal-actions">
-              <button className="btn-secondary" onClick={() => setDetail(null)}>
-                Cerrar
-              </button>
-            </div>
-          </section>
-        </div>
+            ))}
+          </div>
+          <div className="review-total">
+            <span>Total devuelto</span>
+            <strong>S/ {detail.total.toFixed(2)}</strong>
+          </div>
+          <div className={modalActionsClass}>
+            <Button variant="secondary" onClick={() => setDetail(null)}>
+              Cerrar
+            </Button>
+          </div>
+        </Modal>
       ) : null}
     </div>
   );

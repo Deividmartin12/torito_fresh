@@ -1,9 +1,14 @@
 'use client';
 
-import { Banknote, CreditCard, Pencil, Plus, Search, Smartphone } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Banknote, CreditCard, Pencil, Search, Smartphone } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import { DataTable, DataTableColumn } from '../../../components/DataTable';
 import { PaymentMethodFormModal } from '../../../components/PaymentMethodFormModal';
+import { AddButton } from '../../../components/ui/AddButton';
+import { Badge } from '../../../components/ui/Badge';
+import { IconButton } from '../../../components/ui/IconButton';
 import { api } from '../../../lib/api';
 import { getPaymentMethods, PaymentMethod } from '../../../lib/payment-methods';
 
@@ -20,40 +25,39 @@ function MethodIcon({ name }: { name: string }) {
 }
 
 export default function MetodosPagoPage() {
-  const [methods, setMethods] = useState<PaymentMethod[]>([]);
-  const [trabajadores, setTrabajadores] = useState<TrabajadorOption[]>([]);
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<PaymentMethod | null>(null);
-  const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      setMethods(await getPaymentMethods());
-    } catch (cause) {
+  const query = useQuery({ queryKey: ['payment-methods'], queryFn: getPaymentMethods });
+  const methods = query.data ?? [];
+  const loading = query.isPending;
+  const load = query.refetch;
+  useEffect(() => {
+    if (query.error) {
       toast.error(
-        cause instanceof Error ? cause.message : 'No se pudieron cargar los métodos de pago',
-        { action: { label: 'Reintentar', onClick: () => void load() } },
+        query.error instanceof Error
+          ? query.error.message
+          : 'No se pudieron cargar los métodos de pago',
+        { action: { label: 'Reintentar', onClick: () => void query.refetch() } },
       );
-    } finally {
-      setLoading(false);
     }
-  }, []);
-  useEffect(() => {
-    void load();
-  }, [load]);
-  useEffect(() => {
-    api<{ id: string; nombres: string; apellidos: string; estado: boolean }[]>('/trabajadores')
-      .then((rows) =>
-        setTrabajadores(
-          rows
-            .filter((row) => row.estado)
-            .map((row) => ({ id: row.id, nombre: `${row.nombres} ${row.apellidos}` })),
-        ),
-      )
-      .catch(() => undefined);
-  }, []);
+  }, [query.error, query.refetch]);
+
+  const trabajadoresQuery = useQuery({
+    queryKey: ['trabajadores', 'todos'],
+    queryFn: () =>
+      api<{ id: string; nombres: string; apellidos: string; estado: boolean }[]>('/trabajadores'),
+    retry: false,
+  });
+  const trabajadores: TrabajadorOption[] = useMemo(
+    () =>
+      (trabajadoresQuery.data ?? [])
+        .filter((row) => row.estado)
+        .map((row) => ({ id: row.id, nombre: `${row.nombres} ${row.apellidos}` })),
+    [trabajadoresQuery.data],
+  );
 
   const visible = useMemo(() => {
     const term = search.toLowerCase();
@@ -72,13 +76,46 @@ export default function MetodosPagoPage() {
     setOpen(true);
   }
   function handleSaved(saved: PaymentMethod) {
-    setMethods((current) =>
-      current.some((item) => item.id === saved.id)
+    queryClient.setQueryData<PaymentMethod[]>(['payment-methods'], (current) =>
+      current?.some((item) => item.id === saved.id)
         ? current.map((item) => (item.id === saved.id ? saved : item))
-        : [...current, saved].sort((a, b) => a.nombre.localeCompare(b.nombre)),
+        : [...(current ?? []), saved].sort((a, b) => a.nombre.localeCompare(b.nombre)),
     );
     close();
   }
+
+  const columns: DataTableColumn<PaymentMethod>[] = [
+    {
+      key: 'metodo',
+      header: 'Método',
+      cardLabel: null,
+      render: (item) => (
+        <div className="flex items-center gap-2 text-[13px] font-medium text-fg">
+          <MethodIcon name={item.categoria ?? item.nombre} />
+          <strong className="font-medium">{item.nombre}</strong>
+        </div>
+      ),
+    },
+    { key: 'tipo', header: 'Tipo', render: (item) => item.categoria ?? '—' },
+    { key: 'dueno', header: 'Dueño', render: (item) => item.trabajador ?? 'Todos' },
+    {
+      key: 'estado',
+      header: 'Estado',
+      render: (item) => (
+        <Badge tone={item.estado ? 'green' : 'red'}>{item.estado ? 'Activo' : 'Inactivo'}</Badge>
+      ),
+    },
+    {
+      key: 'acciones',
+      header: 'Acciones',
+      cardLabel: null,
+      render: (item) => (
+        <IconButton onClick={() => openForm(item)} title="Editar método">
+          <Pencil size={16} />
+        </IconButton>
+      ),
+    },
+  ];
 
   return (
     <div className="module-page">
@@ -87,15 +124,7 @@ export default function MetodosPagoPage() {
           <h1>Métodos de pago</h1>
           <span>{methods.length} métodos registrados</span>
         </div>
-        <button
-          className="round-add"
-          type="button"
-          onClick={() => openForm()}
-          title="Agregar método"
-          aria-label="Agregar método"
-        >
-          <Plus size={20} />
-        </button>
+        <AddButton label="Agregar método" onClick={() => openForm()} />
       </div>
       <div className="module-tools">
         <label className="pill-search">
@@ -107,67 +136,21 @@ export default function MetodosPagoPage() {
           />
         </label>
       </div>
-      {loading ? (
-        <div className="table-loading">
-          <span className="loading-spinner" /> Cargando métodos de pago...
-        </div>
-      ) : (
-        <div className="glass-table">
-          <table>
-            <thead>
-              <tr>
-                <th>Método</th>
-                <th>Tipo</th>
-                <th>Dueño</th>
-                <th>Estado</th>
-                <th>Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visible.length ? (
-                visible.map((item) => (
-                  <tr key={item.id}>
-                    <td>
-                      <div className="flex items-center gap-2">
-                        <MethodIcon name={item.categoria ?? item.nombre} />
-                        <strong>{item.nombre}</strong>
-                      </div>
-                    </td>
-                    <td>{item.categoria ?? '—'}</td>
-                    <td>{item.trabajador ?? 'Todos'}</td>
-                    <td>
-                      <span className={`status ${item.estado ? 'status-green' : 'status-red'}`}>
-                        {item.estado ? 'Activo' : 'Inactivo'}
-                      </span>
-                    </td>
-                    <td>
-                      <button
-                        className="icon-soft"
-                        type="button"
-                        onClick={() => openForm(item)}
-                        title="Editar método"
-                      >
-                        <Pencil size={16} />
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={5}>
-                    <div className="table-empty">
-                      No hay métodos de pago que coincidan.
-                      <button type="button" onClick={() => setSearch('')}>
-                        Limpiar búsqueda
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <DataTable
+        columns={columns}
+        rows={visible}
+        rowKey={(item) => item.id}
+        loading={loading}
+        loadingLabel="Cargando métodos de pago..."
+        emptyMessage={
+          <div className="flex flex-col items-center gap-2.5">
+            <span>No hay métodos de pago que coincidan.</span>
+            <button type="button" className="text-accent underline" onClick={() => setSearch('')}>
+              Limpiar búsqueda
+            </button>
+          </div>
+        }
+      />
       {open ? (
         <PaymentMethodFormModal
           editando={editing}

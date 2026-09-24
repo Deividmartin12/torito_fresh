@@ -1,3 +1,5 @@
+import { toast } from 'sonner';
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4070';
 
 /** Si el servidor no responde en este tiempo, cortamos y avisamos (en vez de esperar para siempre). */
@@ -122,7 +124,12 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
       !path.startsWith('/auth/login')
     ) {
       limpiarSesion();
-      window.location.replace('/login');
+      // Mismo aviso que el timer de expiración de AppShell, para que la sesión hable con una
+      // sola voz sin importar por qué se cerró. El redirect espera un poco a propósito: como
+      // `window.location.replace` recarga la página entera, si se dispara en el mismo
+      // instante que el toast, el toast nunca llega a pintarse.
+      toast.info('Tu sesión expiró. Vuelve a iniciar sesión.');
+      window.setTimeout(() => window.location.replace('/login'), 1500);
     }
     const body = await response.json().catch(() => ({}));
     const message = Array.isArray(body.message) ? body.message.join(', ') : body.message;

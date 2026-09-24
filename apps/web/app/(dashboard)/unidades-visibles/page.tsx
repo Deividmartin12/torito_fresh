@@ -4,6 +4,8 @@ import { Building2, Check } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { useUnidad } from '../../../components/UnidadProvider';
+import { Button } from '../../../components/ui/Button';
+import { fieldErrorClass, modalActionsClass } from '../../../components/ui/Field';
 import { guardarUnidadesVisibles, UnidadOpcion } from '../../../lib/unidades';
 
 /**
@@ -121,18 +123,17 @@ export default function UnidadesVisiblesPage() {
       </div>
 
       {sinNinguna ? (
-        <p className="field-error">Marca al menos una unidad, o elige "Todas las unidades".</p>
+        <p className={fieldErrorClass}>Marca al menos una unidad, o elige "Todas las unidades".</p>
       ) : null}
 
-      <div className="modal-actions">
-        <button
+      <div className={modalActionsClass}>
+        <Button
           type="button"
-          className="btn-primary"
           onClick={() => void guardar()}
           disabled={guardando || sinNinguna || sinCambios}
         >
           {guardando ? 'Guardando...' : 'Guardar'}
-        </button>
+        </Button>
       </div>
     </div>
   );

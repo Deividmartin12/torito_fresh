@@ -1,10 +1,24 @@
 'use client';
 
-import { Boxes, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Boxes, Pencil, Search, Trash2 } from 'lucide-react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Pagination } from '../../../components/Pagination';
+import { DataTable, DataTableColumn } from '../../../components/DataTable';
 import { SearchableSelect } from '../../../components/SearchableSelect';
+import { AddButton } from '../../../components/ui/AddButton';
+import { Badge } from '../../../components/ui/Badge';
+import { Button } from '../../../components/ui/Button';
+import {
+  checkboxFieldClass,
+  checkboxInputClass,
+  controlClass,
+  fieldLabelClass,
+  modalActionsClass,
+  modalFormClass,
+} from '../../../components/ui/Field';
+import { IconButton } from '../../../components/ui/IconButton';
+import { Modal, ModalHeader } from '../../../components/ui/Modal';
 import {
   TipoProductoCreado,
   TipoProductoFormModal,
@@ -32,12 +46,9 @@ type Producto = {
 };
 
 export default function ProductosPage() {
-  const [datos, setDatos] = useState<Producto[]>([]);
-  const [tiposProducto, setTiposProducto] = useState<{ id: string; nombre: string }[]>([]);
+  const queryClient = useQueryClient();
   const [buscar, setBuscar] = useState('');
   const [tipo, setTipo] = useState('Todos');
-  const [pagina, setPagina] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
   const [modal, setModal] = useState(false);
   const [tipoModal, setTipoModal] = useState(false);
   const [tipoNombre, setTipoNombre] = useState('');
@@ -48,16 +59,29 @@ export default function ProductosPage() {
   // botones de crear y borrar aunque el API se los rechazara.
   const editable = puede(usePermisos(), 'productos.editar');
   const { controlaInventario } = useUnidad();
+
+  const datosQuery = useQuery({
+    queryKey: ['products'],
+    queryFn: () => api<Producto[]>('/operations/products'),
+  });
+  const datos = datosQuery.data ?? [];
   useEffect(() => {
-    api<Producto[]>('/operations/products')
-      .then(setDatos)
-      .catch((cause) =>
-        toast.error(cause instanceof Error ? cause.message : 'No se pudieron cargar los productos'),
+    if (datosQuery.error) {
+      toast.error(
+        datosQuery.error instanceof Error
+          ? datosQuery.error.message
+          : 'No se pudieron cargar los productos',
       );
-    api<{ id: string; nombre: string }[]>('/operations/product-types')
-      .then(setTiposProducto)
-      .catch(() => undefined);
-  }, []);
+    }
+  }, [datosQuery.error]);
+
+  // Catálogo secundario: si falla, se queda vacío en silencio, igual que antes.
+  const tiposQuery = useQuery({
+    queryKey: ['product-types'],
+    queryFn: () => api<{ id: string; nombre: string }[]>('/operations/product-types'),
+  });
+  const tiposProducto = tiposQuery.data ?? [];
+
   const tipos = useMemo(
     () => [...new Set(datos.map((item) => item.tipo))].sort((a, b) => a.localeCompare(b)),
     [datos],
@@ -71,7 +95,6 @@ export default function ProductosPage() {
       ),
     [buscar, datos, tipo],
   );
-  const paginados = productos.slice((pagina - 1) * pageSize, pagina * pageSize);
   function abrir(item?: Producto) {
     setEditando(item ?? null);
     setTipoNombre(item?.tipo ?? '');
@@ -79,8 +102,8 @@ export default function ProductosPage() {
   }
   // Tipo creado desde el combo del formulario: lo sumamos a la lista y lo dejamos elegido.
   function handleTipoCreado(tipo: TipoProductoCreado) {
-    setTiposProducto((current) =>
-      current.some((item) => item.nombre === tipo.nombre) ? current : [...current, tipo],
+    queryClient.setQueryData<{ id: string; nombre: string }[]>(['product-types'], (current) =>
+      current?.some((item) => item.nombre === tipo.nombre) ? current : [...(current ?? []), tipo],
     );
     setTipoNombre(tipo.nombre);
     setTipoModal(false);
@@ -122,10 +145,8 @@ export default function ProductosPage() {
       } else {
         await api('/operations/products', { method: 'POST', body: JSON.stringify(body) });
       }
-      setDatos(await api<Producto[]>('/operations/products'));
-      api<{ id: string; nombre: string }[]>('/operations/product-types')
-        .then(setTiposProducto)
-        .catch(() => undefined);
+      void queryClient.invalidateQueries({ queryKey: ['products'] });
+      void queryClient.invalidateQueries({ queryKey: ['product-types'] });
       setModal(false);
       toast.success(editando ? 'Producto actualizado' : 'Producto registrado');
     } catch (cause) {
@@ -148,11 +169,87 @@ export default function ProductosPage() {
       return;
     try {
       await api(`/operations/products/${item.id}`, { method: 'DELETE' });
-      setDatos((current) => current.filter((product) => product.id !== item.id));
+      queryClient.setQueryData<Producto[]>(['products'], (current) =>
+        current?.filter((product) => product.id !== item.id),
+      );
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : 'No se pudo eliminar el producto');
     }
   }
+  const columns: DataTableColumn<Producto>[] = [
+    {
+      key: 'producto',
+      header: 'Producto',
+      cardLabel: null,
+      render: (item) => (
+        <>
+          <strong className="block text-[13px] font-medium text-fg">{item.nombre}</strong>
+          <small className="mt-0.5 block text-[11px] text-muted">
+            {item.codigo} · {item.capacidad}
+          </small>
+        </>
+      ),
+    },
+    { key: 'tipo', header: 'Tipo', render: (item) => item.tipo },
+    { key: 'unidad', header: 'Unidad', render: (item) => item.unidad },
+    { key: 'precio', header: 'Precio venta', render: (item) => `S/ ${item.precio.toFixed(2)}` },
+    { key: 'costo', header: 'Costo ref.', render: (item) => `S/ ${item.costo.toFixed(2)}` },
+    // En un puesto que no lleva inventario la columna daría 0 en todo y solo confundiría:
+    // el catálogo sí se usa, el stock no existe.
+    ...(controlaInventario
+      ? [
+          {
+            key: 'stock',
+            header: 'Stock global',
+            render: (item: Producto) => item.stock,
+          } satisfies DataTableColumn<Producto>,
+        ]
+      : []),
+    {
+      key: 'control',
+      header: 'Control',
+      render: (item) => (item.lote ? 'Lote' : item.retornable ? 'Retornable' : 'Simple'),
+    },
+    {
+      key: 'estado',
+      header: 'Estado',
+      render: (item) => (
+        <Badge tone={item.activo ? 'green' : 'amber'}>{item.activo ? 'Activo' : 'Inactivo'}</Badge>
+      ),
+    },
+    ...(editable
+      ? [
+          {
+            key: 'acciones',
+            header: 'Acciones',
+            cardLabel: null,
+            render: (item: Producto) => (
+              <div className="flex flex-wrap gap-[7px]">
+                <IconButton onClick={() => abrir(item)} title="Editar producto">
+                  <Pencil size={16} />
+                </IconButton>
+                <IconButton title="Ver stock">
+                  <Boxes size={16} />
+                </IconButton>
+                <IconButton
+                  onClick={() => void eliminar(item)}
+                  title={
+                    item.tieneVentas
+                      ? 'No se puede eliminar: está ligado a una venta'
+                      : 'Eliminar producto'
+                  }
+                  aria-label={`Eliminar ${item.nombre}`}
+                  disabled={item.tieneVentas}
+                >
+                  <Trash2 size={16} />
+                </IconButton>
+              </div>
+            ),
+          } satisfies DataTableColumn<Producto>,
+        ]
+      : []),
+  ];
+
   return (
     <div className="module-page">
       <div className="module-head">
@@ -160,36 +257,21 @@ export default function ProductosPage() {
           <h1>Productos</h1>
           <span>{datos.length} productos</span>
         </div>
-        {editable ? (
-          <button
-            className="round-add"
-            onClick={() => abrir()}
-            title="Agregar producto"
-            aria-label="Agregar producto"
-          >
-            <Plus size={20} />
-          </button>
-        ) : null}
+        {editable ? <AddButton label="Agregar producto" onClick={() => abrir()} /> : null}
       </div>
       <div className="module-tools">
         <label className="pill-search">
           <Search size={17} />
           <input
             value={buscar}
-            onChange={(event) => {
-              setBuscar(event.target.value);
-              setPagina(1);
-            }}
+            onChange={(event) => setBuscar(event.target.value)}
             placeholder="Buscar por código o nombre"
           />
         </label>
         <select
           className="filter-pill"
           value={tipo}
-          onChange={(event) => {
-            setTipo(event.target.value);
-            setPagina(1);
-          }}
+          onChange={(event) => setTipo(event.target.value)}
         >
           <option>Todos</option>
           {tipos.map((item) => (
@@ -197,194 +279,122 @@ export default function ProductosPage() {
           ))}
         </select>
       </div>
-      <div className="glass-table">
-        <table>
-          <thead>
-            <tr>
-              <th>Producto</th>
-              <th>Tipo</th>
-              <th>Unidad</th>
-              <th>Precio venta</th>
-              <th>Costo ref.</th>
-              {/* En un puesto que no lleva inventario la columna daría 0 en todo y solo
-                  confundiría: el catálogo sí se usa, el stock no existe. */}
-              {controlaInventario ? <th>Stock global</th> : null}
-              <th>Control</th>
-              <th>Estado</th>
-              {editable ? <th>Acciones</th> : null}
-            </tr>
-          </thead>
-          <tbody>
-            {paginados.map((item) => (
-              <tr key={item.id}>
-                <td>
-                  <strong>{item.nombre}</strong>
-                  <small>
-                    {item.codigo} · {item.capacidad}
-                  </small>
-                </td>
-                <td>{item.tipo}</td>
-                <td>{item.unidad}</td>
-                <td>S/ {item.precio.toFixed(2)}</td>
-                <td>S/ {item.costo.toFixed(2)}</td>
-                {controlaInventario ? <td>{item.stock}</td> : null}
-                <td>{item.lote ? 'Lote' : item.retornable ? 'Retornable' : 'Simple'}</td>
-                <td>
-                  <span className={`status ${item.activo ? 'status-green' : 'status-amber'}`}>
-                    {item.activo ? 'Activo' : 'Inactivo'}
-                  </span>
-                </td>
-                {editable ? (
-                  <td>
-                    <div className="row-actions">
-                      <button
-                        className="icon-soft"
-                        onClick={() => abrir(item)}
-                        title="Editar producto"
-                      >
-                        <Pencil size={16} />
-                      </button>
-                      <button className="icon-soft" title="Ver stock">
-                        <Boxes size={16} />
-                      </button>
-                      <button
-                        className="icon-soft"
-                        onClick={() => void eliminar(item)}
-                        title={
-                          item.tieneVentas
-                            ? 'No se puede eliminar: está ligado a una venta'
-                            : 'Eliminar producto'
-                        }
-                        aria-label={`Eliminar ${item.nombre}`}
-                        disabled={item.tieneVentas}
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </td>
-                ) : null}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <Pagination
-        page={pagina}
-        pages={Math.max(1, Math.ceil(productos.length / pageSize))}
-        total={productos.length}
-        pageSize={pageSize}
-        onChange={setPagina}
-        onPageSizeChange={(size) => {
-          setPageSize(size);
-          setPagina(1);
-        }}
+      <DataTable
+        columns={columns}
+        rows={productos}
+        rowKey={(item) => item.id}
+        emptyMessage={
+          <div className="flex flex-col items-center gap-2.5">
+            <Search size={22} />
+            <span>No hay productos que coincidan con los filtros.</span>
+          </div>
+        }
       />
       {modal ? (
-        <div
-          className="modal-backdrop"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget && !guardando) setModal(false);
-          }}
-        >
-          <section
-            className="crud-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label={editando ? 'Editar producto' : 'Agregar producto'}
-          >
-            <div className="modal-top">
-              <h2>{editando ? 'Editar producto' : 'Agregar producto'}</h2>
-              <button
-                className="modal-close"
-                onClick={() => setModal(false)}
-                aria-label="Cerrar modal"
+        <Modal onClose={() => setModal(false)} closeDisabled={guardando}>
+          <ModalHeader
+            title={editando ? 'Editar producto' : 'Agregar producto'}
+            onClose={() => setModal(false)}
+          />
+          <form className={modalFormClass} onSubmit={guardar}>
+            {editando ? (
+              <label>
+                <span className={fieldLabelClass}>Código</span>
+                <input className={controlClass} value={editando.codigo} disabled />
+              </label>
+            ) : null}
+            <label>
+              <span className={fieldLabelClass}>Nombre</span>
+              <input
+                className={controlClass}
+                name="nombre"
+                defaultValue={editando?.nombre}
+                maxLength={120}
+                onChange={(event) => {
+                  event.target.value = soloTextoNombre(event.target.value);
+                }}
+                required
+              />
+            </label>
+            <label>
+              <span className={fieldLabelClass}>Tipo de producto</span>
+              <SearchableSelect
+                value={tipoNombre}
+                onChange={setTipoNombre}
+                options={tiposProducto.map((item) => ({
+                  value: item.nombre,
+                  label: item.nombre,
+                }))}
+                placeholder="Buscar tipo de producto"
+                required
+                actionLabel="+ Agregar tipo"
+                onAction={() => setTipoModal(true)}
+              />
+            </label>
+            <label>
+              <span className={fieldLabelClass}>Unidad de medida</span>
+              <select
+                className={controlClass}
+                name="unidad"
+                defaultValue={(editando?.unidad ?? 'UNIDAD').toUpperCase()}
               >
-                <X size={18} />
-              </button>
+                <option value="UNIDAD">Unidad</option>
+                <option value="LITRO">Litro</option>
+                <option value="CAJA">Caja</option>
+              </select>
+            </label>
+            <label>
+              <span className={fieldLabelClass}>Precio de venta</span>
+              <input
+                className={controlClass}
+                name="precio"
+                type="number"
+                step="0.01"
+                min="0"
+                defaultValue={editando?.precio}
+                required
+              />
+            </label>
+            <label>
+              <span className={fieldLabelClass}>Costo de referencia</span>
+              <input
+                className={controlClass}
+                name="costo"
+                type="number"
+                step="0.01"
+                min="0"
+                defaultValue={editando?.costo}
+                required
+              />
+            </label>
+            <label className={checkboxFieldClass}>
+              <input
+                className={checkboxInputClass}
+                name="lote"
+                type="checkbox"
+                defaultChecked={editando?.lote}
+              />
+              <span className="text-[13px] font-medium">Controla lote</span>
+            </label>
+            <label className={checkboxFieldClass}>
+              <input
+                className={checkboxInputClass}
+                name="retornable"
+                type="checkbox"
+                defaultChecked={editando?.retornable}
+              />
+              <span className="text-[13px] font-medium">Es retornable</span>
+            </label>
+            <div className={modalActionsClass}>
+              <Button variant="secondary" type="button" onClick={() => setModal(false)}>
+                Cancelar
+              </Button>
+              <Button disabled={guardando}>
+                {guardando ? 'Guardando...' : editando ? 'Guardar cambios' : 'Registrar producto'}
+              </Button>
             </div>
-            <form className="modal-form" onSubmit={guardar}>
-              {editando ? (
-                <label>
-                  <span>Código</span>
-                  <input value={editando.codigo} disabled />
-                </label>
-              ) : null}
-              <label>
-                <span>Nombre</span>
-                <input
-                  name="nombre"
-                  defaultValue={editando?.nombre}
-                  maxLength={120}
-                  onChange={(event) => {
-                    event.target.value = soloTextoNombre(event.target.value);
-                  }}
-                  required
-                />
-              </label>
-              <label>
-                <span>Tipo de producto</span>
-                <SearchableSelect
-                  value={tipoNombre}
-                  onChange={setTipoNombre}
-                  options={tiposProducto.map((item) => ({
-                    value: item.nombre,
-                    label: item.nombre,
-                  }))}
-                  placeholder="Buscar tipo de producto"
-                  required
-                  actionLabel="+ Agregar tipo"
-                  onAction={() => setTipoModal(true)}
-                />
-              </label>
-              <label>
-                <span>Unidad de medida</span>
-                <select name="unidad" defaultValue={(editando?.unidad ?? 'UNIDAD').toUpperCase()}>
-                  <option value="UNIDAD">Unidad</option>
-                  <option value="LITRO">Litro</option>
-                  <option value="CAJA">Caja</option>
-                </select>
-              </label>
-              <label>
-                <span>Precio de venta</span>
-                <input
-                  name="precio"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  defaultValue={editando?.precio}
-                  required
-                />
-              </label>
-              <label>
-                <span>Costo de referencia</span>
-                <input
-                  name="costo"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  defaultValue={editando?.costo}
-                  required
-                />
-              </label>
-              <label className="check-field">
-                <input name="lote" type="checkbox" defaultChecked={editando?.lote} />
-                <span>Controla lote</span>
-              </label>
-              <label className="check-field">
-                <input name="retornable" type="checkbox" defaultChecked={editando?.retornable} />
-                <span>Es retornable</span>
-              </label>
-              <div className="modal-actions">
-                <button className="btn-secondary" type="button" onClick={() => setModal(false)}>
-                  Cancelar
-                </button>
-                <button className="btn-primary" disabled={guardando}>
-                  {guardando ? 'Guardando...' : editando ? 'Guardar cambios' : 'Registrar producto'}
-                </button>
-              </div>
-            </form>
-          </section>
-        </div>
+          </form>
+        </Modal>
       ) : null}
       {tipoModal ? (
         <TipoProductoFormModal onClose={() => setTipoModal(false)} onSaved={handleTipoCreado} />

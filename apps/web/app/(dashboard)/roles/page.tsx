@@ -1,10 +1,14 @@
 'use client';
 
-import { Building2, Pencil, Plus, Search, Trash2, UserCheck, UserX } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Building2, Pencil, Search, Trash2, UserCheck, UserX } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Pagination } from '../../../components/Pagination';
+import { DataTable, DataTableColumn } from '../../../components/DataTable';
 import { RolFormModal } from '../../../components/RolFormModal';
+import { AddButton } from '../../../components/ui/AddButton';
+import { Badge } from '../../../components/ui/Badge';
+import { IconButton } from '../../../components/ui/IconButton';
 import {
   deleteRol,
   getCatalogoPermisos,
@@ -27,36 +31,30 @@ import {
  * que hace falta saber antes de tocarle los permisos.
  */
 export default function RolesPage() {
-  const [roles, setRoles] = useState<Rol[]>([]);
-  const [catalogo, setCatalogo] = useState<GrupoPermisos[]>([]);
+  const queryClient = useQueryClient();
   const [buscar, setBuscar] = useState('');
   const [estado, setEstado] = useState('Todos');
-  const [pagina, setPagina] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
   const [modal, setModal] = useState(false);
   const [editando, setEditando] = useState<Rol | null>(null);
-  const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [lista, grupos] = await Promise.all([getRoles(), getCatalogoPermisos()]);
-      setRoles(lista);
-      setCatalogo(grupos);
-    } catch (requestError) {
-      toast.error(
-        requestError instanceof Error ? requestError.message : 'No se pudieron cargar los roles',
-        { action: { label: 'Reintentar', onClick: () => void load() } },
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
+  const rolesQuery = useQuery({ queryKey: ['roles'], queryFn: getRoles });
+  const roles = rolesQuery.data ?? [];
+  const catalogoQuery = useQuery({ queryKey: ['permisos-catalogo'], queryFn: getCatalogoPermisos });
+  const catalogo = catalogoQuery.data ?? [];
+  const loading = rolesQuery.isPending || catalogoQuery.isPending;
+  const load = async () => {
+    await Promise.all([rolesQuery.refetch(), catalogoQuery.refetch()]);
+  };
   useEffect(() => {
-    void load();
-  }, [load]);
+    const fallo = rolesQuery.error ?? catalogoQuery.error;
+    if (fallo) {
+      toast.error(fallo instanceof Error ? fallo.message : 'No se pudieron cargar los roles', {
+        action: { label: 'Reintentar', onClick: () => void load() },
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rolesQuery.error, catalogoQuery.error]);
 
   // Cuántos permisos existen en total, para poder decir "12 de 45" y que el número signifique
   // algo sin tener que abrir el rol.
@@ -76,20 +74,16 @@ export default function RolesPage() {
       return matchesStatus && matchesSearch;
     });
   }, [buscar, estado, roles]);
-  const pages = Math.max(1, Math.ceil(visibles.length / pageSize));
-  const currentPage = Math.min(pagina, pages);
-  const paginados = visibles.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-
   function abrir(item?: Rol) {
     setEditando(item ?? null);
     setModal(true);
   }
 
   function handleSaved(saved: Rol) {
-    setRoles((current) =>
-      (current.some((item) => item.id === saved.id)
+    queryClient.setQueryData<Rol[]>(['roles'], (current) =>
+      (current?.some((item) => item.id === saved.id)
         ? current.map((item) => (item.id === saved.id ? saved : item))
-        : [...current, saved]
+        : [...(current ?? []), saved]
       ).sort(
         (left, right) =>
           Number(right.sistema) - Number(left.sistema) ||
@@ -107,7 +101,9 @@ export default function RolesPage() {
     setProcessingId(item.id);
     try {
       const updated = await updateRol(item.id, { estado: !item.estado });
-      setRoles((current) => current.map((row) => (row.id === updated.id ? updated : row)));
+      queryClient.setQueryData<Rol[]>(['roles'], (current) =>
+        current?.map((row) => (row.id === updated.id ? updated : row)),
+      );
     } catch (requestError) {
       toast.error(
         requestError instanceof Error
@@ -125,7 +121,9 @@ export default function RolesPage() {
     setProcessingId(item.id);
     try {
       await deleteRol(item.id);
-      setRoles((current) => current.filter((row) => row.id !== item.id));
+      queryClient.setQueryData<Rol[]>(['roles'], (current) =>
+        current?.filter((row) => row.id !== item.id),
+      );
       toast.success(`Rol ${item.nombre} eliminado`);
     } catch (requestError) {
       toast.error(
@@ -136,6 +134,116 @@ export default function RolesPage() {
     }
   }
 
+  const columns: DataTableColumn<Rol>[] = [
+    {
+      key: 'rol',
+      header: 'Rol',
+      cardLabel: null,
+      render: (item) => (
+        <>
+          <strong className="block text-[13px] font-medium text-fg">{item.nombre}</strong>
+          <small className="mt-0.5 block text-[11px] text-muted">
+            {item.descripcion || item.clave}
+          </small>
+        </>
+      ),
+    },
+    {
+      key: 'permisos',
+      header: 'Permisos',
+      render: (item) =>
+        item.accesoTotal ? (
+          <Badge tone="blue">Acceso total</Badge>
+        ) : (
+          <>
+            {item.permisos.length} de {totalPermisos}
+            <small className="mt-0.5 block text-[11px] text-muted">
+              {item.permisos.length === 0
+                ? 'Sin permisos: no puede hacer nada'
+                : 'permisos marcados'}
+            </small>
+          </>
+        ),
+    },
+    {
+      key: 'personas',
+      header: 'Personas',
+      render: (item) => (
+        <>
+          {item.usuarios}
+          <small className="mt-0.5 block text-[11px] text-muted">
+            {item.usuarios === 0 ? 'Nadie lo usa' : `${item.usuariosActivos} con acceso activo`}
+          </small>
+        </>
+      ),
+    },
+    {
+      key: 'unidades',
+      header: 'Unidades de negocio',
+      render: (item) =>
+        item.unidades.length ? (
+          <span className="rol-unidades">
+            {item.unidades.map((unidad) => (
+              <span className="rol-unidad" key={unidad.id}>
+                <Building2 size={12} aria-hidden="true" />
+                {unidad.nombre}
+              </span>
+            ))}
+          </span>
+        ) : (
+          <small className="text-[11px] text-muted">Sin gente asignada</small>
+        ),
+    },
+    {
+      key: 'estado',
+      header: 'Estado',
+      render: (item) => (
+        <Badge tone={item.estado ? 'green' : 'red'}>{item.estado ? 'Activo' : 'Inactivo'}</Badge>
+      ),
+    },
+    {
+      key: 'acciones',
+      header: 'Acciones',
+      cardLabel: null,
+      render: (item) => (
+        <div className="flex flex-wrap gap-[7px]">
+          <IconButton
+            onClick={() => abrir(item)}
+            title="Editar rol"
+            aria-label={`Editar ${item.nombre}`}
+          >
+            <Pencil size={16} />
+          </IconButton>
+          <IconButton
+            onClick={() => void cambiarEstado(item)}
+            disabled={processingId === item.id}
+            title={item.estado ? 'Desactivar rol' : 'Activar rol'}
+            aria-label={`${item.estado ? 'Desactivar' : 'Activar'} ${item.nombre}`}
+          >
+            {item.estado ? <UserX size={16} /> : <UserCheck size={16} />}
+          </IconButton>
+          <IconButton
+            onClick={() => void eliminar(item)}
+            // Los roles del sistema y los que tienen gente adentro no se
+            // borran: el API lo rechaza igual, y el botón apagado con su
+            // motivo evita el viaje y el mensaje de error.
+            disabled={processingId === item.id || item.sistema || item.usuarios > 0}
+            title={
+              item.sistema
+                ? 'Es un rol del sistema: se puede desactivar, no eliminar'
+                : item.usuarios > 0
+                  ? 'Hay gente con este rol: cámbiales el rol primero'
+                  : 'Eliminar rol'
+            }
+            aria-label={`Eliminar ${item.nombre}`}
+          >
+            <Trash2 size={16} />
+          </IconButton>
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div className="module-page">
       <div className="module-head">
@@ -145,36 +253,21 @@ export default function RolesPage() {
             {roles.length} roles · {totalPermisos} permisos
           </span>
         </div>
-        <button
-          type="button"
-          className="round-add"
-          onClick={() => abrir()}
-          title="Crear rol"
-          aria-label="Crear rol"
-          disabled={loading}
-        >
-          <Plus size={20} />
-        </button>
+        <AddButton label="Crear rol" onClick={() => abrir()} disabled={loading} />
       </div>
       <div className="module-tools">
         <label className="pill-search">
           <Search size={17} />
           <input
             value={buscar}
-            onChange={(event) => {
-              setBuscar(event.target.value);
-              setPagina(1);
-            }}
+            onChange={(event) => setBuscar(event.target.value)}
             placeholder="Buscar por nombre o descripción"
           />
         </label>
         <select
           className="filter-pill"
           value={estado}
-          onChange={(event) => {
-            setEstado(event.target.value);
-            setPagina(1);
-          }}
+          onChange={(event) => setEstado(event.target.value)}
           aria-label="Filtrar por estado"
         >
           <option>Todos</option>
@@ -182,154 +275,31 @@ export default function RolesPage() {
           <option>Inactivos</option>
         </select>
       </div>
-      {loading ? (
-        <div className="table-loading" role="status">
-          <span className="loading-spinner" /> Cargando roles...
-        </div>
-      ) : (
-        <>
-          <div className="glass-table rol-tabla">
-            <table>
-              <thead>
-                <tr>
-                  <th>Rol</th>
-                  <th>Permisos</th>
-                  <th>Personas</th>
-                  <th>Unidades de negocio</th>
-                  <th>Estado</th>
-                  <th>Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {paginados.length ? (
-                  paginados.map((item) => (
-                    <tr key={item.id}>
-                      <td>
-                        <strong>{item.nombre}</strong>
-                        <small>{item.descripcion || item.clave}</small>
-                      </td>
-                      <td>
-                        {item.accesoTotal ? (
-                          <span className="status status-blue">Acceso total</span>
-                        ) : (
-                          <>
-                            {item.permisos.length} de {totalPermisos}
-                            <small>
-                              {item.permisos.length === 0
-                                ? 'Sin permisos: no puede hacer nada'
-                                : 'permisos marcados'}
-                            </small>
-                          </>
-                        )}
-                      </td>
-                      <td>
-                        {item.usuarios}
-                        <small>
-                          {item.usuarios === 0
-                            ? 'Nadie lo usa'
-                            : `${item.usuariosActivos} con acceso activo`}
-                        </small>
-                      </td>
-                      <td>
-                        {item.unidades.length ? (
-                          <span className="rol-unidades">
-                            {item.unidades.map((unidad) => (
-                              <span className="rol-unidad" key={unidad.id}>
-                                <Building2 size={12} aria-hidden="true" />
-                                {unidad.nombre}
-                              </span>
-                            ))}
-                          </span>
-                        ) : (
-                          <small>Sin gente asignada</small>
-                        )}
-                      </td>
-                      <td>
-                        <span className={item.estado ? 'status status-green' : 'status status-red'}>
-                          {item.estado ? 'Activo' : 'Inactivo'}
-                        </span>
-                      </td>
-                      <td>
-                        <div className="row-actions">
-                          <button
-                            type="button"
-                            className="icon-soft"
-                            onClick={() => abrir(item)}
-                            title="Editar rol"
-                            aria-label={`Editar ${item.nombre}`}
-                          >
-                            <Pencil size={16} />
-                          </button>
-                          <button
-                            type="button"
-                            className="icon-soft"
-                            onClick={() => void cambiarEstado(item)}
-                            disabled={processingId === item.id}
-                            title={item.estado ? 'Desactivar rol' : 'Activar rol'}
-                            aria-label={`${item.estado ? 'Desactivar' : 'Activar'} ${item.nombre}`}
-                          >
-                            {item.estado ? <UserX size={16} /> : <UserCheck size={16} />}
-                          </button>
-                          <button
-                            type="button"
-                            className="icon-soft"
-                            onClick={() => void eliminar(item)}
-                            // Los roles del sistema y los que tienen gente adentro no se
-                            // borran: el API lo rechaza igual, y el botón apagado con su
-                            // motivo evita el viaje y el mensaje de error.
-                            disabled={processingId === item.id || item.sistema || item.usuarios > 0}
-                            title={
-                              item.sistema
-                                ? 'Es un rol del sistema: se puede desactivar, no eliminar'
-                                : item.usuarios > 0
-                                  ? 'Hay gente con este rol: cámbiales el rol primero'
-                                  : 'Eliminar rol'
-                            }
-                            aria-label={`Eliminar ${item.nombre}`}
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={6}>
-                      <div className="table-empty">
-                        <Search size={22} />
-                        <span>No hay roles que coincidan con los filtros.</span>
-                        {buscar || estado !== 'Todos' ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setBuscar('');
-                              setEstado('Todos');
-                            }}
-                          >
-                            Limpiar filtros
-                          </button>
-                        ) : null}
-                      </div>
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+      <DataTable
+        columns={columns}
+        rows={visibles}
+        rowKey={(item) => item.id}
+        loading={loading}
+        loadingLabel="Cargando roles..."
+        emptyMessage={
+          <div className="flex flex-col items-center gap-2.5">
+            <Search size={22} />
+            <span>No hay roles que coincidan con los filtros.</span>
+            {buscar || estado !== 'Todos' ? (
+              <button
+                type="button"
+                className="text-accent underline"
+                onClick={() => {
+                  setBuscar('');
+                  setEstado('Todos');
+                }}
+              >
+                Limpiar filtros
+              </button>
+            ) : null}
           </div>
-          <Pagination
-            page={currentPage}
-            pages={pages}
-            total={visibles.length}
-            pageSize={pageSize}
-            onChange={setPagina}
-            onPageSizeChange={(size) => {
-              setPageSize(size);
-              setPagina(1);
-            }}
-          />
-        </>
-      )}
+        }
+      />
       {modal ? (
         <RolFormModal
           catalogo={catalogo}

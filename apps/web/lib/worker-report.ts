@@ -11,9 +11,19 @@ export type WorkerReportRow = {
   /** Ventas confirmadas que registró, netas de devoluciones. */
   ventas: { count: number; total: number };
   ventasPorMetodo: WorkerBreakdownItem[];
-  /** Gastos de "Pago a trabajador" en los que él es el beneficiario. */
+  /**
+   * Plata que se le PAGÓ a él: gastos de "Pago a trabajador" donde es el beneficiario
+   * (sueldos, adelantos). No confundir con `cobranzas`, que es plata que él recibió de
+   * clientes y tiene que rendir.
+   */
   pagosRecibidos: { count: number; total: number };
   pagosPorMetodo: WorkerBreakdownItem[];
+  /**
+   * Plata que él COBRÓ de deudas viejas, en la calle, con los reembolsos de anulaciones ya
+   * restados. No incluye el cobro del momento de la venta: eso ya está en `ventasPorMetodo`.
+   */
+  cobranzas: { count: number; total: number };
+  cobranzasPorMetodo: WorkerBreakdownItem[];
   /** Gastos que él cargó al sistema, cualquiera sea la categoría. */
   gastosRegistrados: { count: number; total: number };
   gastosPorCategoria: WorkerBreakdownItem[];
@@ -24,12 +34,15 @@ export type WorkerReport = {
   /** Nombres de columna de cada tabla, ya ordenados. */
   metodosVenta: string[];
   metodosPago: string[];
+  metodosCobranza: string[];
   categoriasGasto: string[];
   totals: {
     ventas: number;
     montoVendido: number;
     pagosRecibidos: number;
     montoPagado: number;
+    cobranzas: number;
+    montoCobrado: number;
     gastosRegistrados: number;
     montoGastos: number;
   };

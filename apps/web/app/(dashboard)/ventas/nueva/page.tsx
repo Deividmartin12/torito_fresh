@@ -1,6 +1,7 @@
 import { ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { OperationForm } from '../../../../components/operations/OperationForm';
+import { buttonClass } from '../../../../components/ui/Button';
 
 export default function NuevaVentaPage() {
   return (
@@ -9,7 +10,7 @@ export default function NuevaVentaPage() {
         <div>
           <h1>Nueva venta</h1>
         </div>
-        <Link href="/ventas" className="btn-secondary">
+        <Link href="/ventas" className={buttonClass('secondary', '', 'rect')}>
           <ArrowLeft size={16} /> Volver a ventas
         </Link>
       </div>

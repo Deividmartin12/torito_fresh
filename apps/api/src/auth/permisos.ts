@@ -183,9 +183,20 @@ export const CATALOGO_PERMISOS: GrupoPermisos[] = [
       {
         clave: 'ventas.editar',
         etiqueta: 'Corregir ventas',
-        descripcion: 'Modificar o anular una venta ya registrada.',
+        // Antes decía "Modificar o anular". Anular es otra capacidad y tiene su propio
+        // permiso: son acciones con precondiciones opuestas (editar se prohíbe si hubo cobros
+        // desde Cobranzas, anular se permite igual) y anular saca plata de la caja.
+        descripcion: 'Modificar una venta ya registrada.',
         implica: ['ventas.ver'],
         // PATCH /operations/sales/:id
+      },
+      {
+        clave: 'ventas.anular',
+        etiqueta: 'Anular ventas',
+        descripcion:
+          'Dar de baja una venta entera: los productos vuelven al inventario y la plata que el cliente había pagado se le devuelve en efectivo. Queda como una devolución total y no se puede deshacer.',
+        implica: ['ventas.ver', 'devoluciones.ver'],
+        // POST /operations/sales/:id/anular
       },
       {
         clave: 'recargas.ver',
@@ -233,7 +244,11 @@ export const CATALOGO_PERMISOS: GrupoPermisos[] = [
       {
         clave: 'bidonesRotos.registrar',
         etiqueta: 'Registrar bidones rotos',
-        descripcion: 'Dar de baja un bidón roto y descontarlo del saldo del cliente.',
+        // Antes esta descripción decía "descontarlo del saldo del cliente", cosa que el código
+        // nunca hizo y que además es otra cuenta: la de envases pendientes de devolver, que se
+        // ajusta desde Retorno de envases. Lo que sí descuenta es el stock del almacén.
+        descripcion:
+          'Dar de baja un bidón roto y descontarlo del stock del almacén. Si no hay stock, la rotura queda registrada sin descontar.',
         implica: ['bidonesRotos.ver'],
         // POST /bidones-rotos
       },
@@ -281,6 +296,14 @@ export const CATALOGO_PERMISOS: GrupoPermisos[] = [
         implica: ['productos.ver'],
         // GET /operations/movements, GET /operations/kardex
       },
+      {
+        clave: 'stock.ajustar',
+        etiqueta: 'Cuadrar el stock con el conteo físico',
+        descripcion:
+          'Contar el inventario y corregir el stock a lo que hay de verdad, y cargar el inventario de arranque. Cada diferencia queda en el kardex con su motivo.',
+        implica: ['stock.ver', 'productos.ver', 'almacenes.ver', 'kardex.ver'],
+        // GET /conteos/hoja, POST /conteos
+      },
     ],
   },
   {
@@ -291,6 +314,28 @@ export const CATALOGO_PERMISOS: GrupoPermisos[] = [
         etiqueta: 'Ver las cuentas por cobrar',
         descripcion: 'Consultar lo que está pendiente de cobro y de pago.',
         // GET /operations/accounts/:type
+      },
+      {
+        clave: 'creditos.excepcion',
+        etiqueta: 'Autorizar crédito por encima del límite',
+        descripcion:
+          'Registrar una venta a crédito a un cliente que se pasó de su límite o que tiene cuentas vencidas. La venta queda marcada con quién lo autorizó y por cuánto se pasó.',
+        implica: ['ventas.registrar'],
+        // Lo leen `createSale` y `updateSale` al evaluar el crédito del cliente.
+        //
+        // A propósito NO va en ninguna lista de ROLES_DEL_SISTEMA: solo lo tiene el
+        // administrador, por su acceso total, hasta que el dueño decida dárselo a alguien.
+      },
+      {
+        clave: 'cargaDiaria.registrar',
+        etiqueta: 'Cargar totales del día',
+        descripcion:
+          'Registrar de una sola vez, día por día, la producción, las ventas por método de pago y el gasto total. Genera órdenes de producción, ventas y gastos reales con la fecha de cada día.',
+        // GET/POST /carga-diaria
+        //
+        // Como `creditos.excepcion`, NO va en ninguna lista de ROLES_DEL_SISTEMA: escribe en
+        // días pasados de producción, ventas y gastos a la vez, así que es de administrador
+        // hasta que el dueño decida dárselo a alguien.
       },
       {
         clave: 'cobranzas.registrar',
@@ -532,6 +577,7 @@ export const ROLES_DEL_SISTEMA: {
       'almacenes.ver',
       'almacenes.crear',
       'stock.ver',
+      'stock.ajustar',
       'kardex.ver',
       'cobranzas.ver',
       'metodosPago.ver',
@@ -582,6 +628,10 @@ export const ROLES_DEL_SISTEMA: {
       'ventas.ver',
       'ventas.registrar',
       'ventas.editar',
+      // El responsable de la unidad sí puede anular: es quien responde por su caja. Al
+      // vendedor no se le da de fábrica, porque anular devuelve plata en efectivo; si hace
+      // falta, se le tilda desde Configuración › Roles y permisos.
+      'ventas.anular',
       'devoluciones.ver',
       'devoluciones.registrar',
       'envases.ver',

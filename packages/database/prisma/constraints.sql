@@ -29,6 +29,10 @@ ON "metodo_pago" (
 ALTER TABLE "venta" DROP CONSTRAINT IF EXISTS "venta_estado_valido";
 ALTER TABLE "almacen" DROP CONSTRAINT IF EXISTS "almacen_tipo_valido";
 ALTER TABLE "movimiento_inventario" DROP CONSTRAINT IF EXISTS "movimiento_tipo_valido";
+-- Se recrea porque el conteo físico agrega CARGA_INICIAL (el inventario de arranque). El bloque
+-- de abajo usa IF NOT EXISTS, así que sin este DROP el CHECK viejo quedaría y rechazaría el
+-- primer guardado de una carga inicial.
+ALTER TABLE "movimiento_inventario" DROP CONSTRAINT IF EXISTS "movimiento_operacion_valida";
 -- Se recrea porque se eliminó la columna "merma" de la producción.
 ALTER TABLE "orden_produccion" DROP CONSTRAINT IF EXISTS "orden_produccion_cantidades_validas";
 
@@ -93,7 +97,7 @@ BEGIN
       CHECK ("tipo_operacion" IN (
         'COMPRA', 'VENTA', 'DEVOLUCION_COMPRA', 'DEVOLUCION_VENTA',
         'TRANSFERENCIA_ALMACEN', 'AJUSTE_POSITIVO', 'AJUSTE_NEGATIVO',
-        'PRODUCCION', 'MERMA', 'CAMBIO_ESTADO'
+        'PRODUCCION', 'MERMA', 'CAMBIO_ESTADO', 'CARGA_INICIAL'
       ));
   END IF;
 
@@ -132,6 +136,83 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'unidad_negocio_principal_con_inventario') THEN
     ALTER TABLE "unidad_negocio" ADD CONSTRAINT "unidad_negocio_principal_con_inventario"
       CHECK (NOT "principal" OR "controla_inventario");
+  END IF;
+
+  -- Un cuadre es un conteo contra lo que ya había, o la carga del inventario de arranque.
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'conteo_inventario_tipo_valido') THEN
+    ALTER TABLE "conteo_inventario" ADD CONSTRAINT "conteo_inventario_tipo_valido"
+      CHECK ("tipo" IN ('CONTEO', 'CARGA_INICIAL'));
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'conteo_inventario_cantidades_validas') THEN
+    ALTER TABLE "conteo_inventario" ADD CONSTRAINT "conteo_inventario_cantidades_validas"
+      CHECK (
+        "posiciones" >= 0
+        AND "contadas" >= 0
+        AND "contadas" <= "posiciones"
+        AND "diferencias" >= 0
+        AND "unidades_sobrantes" >= 0
+        AND "unidades_faltantes" >= 0
+      );
+  END IF;
+
+  -- Ni el teórico ni el contado pueden ser negativos: `stock_almacen.cantidad` tampoco puede
+  -- (ver "stock_almacen_cantidades_validas"), así que una fila con negativos sería un conteo
+  -- que nunca se habría podido aplicar.
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'detalle_conteo_cantidades_validas') THEN
+    ALTER TABLE "detalle_conteo_inventario" ADD CONSTRAINT "detalle_conteo_cantidades_validas"
+      CHECK ("teorico" >= 0 AND "contado" >= 0 AND "costo_unitario" >= 0);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'detalle_conteo_motivo_valido') THEN
+    ALTER TABLE "detalle_conteo_inventario" ADD CONSTRAINT "detalle_conteo_motivo_valido"
+      CHECK ("motivo" IS NULL OR "motivo" IN ('ROTURA', 'MERMA', 'ERROR_DE_CARGA', 'ROBO', 'OTRO'));
+  END IF;
+
+  -- Una venta no puede recibir una cantidad negativa de vacíos: para devolver envases al
+  -- cliente está el ajuste de la pantalla "Envases", no una venta en reversa.
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'venta_vacios_recibidos_valido') THEN
+    ALTER TABLE "venta" ADD CONSTRAINT "venta_vacios_recibidos_valido"
+      CHECK ("vacios_recibidos" >= 0);
+  END IF;
+
+  -- El límite de crédito puede faltar (sin límite) o ser cero (no se le fía), pero nunca
+  -- negativo: un tope negativo no significaría nada.
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'cliente_limite_credito_valido') THEN
+    ALTER TABLE "cliente" ADD CONSTRAINT "cliente_limite_credito_valido"
+      CHECK ("limite_credito" IS NULL OR "limite_credito" >= 0);
+  END IF;
+
+  -- Una devolución la pide el cliente, o la genera la anulación de una venta. No hay un
+  -- estado `ANULADA` en `venta`: anular ES una devolución total de este tipo.
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'devolucion_venta_tipo_valido') THEN
+    ALTER TABLE "devolucion_venta" ADD CONSTRAINT "devolucion_venta_tipo_valido"
+      CHECK ("tipo" IN ('COMERCIAL', 'ANULACION'));
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'pago_cliente_origen_valido') THEN
+    ALTER TABLE "pago_cliente" ADD CONSTRAINT "pago_cliente_origen_valido"
+      CHECK ("origen" IN ('VENTA', 'COBRANZA', 'REEMBOLSO'));
+  END IF;
+
+  -- Un cobro es siempre positivo. El único monto negativo admitido es el reembolso de una
+  -- anulación, y tiene que decir de qué devolución salió: así ninguna otra vía puede meter un
+  -- negativo que descuadre la caja sin dejar rastro de por qué.
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'pago_cliente_monto_valido') THEN
+    ALTER TABLE "pago_cliente" ADD CONSTRAINT "pago_cliente_monto_valido"
+      CHECK (
+        ("origen" = 'REEMBOLSO' AND "monto" < 0 AND "devolucion_venta_id" IS NOT NULL)
+        OR ("origen" <> 'REEMBOLSO' AND "monto" > 0)
+      );
+  END IF;
+
+  -- El saldo de envases de un cliente nunca puede quedar negativo (lo valida también
+  -- `ContainersService.adjust` y `aplicarEnvasesDeVenta`), así que ningún movimiento puede
+  -- registrar un saldo posterior negativo. La cantidad va siempre sin signo: la dirección la
+  -- dice `type` (OUT_FULL entrega, IN_EMPTY retorno), no el signo del número.
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'container_movement_cantidades_validas') THEN
+    ALTER TABLE "container_movements" ADD CONSTRAINT "container_movement_cantidades_validas"
+      CHECK ("quantity" >= 0 AND "balance_after" >= 0);
   END IF;
 END
 $$;

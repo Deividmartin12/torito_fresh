@@ -1,12 +1,24 @@
 'use client';
 
-import { X } from 'lucide-react';
 import { FormEvent, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import { createUnidad, UnidadNegocio, updateUnidad } from '../lib/unidades';
 import { validarNombreLibre } from '../lib/validacion';
 import { Segmented } from './Segmented';
+import { Button } from './ui/Button';
+import {
+  checkboxFieldClass,
+  checkboxInputClass,
+  controlClass,
+  fieldErrorClass,
+  fieldLabelClass,
+  fieldWideClass,
+  formHintClass,
+  modalActionsClass,
+  modalFormClass,
+} from './ui/Field';
+import { Modal, ModalHeader } from './ui/Modal';
 
 type Props = {
   editando?: UnidadNegocio | null;
@@ -72,119 +84,103 @@ export function UnidadNegocioFormModal({ editando, onClose, onSaved }: Props) {
   const titulo = editando ? 'Editar unidad de negocio' : 'Agregar unidad de negocio';
 
   return createPortal(
-    <div
-      className="modal-backdrop"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !saving) onClose();
-      }}
-    >
-      <section className="crud-modal" role="dialog" aria-modal="true" aria-label={titulo}>
-        <div className="modal-top">
-          <h2>{titulo}</h2>
-          <button
-            type="button"
-            className="modal-close"
-            onClick={onClose}
-            aria-label="Cerrar modal"
-            disabled={saving}
-          >
-            <X size={18} />
-          </button>
-        </div>
-        <form className="modal-form" onSubmit={(event) => void guardar(event)} noValidate>
-          <label className="field-wide">
-            <span>Nombre</span>
-            <input
-              value={nombre}
-              onChange={(event) => {
-                setNombre(event.target.value);
-                setError(undefined);
-              }}
-              maxLength={100}
-              placeholder="Puesto de Juan"
-              required
-              autoFocus
-            />
-            {error ? <small className="field-error">{error}</small> : null}
-          </label>
+    <Modal onClose={onClose} closeDisabled={saving}>
+      <ModalHeader title={titulo} onClose={onClose} closeDisabled={saving} />
+      <form className={modalFormClass} onSubmit={(event) => void guardar(event)} noValidate>
+        <label className={fieldWideClass}>
+          <span className={fieldLabelClass}>Nombre</span>
+          <input
+            className={controlClass}
+            value={nombre}
+            onChange={(event) => {
+              setNombre(event.target.value);
+              setError(undefined);
+            }}
+            maxLength={100}
+            placeholder="Puesto de Juan"
+            required
+            autoFocus
+          />
+          {error ? <small className={fieldErrorClass}>{error}</small> : null}
+        </label>
 
-          {/* Qué hace la unidad. Es la decisión más importante del alta: define si sus ventas
+        {/* Qué hace la unidad. Es la decisión más importante del alta: define si sus ventas
               descuentan stock, y por eso después no se puede cambiar si ya vendió. */}
-          <div className="field-wide">
-            <span className="modal-form-label">Qué hace esta unidad</span>
-            <Segmented
-              options={[
-                {
-                  value: CON_INVENTARIO,
-                  label: 'Produce y lleva inventario',
-                  disabled: saving || modoBloqueado,
-                },
-                {
-                  value: SOLO_REGISTRO,
-                  label: 'Solo ventas y gastos',
-                  disabled: saving || modoBloqueado || principal,
-                },
-              ]}
-              value={modo}
-              onChange={setModo}
-              ariaLabel="Qué hace esta unidad"
-            />
-          </div>
+        <div className={fieldWideClass}>
+          <span className={fieldLabelClass}>Qué hace esta unidad</span>
+          <Segmented
+            options={[
+              {
+                value: CON_INVENTARIO,
+                label: 'Produce y lleva inventario',
+                disabled: saving || modoBloqueado,
+              },
+              {
+                value: SOLO_REGISTRO,
+                label: 'Solo ventas y gastos',
+                disabled: saving || modoBloqueado || principal,
+              },
+            ]}
+            value={modo}
+            onChange={setModo}
+            ariaLabel="Qué hace esta unidad"
+          />
+        </div>
 
-          {principal ? (
-            <p className="form-hint field-wide">
-              La unidad principal siempre lleva inventario: es la que produce, y de su almacén sale
-              el stock de todo el negocio.
+        {principal ? (
+          <p className={`${formHintClass} ${fieldWideClass}`}>
+            La unidad principal siempre lleva inventario: es la que produce, y de su almacén sale el
+            stock de todo el negocio.
+          </p>
+        ) : modoBloqueado ? (
+          <p className={`${formHintClass} ${fieldWideClass}`}>
+            Esta unidad ya tiene ventas registradas, así que su modo no se puede cambiar: sus ventas
+            viejas y las nuevas se guardarían de formas distintas. Si necesitas el otro modo, crea
+            una unidad nueva.
+          </p>
+        ) : controlaInventario ? (
+          <>
+            {editando ? null : (
+              <label className={`${checkboxFieldClass} ${fieldWideClass}`}>
+                <input
+                  className={checkboxInputClass}
+                  type="checkbox"
+                  checked={crearAlmacen}
+                  onChange={(event) => setCrearAlmacen(event.target.checked)}
+                />
+                <span className="text-[13px] font-medium">Crear un almacén para esta unidad</span>
+              </label>
+            )}
+            <p className={`${formHintClass} ${fieldWideClass}`}>
+              Sus ventas descuentan stock de su propio almacén y quedan en el kardex. Sin almacén
+              propio no puede registrar ventas: el descuento no tendría de dónde salir.
             </p>
-          ) : modoBloqueado ? (
-            <p className="form-hint field-wide">
-              Esta unidad ya tiene ventas registradas, así que su modo no se puede cambiar: sus
-              ventas viejas y las nuevas se guardarían de formas distintas. Si necesitas el otro
-              modo, crea una unidad nueva.
-            </p>
-          ) : controlaInventario ? (
-            <>
-              {editando ? null : (
-                <label className="checkbox-field field-wide">
-                  <input
-                    type="checkbox"
-                    checked={crearAlmacen}
-                    onChange={(event) => setCrearAlmacen(event.target.checked)}
-                  />
-                  <span>Crear un almacén para esta unidad</span>
-                </label>
-              )}
-              <p className="form-hint field-wide">
-                Sus ventas descuentan stock de su propio almacén y quedan en el kardex. Sin almacén
-                propio no puede registrar ventas: el descuento no tendría de dónde salir.
-              </p>
-            </>
-          ) : (
-            <p className="form-hint field-wide">
-              Registra lo que vende y lo que gasta, nada más. Sus ventas no descuentan stock ni
-              generan kardex, y no verá Producción, Lotes, Almacenes ni Kardex. La utilidad se
-              estima con el costo de referencia de cada producto.
-            </p>
-          )}
+          </>
+        ) : (
+          <p className={`${formHintClass} ${fieldWideClass}`}>
+            Registra lo que vende y lo que gasta, nada más. Sus ventas no descuentan stock ni
+            generan kardex, y no verá Producción, Lotes, Almacenes ni Kardex. La utilidad se estima
+            con el costo de referencia de cada producto.
+          </p>
+        )}
 
-          {editando ? (
-            <p className="form-hint field-wide">
-              Las ventas y los gastos ya registrados conservan su unidad. Cambiar el nombre no mueve
-              nada de sitio.
-            </p>
-          ) : null}
+        {editando ? (
+          <p className={`${formHintClass} ${fieldWideClass}`}>
+            Las ventas y los gastos ya registrados conservan su unidad. Cambiar el nombre no mueve
+            nada de sitio.
+          </p>
+        ) : null}
 
-          <div className="modal-actions">
-            <button className="btn-secondary" type="button" onClick={onClose} disabled={saving}>
-              Cancelar
-            </button>
-            <button className="btn-primary" disabled={saving}>
-              {saving ? 'Guardando...' : editando ? 'Guardar cambios' : 'Registrar unidad'}
-            </button>
-          </div>
-        </form>
-      </section>
-    </div>,
+        <div className={modalActionsClass}>
+          <Button variant="secondary" type="button" onClick={onClose} disabled={saving}>
+            Cancelar
+          </Button>
+          <Button disabled={saving}>
+            {saving ? 'Guardando...' : editando ? 'Guardar cambios' : 'Registrar unidad'}
+          </Button>
+        </div>
+      </form>
+    </Modal>,
     document.body,
   );
 }

@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, PrismaClient } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { AuthUser } from '../common/auth-user';
+import { evaluarCredito, situacionDeCredito } from '../common/credit';
 import { etiquetaMetodoPago } from '../common/payment-method-label';
 import { accountState as deriveAccountState, limaTodayKey } from '../common/receivables';
 import { nextSequentialCode } from '../common/next-code';
@@ -13,10 +14,18 @@ import {
   resolverUnidadDeEscritura,
   unidadControlaInventario,
 } from '../common/unit-context';
+import {
+  TRANSACCION_DE_STOCK,
+  Transaction,
+  movementLabel,
+  movementPhrase,
+  weightedAverage,
+} from '../common/stock';
 import { resolverTrabajadorAutor } from '../common/worker-context';
 import { PaymentMethodsService } from '../payment-methods/payment-methods.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  AnnulSaleDto,
   CreateOperationalProductDto,
   CreateOperationalSaleDto,
   CreateOperationalWarehouseDto,
@@ -30,38 +39,16 @@ import {
   UpdateReceivableDueDateDto,
 } from './operations.dto';
 
-type Transaction = Omit<
-  PrismaClient,
-  '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'
->;
-
 const saleCode = (id: bigint | number | string) => `V-${id.toString().padStart(6, '0')}`;
 
 /**
- * Configuración de las transacciones que tocan stock (registrar y editar ventas).
- * `Serializable` evita que dos ventas simultáneas lean el mismo stock y lo vendan dos veces
- * (terminarían dejando stock negativo). Es el mismo modo que ya usa Producción.
+ * Cómo se comporta `createSaleReturnTx`. Una devolución comercial no lleva nada de esto; una
+ * anulación sí, porque además de devolver la mercadería tiene que sacar la plata de la caja.
  */
-const TRANSACCION_DE_STOCK = {
-  isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-} as const;
-
-const MOVEMENT_LABELS: Record<string, string> = {
-  COMPRA: 'Entrada por compra',
-  VENTA: 'Salida por venta',
-  DEVOLUCION_VENTA: 'Devolución de cliente',
-  DEVOLUCION_COMPRA: 'Devolución a proveedor',
-  PRODUCCION: 'Producción',
-  TRANSFERENCIA: 'Transferencia entre almacenes',
-  AJUSTE: 'Ajuste de inventario',
-};
-const movementLabel = (operacion: string) =>
-  MOVEMENT_LABELS[operacion] ?? operacion.replace(/_/g, ' ').toLowerCase();
-
-/** Costo unitario promedio ponderado después de agregar `addQty` unidades a `addCost` cada una. */
-const weightedAverage = (prevQty: number, prevCost: number, addQty: number, addCost: number) => {
-  const total = prevQty + addQty;
-  return total > 0 ? (prevQty * prevCost + addQty * addCost) / total : 0;
+type OpcionesDevolucion = {
+  tipo?: 'COMERCIAL' | 'ANULACION';
+  /** Con qué método salió la plata. Sin esto, el reembolso espeja los cobros originales. */
+  reembolso?: { metodoPagoId?: bigint };
 };
 
 type MovementsFilter = {
@@ -101,7 +88,8 @@ export class OperationsService {
     const deUnidad = filtroUnidad(alcance);
     const [clientes, almacenes, productos, trabajadores, estadosInventario] = await Promise.all([
       this.prisma.cliente.findMany({
-        where: { estado: true, ...deUnidad },
+        // Sin el cliente de sistema "Ventas del día": sus ventas las genera la carga diaria.
+        where: { estado: true, sistema: false, ...deUnidad },
         orderBy: { nombreLegal: 'asc' },
       }),
       this.prisma.almacen.findMany({
@@ -119,27 +107,31 @@ export class OperationsService {
       }),
     ]);
 
-    const debtByClient = await this.prisma.cuentaCobrar.groupBy({
-      by: ['clienteId'],
-      where: { saldoPendiente: { gt: 0 }, ...filtroUnidadPor('cliente', alcance) },
-      _sum: { saldoPendiente: true },
-      _count: { _all: true },
-    });
-    const debtMap = new Map(
-      debtByClient.map((row) => [
-        row.clienteId.toString(),
-        { deuda: Number(row._sum.saldoPendiente ?? 0), comprobantes: row._count._all },
-      ]),
-    );
+    // Antes esto era un `groupBy` de saldos. Ahora sale de `situacionDeCredito`, que es la
+    // misma función que usa la validación al guardar: así el aviso del formulario y el corte
+    // del servidor no pueden discrepar.
+    const credito = await situacionDeCredito(this.prisma, { alcance });
 
     return {
-      clientes: clientes.map((item) => ({
-        id: item.id.toString(),
-        nombre: item.nombreLegal,
-        documento: item.numeroDocumento,
-        deudaActual: debtMap.get(item.id.toString())?.deuda ?? 0,
-        comprobantesPendientes: debtMap.get(item.id.toString())?.comprobantes ?? 0,
-      })),
+      clientes: clientes.map((item) => {
+        const situacion = credito.get(item.id.toString());
+        return {
+          id: item.id.toString(),
+          nombre: item.nombreLegal,
+          documento: item.numeroDocumento,
+          deudaActual: situacion?.deuda ?? 0,
+          comprobantesPendientes: situacion?.comprobantes ?? 0,
+          // Con estos cuatro el formulario puede avisar al instante si le alcanza el crédito,
+          // sin una ida y vuelta más al servidor al elegir el cliente.
+          limiteCredito: situacion?.limite ?? null,
+          creditoDisponible: situacion?.disponible ?? null,
+          vencidas: situacion?.vencidas ?? 0,
+          vencido: situacion?.vencido ?? 0,
+          // Envases nuestros que el cliente todavía tiene. El formulario lo usa para avisar
+          // antes de guardar que no puede devolver más de los que debe.
+          saldoEnvases: item.saldoEnvases,
+        };
+      }),
       almacenes: almacenes.map((item) => ({
         id: item.id.toString(),
         nombre: item.nombre,
@@ -151,6 +143,9 @@ export class OperationsService {
         nombre: item.nombre,
         precioVenta: Number(item.precioVenta),
         costoReferencia: Number(item.costoReferencia),
+        // El formulario lo necesita para saber cuántos envases entrega la venta y, con eso,
+        // precargar los vacíos que el cliente devuelve. Sin esto tendría que adivinar.
+        esRetornable: item.esRetornable,
       })),
       estadosInventario: estadosInventario.map((item) => ({
         id: item.id.toString(),
@@ -482,6 +477,44 @@ export class OperationsService {
     return rows.map((row) => this.saleView(row));
   }
 
+  /**
+   * Última venta confirmada de un cliente, en la forma mínima que necesita la venta rápida
+   * para ofrecer "repetir el pedido de siempre". Devuelve `null` si el cliente nunca compró.
+   *
+   * No reutiliza `sales()` a propósito: eso traería hasta mil ventas con su kardex para
+   * quedarse con una, y esta pantalla la consulta cada vez que se elige un cliente.
+   */
+  async lastSale(clienteId: string, actor: AuthUser, unidad?: string) {
+    const alcance = await resolverAlcanceUnidad(this.prisma, actor, unidad);
+    const venta = await this.prisma.venta.findFirst({
+      where: { ...filtroUnidad(alcance), clienteId: BigInt(clienteId), estado: 'CONFIRMADA' },
+      orderBy: { fecha: 'desc' },
+      select: {
+        fecha: true,
+        total: true,
+        detalles: {
+          select: {
+            productoId: true,
+            cantidad: true,
+            precioUnitario: true,
+            producto: { select: { nombre: true } },
+          },
+        },
+      },
+    });
+    if (!venta) return null;
+    return {
+      fecha: venta.fecha.toISOString(),
+      total: Number(venta.total),
+      items: venta.detalles.map((detalle) => ({
+        productoId: detalle.productoId.toString(),
+        producto: detalle.producto.nombre,
+        cantidad: Number(detalle.cantidad),
+        precioUnitario: Number(detalle.precioUnitario),
+      })),
+    };
+  }
+
   async stock(actor: AuthUser, almacenId?: string, unidad?: string) {
     const alcance = await resolverAlcanceUnidad(this.prisma, actor, unidad);
     // `stock_almacen` no lleva la unidad: la hereda de su almacén.
@@ -614,6 +647,10 @@ export class OperationsService {
       await exigirMismaUnidad(tx, unidad, { cuentaCobrarId: BigInt(dto.cuentaId) });
       const account = await tx.cuentaCobrar.findUnique({ where: { id: BigInt(dto.cuentaId) } });
       if (!account) throw new NotFoundException('Cuenta por cobrar no encontrada');
+      // Sin este corte, el mensaje sería "la cuenta ya está pagada" —el saldo de una venta
+      // anulada queda en cero— y nadie entendería por qué no puede cobrarla.
+      if (account.estado === 'ANULADA')
+        throw new BadRequestException('Esta venta está anulada: no se le puede cobrar.');
       const balance = Number(account.saldoPendiente);
       if (balance <= 0) throw new BadRequestException('La cuenta ya está pagada');
       if (dto.monto > balance) throw new BadRequestException('El pago supera el saldo pendiente');
@@ -625,6 +662,9 @@ export class OperationsService {
           trabajadorId: workerId,
           fechaPago: paidAt,
           monto: dto.monto,
+          // Cobranza de calle: es la plata que el trabajador tiene que rendir, y la única
+          // que el reporte de caja por trabajador suma como cobrado.
+          origen: 'COBRANZA',
           observaciones: dto.observaciones?.trim(),
         },
       });
@@ -758,6 +798,14 @@ export class OperationsService {
       motivo: row.motivo,
       total: Number(row.total),
       estado: row.estado,
+      // Si esta devolución nació de anular la venta y no de un reclamo del cliente. El campo
+      // `tipo` de arriba es otra cosa (qué operación se está devolviendo, siempre 'VENTA').
+      esAnulacion: row.tipo === 'ANULACION',
+      // Plata que salió de la caja al anular. Va en positivo para mostrarla; en la base los
+      // reembolsos son montos negativos.
+      reembolsado: Math.abs(
+        row.reembolsos?.reduce((sum: number, pago: any) => sum + Number(pago.monto), 0) ?? 0,
+      ),
       kardexId: row.movimientosInventario[0]?.id?.toString() ?? null,
       kardexRef: row.movimientosInventario[0]?.numeroReferencia ?? null,
       saldoFavor: row.saldosFavor.reduce(
@@ -813,13 +861,11 @@ export class OperationsService {
         : esReversionDeVenta
           ? `Volvieron ${units} unidades al inventario porque se editó la venta.`
           : row.tipoMovimiento === 'ENTRADA'
-            ? `Ingresaron ${units} unidades al inventario por una ${movementLabel(
-                row.tipoOperacion,
-              ).toLowerCase()}.`
+            ? `Ingresaron ${units} unidades al inventario por ${movementPhrase(row.tipoOperacion)}.`
             : row.tipoMovimiento === 'SALIDA'
-              ? `Salieron ${units} unidades del inventario por una ${movementLabel(
+              ? `Salieron ${units} unidades del inventario por ${movementPhrase(
                   row.tipoOperacion,
-                ).toLowerCase()}.`
+                )}.`
               : `Se trasladaron ${units} unidades entre ubicaciones.`;
     return {
       id: row.id.toString(),
@@ -998,95 +1044,142 @@ export class OperationsService {
   // confirmación aparte — mismo patrón que ya se usa en ProductionService.create().
   async createSale(dto: CreateOperationalSaleDto, actor: AuthUser, unidadActiva?: string) {
     return this.prisma.$transaction(async (tx) => {
-      const trabajadorId = await resolverTrabajadorAutor(tx, actor, dto.trabajadorId);
-      // La unidad sale de la que está elegida —la misma con la que se armaron los combos en
-      // `catalogs()`—, no del trabajador que la teclea. Cuando el admin la registra a nombre
-      // de otro, se exige además que ese trabajador sea de esta unidad.
-      const unidadNegocioId = await resolverUnidadDeEscritura(tx, {
-        actor,
-        unidadSolicitada: unidadActiva,
-        atribuidaA: dto.trabajadorId ? trabajadorId : null,
-      });
-      const controlaInventario = await unidadControlaInventario(tx, unidadNegocioId);
-      const warehouse = dto.almacenId
-        ? await tx.almacen.findUnique({ where: { id: BigInt(dto.almacenId) } })
-        : // El fallback tiene que estar acotado a la unidad. Sin el filtro, una venta sin
-          // almacén explícito descontaría del primer almacén activo de la base, que casi
-          // siempre es el de la Principal.
-          await tx.almacen.findFirst({
-            where: { estado: true, unidadNegocioId },
-            orderBy: { id: 'asc' },
-          });
-      if (!warehouse || !warehouse.estado)
-        throw new BadRequestException('No existe un almacén activo para registrar la venta');
-      // El cliente y el almacén llegan del formulario: nada garantiza que sean de esta
-      // unidad hasta que se comprueba.
-      await exigirMismaUnidad(tx, unidadNegocioId, {
-        clienteId: BigInt(dto.clienteId),
-        almacenId: warehouse.id,
-      });
-      const totals = this.totals(dto.items, dto.descuento, false);
-      const terms = await this.paymentTerms(tx, dto, totals.total, trabajadorId);
-      await this.validarProductosDeVenta(tx, dto.items);
-      const sale = await tx.venta.create({
-        data: {
-          unidadNegocioId,
-          clienteId: BigInt(dto.clienteId),
-          almacenOrigenId: warehouse.id,
-          trabajadorId,
-          tipoPago: dto.tipoPago,
-          // Referencia rápida al método principal; el desglose real vive en PagoCliente.
-          metodoPagoInicialId: terms.payments[0]?.methodId ?? null,
-          montoInicial: terms.initial,
-          fechaVencimientoPago: terms.dueDate,
-          estado: 'CONFIRMADA',
-          subtotal: totals.subtotal,
-          igv: totals.igv,
-          descuento: totals.descuento,
-          total: totals.total,
-          detalles: {
-            create: dto.items.map((item) => ({
-              productoId: BigInt(item.productoId),
-              // El lote lo asigna el descuento de stock (FIFO), no el formulario.
-              loteId: null,
-              cantidad: item.cantidad,
-              precioUnitario: item.precioUnitario,
-              descuento: item.descuento ?? 0,
-              subtotal: this.lineTotal(item),
-            })),
-          },
-        },
-      });
-      // En un puesto que solo registra ventas y gastos no hay stock que descontar ni kardex que
-      // escribir: la venta queda igual de completa (cuenta por cobrar, cobros, reportes), solo
-      // que sin su contrapartida física.
-      if (controlaInventario) await this.applySaleOutbound(tx, sale.id);
-      const account = await tx.cuentaCobrar.create({
-        data: {
-          ventaId: sale.id,
-          clienteId: sale.clienteId,
-          montoOriginal: sale.total,
-          saldoPendiente: sale.total,
-          fechaEmision: sale.fecha,
-          fechaVencimiento: sale.fechaVencimientoPago,
-          estado: 'PENDIENTE',
-        },
-      });
-      await this.applyInitialPayments(
-        tx,
-        { id: account.id, montoOriginal: Number(account.montoOriginal) },
-        sale.trabajadorId,
-        terms.payments,
-      );
-      const paymentState =
-        terms.initial >= Number(sale.total) - 0.005
-          ? 'PAGADA'
-          : terms.initial > 0
-            ? 'PARCIAL'
-            : 'PENDIENTE';
-      await tx.venta.update({ where: { id: sale.id }, data: { estadoPago: paymentState } });
-      return this.saleView(await this.findSale(tx, sale.id));
+      const saleId = await this.registrarVenta(tx, dto, actor, unidadActiva);
+      return this.saleView(await this.findSale(tx, saleId));
     }, TRANSACCION_DE_STOCK);
+  }
+
+  /**
+   * El cuerpo de `createSale`, dentro de una transacción ajena. Lo usa también la carga diaria,
+   * que registra varias cosas de un mismo día en una sola transacción.
+   *
+   * `fecha` (YYYY-MM-DD) fecha la venta en un día pasado: la venta, su kardex y su cobro
+   * inicial quedan a mediodía de Lima de ese día, igual que cuando se corrige la fecha al editar.
+   * Sin ella todo queda con la hora actual, como siempre.
+   */
+  async registrarVenta(
+    tx: Transaction,
+    dto: CreateOperationalSaleDto,
+    actor: AuthUser,
+    unidadActiva?: string,
+    opciones: { fecha?: string } = {},
+  ): Promise<bigint> {
+    let fechaVenta: Date | undefined;
+    if (opciones.fecha) {
+      const fechaKey = opciones.fecha.slice(0, 10);
+      if (fechaKey > limaTodayKey())
+        throw new BadRequestException('La fecha de la venta no puede estar en el futuro');
+      fechaVenta = new Date(`${fechaKey}T12:00:00-05:00`);
+    }
+    const trabajadorId = await resolverTrabajadorAutor(tx, actor, dto.trabajadorId);
+    // La unidad sale de la que está elegida —la misma con la que se armaron los combos en
+    // `catalogs()`—, no del trabajador que la teclea. Cuando el admin la registra a nombre
+    // de otro, se exige además que ese trabajador sea de esta unidad.
+    const unidadNegocioId = await resolverUnidadDeEscritura(tx, {
+      actor,
+      unidadSolicitada: unidadActiva,
+      atribuidaA: dto.trabajadorId ? trabajadorId : null,
+    });
+    const controlaInventario = await unidadControlaInventario(tx, unidadNegocioId);
+    const warehouse = dto.almacenId
+      ? await tx.almacen.findUnique({ where: { id: BigInt(dto.almacenId) } })
+      : // El fallback tiene que estar acotado a la unidad. Sin el filtro, una venta sin
+        // almacén explícito descontaría del primer almacén activo de la base, que casi
+        // siempre es el de la Principal.
+        await tx.almacen.findFirst({
+          where: { estado: true, unidadNegocioId },
+          orderBy: { id: 'asc' },
+        });
+    if (!warehouse || !warehouse.estado)
+      throw new BadRequestException('No existe un almacén activo para registrar la venta');
+    // El cliente y el almacén llegan del formulario: nada garantiza que sean de esta
+    // unidad hasta que se comprueba.
+    await exigirMismaUnidad(tx, unidadNegocioId, {
+      clienteId: BigInt(dto.clienteId),
+      almacenId: warehouse.id,
+    });
+    const totals = this.totals(dto.items, dto.descuento, false);
+    const terms = await this.paymentTerms(tx, dto, totals.total, trabajadorId);
+    await this.validarProductosDeVenta(tx, dto.items);
+    // Lo que esta venta va a dejar a deber. Se evalúa contra la deuda vigente del cliente
+    // antes de escribir nada: si no alcanza, la venta ni siquiera nace.
+    const autorizacion = await this.exigirCreditoDisponible(tx, {
+      clienteId: BigInt(dto.clienteId),
+      saldoQueDeja: Math.max(Math.round((totals.total - terms.initial) * 100) / 100, 0),
+      actor,
+    });
+    const sale = await tx.venta.create({
+      data: {
+        unidadNegocioId,
+        clienteId: BigInt(dto.clienteId),
+        creditoAutorizadoPorId: autorizacion?.autorizadoPorId ?? null,
+        creditoAutorizadoNota: autorizacion?.nota ?? null,
+        ...(fechaVenta ? { fecha: fechaVenta } : {}),
+        almacenOrigenId: warehouse.id,
+        trabajadorId,
+        tipoPago: dto.tipoPago,
+        // Referencia rápida al método principal; el desglose real vive en PagoCliente.
+        metodoPagoInicialId: terms.payments[0]?.methodId ?? null,
+        montoInicial: terms.initial,
+        fechaVencimientoPago: terms.dueDate,
+        estado: 'CONFIRMADA',
+        subtotal: totals.subtotal,
+        igv: totals.igv,
+        descuento: totals.descuento,
+        total: totals.total,
+        vaciosRecibidos: dto.vaciosDevueltos ?? 0,
+        detalles: {
+          create: dto.items.map((item) => ({
+            productoId: BigInt(item.productoId),
+            // El lote lo asigna el descuento de stock (FIFO), no el formulario.
+            loteId: null,
+            cantidad: item.cantidad,
+            precioUnitario: item.precioUnitario,
+            descuento: item.descuento ?? 0,
+            subtotal: this.lineTotal(item),
+          })),
+        },
+      },
+    });
+    // En un puesto que solo registra ventas y gastos no hay stock que descontar ni kardex que
+    // escribir: la venta queda igual de completa (cuenta por cobrar, cobros, reportes), solo
+    // que sin su contrapartida física.
+    if (controlaInventario) await this.applySaleOutbound(tx, sale.id, '', fechaVenta);
+    // Los envases van fuera del gateo: el saldo de envases es una deuda del cliente, no
+    // stock del almacén, y un puesto sin inventario igual entrega bidones.
+    await this.aplicarEnvasesDeVenta(
+      tx,
+      sale.id,
+      sale.clienteId,
+      dto.vaciosDevueltos ?? 0,
+      actor.userId,
+    );
+    const account = await tx.cuentaCobrar.create({
+      data: {
+        ventaId: sale.id,
+        clienteId: sale.clienteId,
+        montoOriginal: sale.total,
+        saldoPendiente: sale.total,
+        fechaEmision: sale.fecha,
+        fechaVencimiento: sale.fechaVencimientoPago,
+        estado: 'PENDIENTE',
+      },
+    });
+    await this.applyInitialPayments(
+      tx,
+      { id: account.id, montoOriginal: Number(account.montoOriginal) },
+      sale.trabajadorId,
+      terms.payments,
+      fechaVenta,
+    );
+    const paymentState =
+      terms.initial >= Number(sale.total) - 0.005
+        ? 'PAGADA'
+        : terms.initial > 0
+          ? 'PARCIAL'
+          : 'PENDIENTE';
+    await tx.venta.update({ where: { id: sale.id }, data: { estadoPago: paymentState } });
+    return sale.id;
   }
 
   /**
@@ -1140,6 +1233,11 @@ export class OperationsService {
         throw new BadRequestException(
           'No se puede editar una venta con cobros registrados desde Cobranzas',
         );
+      // Una venta anulada ya fue deshecha entera y su plata devuelta: editarla rearmaría la
+      // cuenta por cobrar desde cero y le volvería a cobrar al cliente. El mensaje va antes
+      // que el de devoluciones porque es más preciso: toda anulación ES una devolución.
+      if (sale.cuentaCobrar?.estado === 'ANULADA')
+        throw new BadRequestException('Esta venta está anulada: no se puede editar.');
       if (sale.devoluciones.some((item) => item.estado === 'CONFIRMADA'))
         throw new BadRequestException('No se puede editar una venta con devoluciones registradas');
 
@@ -1163,14 +1261,27 @@ export class OperationsService {
       }
 
       // El cobro automático se rehace más abajo con el total nuevo, así que se borra el viejo.
-      // Solo puede ser ese: los cobros de Cobranzas ya cortaron la edición arriba.
+      // Acotado a `origen: 'VENTA'`: los cobros de Cobranzas ya cortaron la edición arriba, y
+      // un reembolso de anulación nunca debe borrarse (también cortado arriba), pero el
+      // filtro deja explícito qué es lo único que esta línea puede tocar.
       if (sale.cuentaCobrar)
-        await tx.pagoCliente.deleteMany({ where: { cuentaCobrarId: sale.cuentaCobrar.id } });
+        await tx.pagoCliente.deleteMany({
+          where: { cuentaCobrarId: sale.cuentaCobrar.id, origen: 'VENTA' },
+        });
 
       // El gateo va acá afuera y NO adentro de `reverseSaleOutbound`: ese método tiene que
       // seguir fallando cuando una venta con inventario no tiene movimiento, porque es lo que
       // impide que al editar una venta vieja se descuente stock que nunca se descontó.
       if (controlaInventario) await this.reverseSaleOutbound(tx, saleId);
+      // Los envases se deshacen contra el cliente ORIGINAL: el DTO permite cambiar de cliente,
+      // y los bidones se los llevó el que figuraba antes.
+      await this.revertirEnvasesDeVenta(
+        tx,
+        saleId,
+        sale.clienteId,
+        actor.userId,
+        'la edición de la venta',
+      );
 
       const warehouse = dto.almacenId
         ? await tx.almacen.findUnique({ where: { id: BigInt(dto.almacenId) } })
@@ -1186,10 +1297,22 @@ export class OperationsService {
       const totals = this.totals(dto.items, dto.descuento, false);
       const terms = await this.paymentTerms(tx, dto, totals.total, trabajadorId);
       await this.validarProductosDeVenta(tx, dto.items);
+      // `excluirVentaId` es imprescindible acá: sin él, la propia deuda de esta venta contaría
+      // como deuda previa y una venta a crédito no se podría editar nunca más.
+      const autorizacion = await this.exigirCreditoDisponible(tx, {
+        clienteId: BigInt(dto.clienteId),
+        saldoQueDeja: Math.max(Math.round((totals.total - terms.initial) * 100) / 100, 0),
+        actor,
+        excluirVentaId: saleId,
+      });
       await tx.venta.update({
         where: { id: saleId },
         data: {
           clienteId: BigInt(dto.clienteId),
+          // Se reescriben siempre, también a null: si la venta pasó a contado o el cliente
+          // regularizó, la marca de excepción tiene que desaparecer, no quedar pegada.
+          creditoAutorizadoPorId: autorizacion?.autorizadoPorId ?? null,
+          creditoAutorizadoNota: autorizacion?.nota ?? null,
           almacenOrigenId: warehouse.id,
           trabajadorId,
           tipoPago: dto.tipoPago,
@@ -1202,6 +1325,7 @@ export class OperationsService {
           igv: totals.igv,
           descuento: totals.descuento,
           total: totals.total,
+          vaciosRecibidos: dto.vaciosDevueltos ?? 0,
           detalles: {
             deleteMany: {},
             create: dto.items.map((item) => ({
@@ -1218,6 +1342,13 @@ export class OperationsService {
       });
 
       if (controlaInventario) await this.applySaleOutbound(tx, saleId, '-R');
+      await this.aplicarEnvasesDeVenta(
+        tx,
+        saleId,
+        BigInt(dto.clienteId),
+        dto.vaciosDevueltos ?? 0,
+        actor.userId,
+      );
 
       // La cuenta por cobrar se rearma desde cero con el total nuevo: se borró el cobro viejo,
       // así que parte en 0 pagado y se vuelve a registrar el cobro inicial que corresponda al
@@ -1256,11 +1387,112 @@ export class OperationsService {
     }, TRANSACCION_DE_STOCK);
   }
 
+  /**
+   * Anula una venta.
+   *
+   * No existe un estado `ANULADA` en `Venta`: anular ES generar la devolución total de todo
+   * lo que quede por devolver, marcada con `tipo: 'ANULACION'`. Se hizo así a propósito —
+   * deshacer algo en este sistema es escribir el hecho contrario, nunca reescribir el
+   * registro original— y además evita partir los reportes en dos caminos: ya netean las
+   * devoluciones, así que una venta anulada queda en cero sin tocar una sola consulta.
+   *
+   * Se permite haya cobros o no. Si el cliente había pagado algo, esa plata NO le queda como
+   * saldo a favor: se asume que se le devolvió en efectivo en el momento, y la salida queda
+   * registrada como un reembolso con su fecha y su responsable.
+   *
+   * No se puede deshacer ni repetir.
+   */
+  async annulSale(id: string, dto: AnnulSaleDto, actor: AuthUser, unidadActiva?: string) {
+    const devolucionId = await this.prisma.$transaction(async (tx) => {
+      const saleId = BigInt(id);
+      const workerId = await resolverTrabajadorAutor(tx, actor, dto.trabajadorId);
+      const alcance = await resolverAlcanceUnidad(tx, actor, unidadActiva);
+      const sale = await tx.venta.findFirst({
+        where: { id: saleId, ...filtroUnidad(alcance) },
+        include: {
+          cuentaCobrar: true,
+          devoluciones: true,
+          detalles: {
+            include: {
+              detallesDevolucion: { where: { devolucionVenta: { estado: 'CONFIRMADA' } } },
+            },
+          },
+        },
+      });
+      if (!sale) throw new NotFoundException('Venta no encontrada');
+      if (
+        sale.devoluciones.some(
+          (item) => item.tipo === 'ANULACION' && item.estado === 'CONFIRMADA',
+        ) ||
+        sale.cuentaCobrar?.estado === 'ANULADA'
+      )
+        throw new BadRequestException('Esta venta ya está anulada.');
+      if (sale.estadoDevolucion === 'DEVOLUCION_TOTAL')
+        throw new BadRequestException(
+          'Esta venta ya fue devuelta en su totalidad; no queda nada por anular.',
+        );
+
+      // Se devuelve lo que todavía no se devolvió: una venta con una devolución parcial
+      // previa se anula por el resto, no por el total original.
+      const items = sale.detalles
+        .map((detalle) => {
+          const yaDevuelto = detalle.detallesDevolucion.reduce(
+            (sum, item) => sum + Number(item.cantidad),
+            0,
+          );
+          return { detalleId: Number(detalle.id), cantidad: Number(detalle.cantidad) - yaDevuelto };
+        })
+        .filter((item) => item.cantidad > 0);
+      if (!items.length)
+        throw new BadRequestException(
+          'Esta venta ya fue devuelta en su totalidad; no queda nada por anular.',
+        );
+
+      const created = await this.createSaleReturnTx(
+        tx,
+        {
+          operacionId: Number(saleId),
+          motivo: dto.motivo,
+          observaciones: dto.observaciones,
+          trabajadorId: dto.trabajadorId,
+          items,
+        },
+        workerId,
+        {
+          tipo: 'ANULACION',
+          reembolso: { metodoPagoId: dto.metodoPagoId ? BigInt(dto.metodoPagoId) : undefined },
+        },
+      );
+      // Los bidones vuelven a ser nuestros: el cliente deja de deberlos.
+      await this.revertirEnvasesDeVenta(
+        tx,
+        saleId,
+        sale.clienteId,
+        actor.userId,
+        'la anulación de la venta',
+      );
+      return created;
+    }, TRANSACCION_DE_STOCK);
+
+    const row = await this.prisma.devolucionVenta.findUniqueOrThrow({
+      where: { id: devolucionId },
+      include: {
+        venta: { include: { cliente: true } },
+        detalles: { include: { producto: true, estadoDestino: true } },
+        movimientosInventario: { orderBy: { id: 'asc' } },
+        saldosFavor: true,
+        reembolsos: { include: { metodoPago: { include: { categoria: true } } } },
+      },
+    });
+    return this.devolucionView(row);
+  }
+
   /** Descuenta stock según las líneas actuales de la venta y registra el movimiento de salida. */
-  private async applySaleOutbound(tx: Transaction, id: bigint, referenceSuffix = '') {
+  private async applySaleOutbound(tx: Transaction, id: bigint, referenceSuffix = '', fecha?: Date) {
     const sale = await this.findSale(tx, id);
     const movement = await tx.movimientoInventario.create({
       data: {
+        ...(fecha ? { fecha } : {}),
         tipoMovimiento: 'SALIDA',
         tipoOperacion: 'VENTA',
         almacenOrigenId: sale.almacenOrigenId,
@@ -1396,11 +1628,174 @@ export class OperationsService {
     }
   }
 
-  private async createSaleReturnTx(tx: Transaction, dto: CreateReturnDto, workerId: bigint) {
+  /**
+   * Corta la venta si al cliente no le alcanza el crédito.
+   *
+   * Con `creditos.excepcion` no corta: deja pasar y devuelve a quién anotar como autorizante,
+   * junto con el motivo exacto, para que la venta guarde por qué se pasó y quién lo decidió.
+   * Un permiso de excepción que no deja rastro es un cheque en blanco.
+   *
+   * Devuelve `null` cuando la venta no deja saldo (una venta al contado no toca esto) o
+   * cuando el crédito alcanza sin excepción.
+   */
+  private async exigirCreditoDisponible(
+    tx: Transaction,
+    args: { clienteId: bigint; saldoQueDeja: number; actor: AuthUser; excluirVentaId?: bigint },
+  ): Promise<{ autorizadoPorId: bigint | null; nota: string } | null> {
+    if (args.saldoQueDeja <= 0.005) return null;
+    const situaciones = await situacionDeCredito(tx, {
+      clienteIds: [args.clienteId],
+      excluirVentaId: args.excluirVentaId,
+    });
+    const veredicto = evaluarCredito(situaciones.get(args.clienteId.toString()), args.saldoQueDeja);
+    if (veredicto.ok) return null;
+
+    const puedeSaltarlo =
+      args.actor.accesoTotal || args.actor.permisos.includes('creditos.excepcion');
+    if (!puedeSaltarlo) throw new BadRequestException(veredicto.mensaje);
+
+    const autorizante = await tx.trabajador.findFirst({
+      where: { userId: args.actor.userId },
+      select: { id: true },
+    });
+    return { autorizadoPorId: autorizante?.id ?? null, nota: veredicto.mensaje };
+  }
+
+  /**
+   * Cuántos envases retornables entrega esta venta, según sus líneas actuales.
+   *
+   * Se cuenta la cantidad vendida de los productos con `esRetornable`, no las líneas: vender
+   * un pack de 3 bidones retornables entrega 3 envases, no 1.
+   */
+  private async envasesEntregadosPorVenta(tx: Transaction, ventaId: bigint) {
+    const detalles = await tx.detalleVenta.findMany({
+      where: { ventaId, producto: { esRetornable: true } },
+      select: { cantidad: true },
+    });
+    return detalles.reduce((total, detalle) => total + Number(detalle.cantidad), 0);
+  }
+
+  /**
+   * Aplica al saldo de envases del cliente lo que hizo esta venta, y lo deja anotado en el
+   * historial de la pantalla "Envases".
+   *
+   * Se escribe UN solo movimiento con el neto: el caso normal —el cliente se lleva 2 bidones
+   * llenos y entrega 2 vacíos en el mismo acto— deja su saldo igual y una sola línea que
+   * explica las dos cosas. Dos movimientos separados serían más "puros" pero llenarían el
+   * historial de pares que se cancelan y harían ilegible la única pregunta que esa pantalla
+   * responde: quién tiene bidones nuestros.
+   *
+   * Esto corre también en una unidad que no lleva inventario: el saldo de envases es una
+   * deuda del cliente, no stock del almacén, y un puesto sin inventario igual entrega bidones.
+   */
+  private async aplicarEnvasesDeVenta(
+    tx: Transaction,
+    ventaId: bigint,
+    clienteId: bigint,
+    vaciosDevueltos: number,
+    userId: string | null,
+  ) {
+    const entregados = await this.envasesEntregadosPorVenta(tx, ventaId);
+    if (entregados === 0 && vaciosDevueltos === 0) return;
+    const neto = entregados - vaciosDevueltos;
+    const cliente = await tx.cliente.findUniqueOrThrow({
+      where: { id: clienteId },
+      select: { saldoEnvases: true },
+    });
+    const saldo = cliente.saldoEnvases + neto;
+    // Recibir más vacíos de los que el cliente debe casi siempre es un error de tipeo. Si de
+    // verdad devolvió envases de más, la vía es el ajuste de la pantalla "Envases", que pide
+    // su propio permiso; una venta no puede dejar al negocio debiéndole bidones al cliente.
+    if (saldo < 0)
+      throw new BadRequestException(
+        `El cliente solo tiene ${cliente.saldoEnvases + entregados} envases nuestros, así que no puede devolver ${vaciosDevueltos}.`,
+      );
+    await tx.cliente.update({ where: { id: clienteId }, data: { saldoEnvases: saldo } });
+    await tx.containerMovement.create({
+      data: {
+        clienteId,
+        ventaId,
+        userId,
+        // `type` dice la dirección y `quantity` va siempre sin signo. Un neto de cero es un
+        // ADJUSTMENT de 0: no mueve el saldo, pero deja constancia de que en esa venta se
+        // entregaron y se recibieron envases.
+        type: neto > 0 ? 'OUT_FULL' : neto < 0 ? 'IN_EMPTY' : 'ADJUSTMENT',
+        quantity: Math.abs(neto),
+        balanceAfter: saldo,
+        notes: `Venta ${saleCode(ventaId)}: entregó ${entregados}, recibió ${vaciosDevueltos}`,
+      },
+    });
+  }
+
+  /**
+   * Deshace en envases lo que hizo una venta, escribiendo el movimiento contrario. Nunca
+   * borra: el historial de envases es de solo-append, igual que el kardex, porque es la
+   * prueba de qué se le entregó a cada cliente y cuándo.
+   *
+   * Si revertir dejaría el saldo negativo —el cliente ya devolvió esos envases por la pantalla
+   * de Envases entre medio— se recorta a cero y se anota en el movimiento, en vez de bloquear:
+   * lo que se está corrigiendo es nuestro propio registro, y trabarlo dejaría una venta
+   * imposible de editar o anular.
+   */
+  private async revertirEnvasesDeVenta(
+    tx: Transaction,
+    ventaId: bigint,
+    clienteId: bigint,
+    userId: string | null,
+    motivo: string,
+  ) {
+    const movimientos = await tx.containerMovement.findMany({
+      where: { ventaId },
+      select: { type: true, quantity: true },
+    });
+    const netoPrevio = movimientos.reduce(
+      (total, movimiento) =>
+        total +
+        (movimiento.type === 'OUT_FULL'
+          ? movimiento.quantity
+          : movimiento.type === 'IN_EMPTY'
+            ? -movimiento.quantity
+            : 0),
+      0,
+    );
+    if (netoPrevio === 0) return;
+    const cliente = await tx.cliente.findUniqueOrThrow({
+      where: { id: clienteId },
+      select: { saldoEnvases: true },
+    });
+    const deseado = cliente.saldoEnvases - netoPrevio;
+    const saldo = Math.max(deseado, 0);
+    const recortado = deseado < 0;
+    const aplicado = saldo - cliente.saldoEnvases;
+    await tx.cliente.update({ where: { id: clienteId }, data: { saldoEnvases: saldo } });
+    await tx.containerMovement.create({
+      data: {
+        clienteId,
+        ventaId,
+        userId,
+        type: aplicado > 0 ? 'OUT_FULL' : aplicado < 0 ? 'IN_EMPTY' : 'ADJUSTMENT',
+        quantity: Math.abs(aplicado),
+        balanceAfter: saldo,
+        notes:
+          `Venta ${saleCode(ventaId)}: se deshace el movimiento de envases por ${motivo}` +
+          (recortado
+            ? `. El saldo habría quedado en ${deseado}, así que se dejó en 0: el cliente ya había devuelto esos envases por otra vía.`
+            : ''),
+      },
+    });
+  }
+
+  private async createSaleReturnTx(
+    tx: Transaction,
+    dto: CreateReturnDto,
+    workerId: bigint,
+    opciones: OpcionesDevolucion = {},
+  ) {
+    const esAnulacion = opciones.tipo === 'ANULACION';
     const sale = await tx.venta.findUnique({
       where: { id: BigInt(dto.operacionId) },
       include: {
-        cuentaCobrar: true,
+        cuentaCobrar: { include: { pagos: true } },
         detalles: {
           include: {
             producto: true,
@@ -1417,6 +1812,13 @@ export class OperationsService {
       throw new BadRequestException('Solo se puede devolver una venta confirmada');
     if (!sale.cuentaCobrar)
       throw new BadRequestException('La venta no tiene su cuenta por cobrar principal');
+    // Una venta anulada ya devolvió todo y ya se le reembolsó al cliente. Sin este corte, una
+    // devolución posterior saldría con el error genérico de "supera lo disponible", que no
+    // explica nada.
+    if (sale.cuentaCobrar.estado === 'ANULADA' && !esAnulacion)
+      throw new BadRequestException(
+        'Esta venta está anulada: su devolución total ya quedó registrada.',
+      );
     const selected = this.validateReturnItems(sale.detalles, dto.items);
     const defaultState = await this.availableState(tx);
     // Costo al que salió cada producto en esta venta, para que la devolución vuelva a entrar
@@ -1489,7 +1891,7 @@ export class OperationsService {
     const reintegra = (entry: { input: { reintegraInventario?: boolean } }) =>
       controlaInventario && entry.input.reintegraInventario !== false;
 
-    const code = `DV-${Date.now().toString(36).toUpperCase()}`;
+    const code = `${esAnulacion ? 'AN' : 'DV'}-${Date.now().toString(36).toUpperCase()}`;
     const created = await tx.devolucionVenta.create({
       data: {
         ventaId: sale.id,
@@ -1499,6 +1901,7 @@ export class OperationsService {
         observaciones: dto.observaciones?.trim(),
         total,
         estado: 'CONFIRMADA',
+        tipo: esAnulacion ? 'ANULACION' : 'COMERCIAL',
         detalles: {
           create: selected.map((entry) => ({
             detalleVentaId: entry.detail.id,
@@ -1523,8 +1926,12 @@ export class OperationsService {
     const physical = selected.filter(reintegra);
     if (physical.length) {
       for (const entry of physical) {
+        // Sin estado elegido vale el DISPONIBLE que ya se resolvió arriba, que es el que
+        // termina guardándose. Es el caso de una anulación: la venta se está deshaciendo
+        // entera, el producto nunca salió de verdad y no hay nada que elegir por línea.
+        if (entry.input.estadoDestinoId === undefined) continue;
         const state = await tx.estadoInventario.findUnique({
-          where: { id: BigInt(entry.input.estadoDestinoId ?? 0) },
+          where: { id: BigInt(entry.input.estadoDestinoId) },
         });
         if (!state?.estado)
           throw new BadRequestException(
@@ -1604,28 +2011,46 @@ export class OperationsService {
       }
     }
     const previousBalance = Number(sale.cuentaCobrar.saldoPendiente);
-    const newBalance = Math.max(previousBalance - total, 0);
-    const credit = Math.max(total - previousBalance, 0);
-    const paymentState =
-      newBalance <= 0
-        ? 'PAGADA'
-        : Number(sale.cuentaCobrar.montoPagado) > 0
-          ? 'PARCIAL'
-          : 'PENDIENTE';
-    await tx.cuentaCobrar.update({
-      where: { id: sale.cuentaCobrar.id },
-      data: { saldoPendiente: newBalance, estado: paymentState },
-    });
-    if (credit > 0)
-      await tx.saldoFavorCliente.create({
-        data: {
-          clienteId: sale.clienteId,
-          devolucionVentaId: created.id,
-          montoOriginal: credit,
-          montoDisponible: credit,
-        },
-      });
+    const pagadoPrevio = Number(sale.cuentaCobrar.montoPagado);
     const fullyReturned = this.isFullyReturned(sale.detalles, selected);
+
+    let paymentState: string;
+    if (esAnulacion) {
+      // La venta se deshace entera y la plata se le devuelve al cliente en efectivo, en
+      // persona. Por eso NO se genera un saldo a favor: no le queda crédito, se va con su
+      // dinero. Lo que sí queda es el registro de la salida, porque la caja del día tiene que
+      // mostrar que salió plata (ver `registrarReembolsos`).
+      paymentState = 'PAGADA';
+      await tx.cuentaCobrar.update({
+        where: { id: sale.cuentaCobrar.id },
+        data: { montoPagado: 0, saldoPendiente: 0, estado: 'ANULADA' },
+      });
+      if (pagadoPrevio > 0)
+        await this.registrarReembolsos(tx, {
+          cuenta: sale.cuentaCobrar,
+          devolucionId: created.id,
+          ventaId: sale.id,
+          workerId,
+          metodoPagoId: opciones.reembolso?.metodoPagoId,
+        });
+    } else {
+      const newBalance = Math.max(previousBalance - total, 0);
+      const credit = Math.max(total - previousBalance, 0);
+      paymentState = newBalance <= 0 ? 'PAGADA' : pagadoPrevio > 0 ? 'PARCIAL' : 'PENDIENTE';
+      await tx.cuentaCobrar.update({
+        where: { id: sale.cuentaCobrar.id },
+        data: { saldoPendiente: newBalance, estado: paymentState },
+      });
+      if (credit > 0)
+        await tx.saldoFavorCliente.create({
+          data: {
+            clienteId: sale.clienteId,
+            devolucionVentaId: created.id,
+            montoOriginal: credit,
+            montoDisponible: credit,
+          },
+        });
+    }
     await tx.venta.update({
       where: { id: sale.id },
       data: {
@@ -1634,6 +2059,88 @@ export class OperationsService {
       },
     });
     return created.id;
+  }
+
+  /**
+   * Registra la plata que SALE al anular una venta que ya había cobrado algo.
+   *
+   * Va como filas nuevas de `PagoCliente` con monto negativo, y no como una marca sobre los
+   * cobros originales, por dos razones. La plata sale de la caja el día de la anulación, no
+   * el día de la venta, y solo una fila nueva puede llevar esa fecha y ese responsable. Y
+   * así la suma de los pagos sigue coincidiendo con `montoPagado` sin filtrar nada: es el
+   * mismo criterio de solo-append que usa el kardex.
+   *
+   * Si se eligió un método, sale todo por ahí (cobraste por Yape pero devolviste efectivo:
+   * lo que importa es de dónde salió la plata de verdad). Si no, espeja los cobros
+   * originales, cada uno con su método.
+   */
+  private async registrarReembolsos(
+    tx: Transaction,
+    args: {
+      cuenta: {
+        id: bigint;
+        montoPagado: Prisma.Decimal;
+        pagos: { metodoPagoId: bigint; monto: Prisma.Decimal }[];
+      };
+      devolucionId: bigint;
+      ventaId: bigint;
+      workerId: bigint;
+      metodoPagoId?: bigint;
+    },
+  ) {
+    const observaciones = `Reembolso por anulación de la venta ${saleCode(args.ventaId)}`;
+    const total = Number(args.cuenta.montoPagado);
+    const lineas = args.metodoPagoId
+      ? [{ metodoPagoId: args.metodoPagoId, monto: total }]
+      : // El espejo se arma con el neto por método: si esa cuenta ya tuvo un reembolso previo
+        // (no debería, pero la tabla lo permite), no se devuelve dos veces lo mismo.
+        [...this.netoPorMetodo(args.cuenta.pagos)].map(([metodoPagoId, monto]) => ({
+          metodoPagoId: BigInt(metodoPagoId),
+          monto,
+        }));
+    for (const linea of lineas) {
+      if (linea.monto <= 0) continue;
+      await this.exigirMetodoDisponible(tx, linea.metodoPagoId, args.workerId);
+      await tx.pagoCliente.create({
+        data: {
+          cuentaCobrarId: args.cuenta.id,
+          metodoPagoId: linea.metodoPagoId,
+          trabajadorId: args.workerId,
+          monto: -linea.monto,
+          origen: 'REEMBOLSO',
+          devolucionVentaId: args.devolucionId,
+          observaciones,
+        },
+      });
+    }
+  }
+
+  /** Cuánto se cobró por cada método, ya restando lo que se haya reembolsado antes. */
+  private netoPorMetodo(pagos: { metodoPagoId: bigint; monto: Prisma.Decimal }[]) {
+    const neto = new Map<string, number>();
+    for (const pago of pagos) {
+      const clave = pago.metodoPagoId.toString();
+      neto.set(clave, Math.round(((neto.get(clave) ?? 0) + Number(pago.monto)) * 100) / 100);
+    }
+    return neto;
+  }
+
+  /**
+   * Que el método de cobro exista, esté activo y sea usable por este trabajador. Es la misma
+   * regla que aplica `registerAccountPayment`; acá se reusa para el reembolso.
+   */
+  private async exigirMetodoDisponible(tx: Transaction, metodoPagoId: bigint, workerId: bigint) {
+    const method = await tx.metodoPago.findUnique({
+      where: { id: metodoPagoId },
+      include: { categoria: true },
+    });
+    if (!method || !method.estado || method.categoria?.estado === false)
+      throw new BadRequestException('El método de pago no está disponible');
+    if (method.trabajadorId !== null && method.trabajadorId !== workerId)
+      throw new BadRequestException(
+        `El método ${etiquetaMetodoPago(method)} pertenece a otro trabajador`,
+      );
+    return method;
   }
 
   private validateReturnItems(details: any[], items: CreateReturnDto['items']) {
@@ -1686,15 +2193,20 @@ export class OperationsService {
     account: { id: bigint; montoOriginal: number },
     workerId: bigint,
     payments: { methodId: bigint; monto: number }[],
+    fechaPago?: Date,
   ) {
     if (payments.length === 0) return;
     const abonado = Math.round(payments.reduce((sum, p) => sum + p.monto, 0) * 100) / 100;
     await tx.pagoCliente.createMany({
       data: payments.map((payment) => ({
+        ...(fechaPago ? { fechaPago } : {}),
         cuentaCobrarId: account.id,
         metodoPagoId: payment.methodId,
         trabajadorId: workerId,
         monto: payment.monto,
+        // Este cobro ya está contado en las ventas por método de pago. Marcarlo es lo que
+        // impide que el reporte de caja por trabajador lo sume otra vez como cobranza.
+        origen: 'VENTA',
         observaciones: 'Pago inicial de la venta',
       })),
     });
@@ -1881,6 +2393,7 @@ export class OperationsService {
           cliente: true,
           almacenOrigen: true,
           trabajador: true,
+          creditoAutorizadoPor: { select: { nombres: true, apellidos: true } },
           detalles: {
             include: {
               producto: true,
@@ -1947,6 +2460,11 @@ export class OperationsService {
       row.devoluciones
         ?.filter((item: any) => item.estado === 'CONFIRMADA')
         .reduce((sum: number, item: any) => sum + Number(item.total), 0) ?? 0;
+    // La venta anulada sigue con `estado: 'CONFIRMADA'`: lo que la anula es su devolución.
+    // Se deriva acá para que la pantalla no tenga que conocer esa regla.
+    const anulacion = row.devoluciones?.find(
+      (item: any) => item.tipo === 'ANULACION' && item.estado === 'CONFIRMADA',
+    );
     const salidas = (row.movimientosInventario ?? []).filter(
       (movimiento: any) => movimiento.tipoMovimiento === 'SALIDA',
     );
@@ -1972,13 +2490,17 @@ export class OperationsService {
       descuento: Number(row.descuento),
       total: Number(row.total),
       montoInicial: Number(row.montoInicial),
-      // Desglose del cobro inicial por método (para reconstruirlo al editar la venta).
+      // Desglose del cobro inicial por método (para reconstruirlo al editar la venta). Se
+      // filtra por origen: una cobranza posterior o el reembolso de una anulación no son
+      // parte del cobro de la venta, y reenviarlos al editar los duplicaría.
       pagosIniciales:
-        row.cuentaCobrar?.pagos?.map((pago: any) => ({
-          metodoPagoId: pago.metodoPagoId.toString(),
-          metodo: pago.metodoPago ? etiquetaMetodoPago(pago.metodoPago) : '',
-          monto: Number(pago.monto),
-        })) ?? [],
+        row.cuentaCobrar?.pagos
+          ?.filter((pago: any) => pago.origen === 'VENTA')
+          .map((pago: any) => ({
+            metodoPagoId: pago.metodoPagoId.toString(),
+            metodo: pago.metodoPago ? etiquetaMetodoPago(pago.metodoPago) : '',
+            monto: Number(pago.monto),
+          })) ?? [],
       fechaVencimiento: row.cuentaCobrar?.fechaVencimiento ?? row.fechaVencimientoPago,
       cuentaCobrarId: row.cuentaCobrar?.id?.toString() ?? null,
       totalNeto: Math.max(Number(row.total) - returned, 0),
@@ -1987,6 +2509,25 @@ export class OperationsService {
       estado: row.estado,
       estadoPago: row.estadoPago,
       estadoDevolucion: row.estadoDevolucion,
+      anulada: Boolean(anulacion),
+      motivoAnulacion: anulacion?.motivo ?? null,
+      fechaAnulacion: anulacion?.fecha ?? null,
+      // Quién autorizó pasar el límite de crédito del cliente, cuando hizo falta. Se muestra
+      // en el detalle: una excepción que no se puede mirar después no sirve de control.
+      creditoAutorizadoPor: row.creditoAutorizadoPor
+        ? `${row.creditoAutorizadoPor.nombres} ${row.creditoAutorizadoPor.apellidos}`
+        : null,
+      creditoAutorizadoNota: row.creditoAutorizadoNota ?? null,
+      // Envases de esta venta. `entregados` se recalcula de las líneas porque el catálogo
+      // manda: si un producto se marcó retornable después, la venta vieja sigue contando lo
+      // que entregó de verdad. `vaciosRecibidos` es dato guardado, no se puede deducir.
+      envasesEntregados:
+        row.detalles?.reduce(
+          (sum: number, item: any) =>
+            sum + (item.producto?.esRetornable ? Number(item.cantidad) : 0),
+          0,
+        ) ?? 0,
+      vaciosRecibidos: Number(row.vaciosRecibidos ?? 0),
       // Si la venta se editó hay varios movimientos; el que vale es la última SALIDA (la
       // primera ya fue revertida), así el enlace "Ver kardex" no lleva a un movimiento anulado.
       kardexId: movimientoVigente?.id?.toString() ?? null,

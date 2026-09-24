@@ -1,11 +1,23 @@
 'use client';
 
-import { AlertCircle, Eye, Factory, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { AlertCircle, Eye, Factory, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import Link from 'next/link';
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { AlmacenCreado, AlmacenFormModal } from '../../../components/AlmacenFormModal';
+import { DataTable, DataTableColumn } from '../../../components/DataTable';
 import { SearchableSelect } from '../../../components/SearchableSelect';
+import { Button, buttonClass } from '../../../components/ui/Button';
+import {
+  controlClass,
+  fieldLabelClass,
+  fieldWideClass,
+  modalActionsClass,
+  modalFormClass,
+} from '../../../components/ui/Field';
+import { IconButton } from '../../../components/ui/IconButton';
+import { Modal, ModalHeader } from '../../../components/ui/Modal';
 import { fechaCorta } from '../../../lib/format';
 import {
   createProductionOrder,
@@ -32,13 +44,11 @@ const emptyForm = () => ({
 });
 
 export default function ProductionPage() {
-  const [catalogs, setCatalogs] = useState(emptyCatalogs);
-  const [orders, setOrders] = useState<ProductionOrder[]>([]);
+  const queryClient = useQueryClient();
   const [formOpen, setFormOpen] = useState(false);
   const [almacenModal, setAlmacenModal] = useState(false);
   const [editing, setEditing] = useState<ProductionOrder | null>(null);
   const [detail, setDetail] = useState<ProductionOrder | null>(null);
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
   const [form, setForm] = useState(emptyForm);
@@ -46,27 +56,35 @@ export default function ProductionPage() {
   // El lote de esta producción ya se vendió/movió: solo se pueden corregir las fechas.
   const edicionLimitada = Boolean(editing?.loteMovido);
 
-  async function load() {
-    const [catalogData, orderData] = await Promise.all([
-      getProductionCatalogs(),
-      getProductionOrders(),
-    ]);
-    setCatalogs(catalogData);
-    setOrders(orderData);
+  const catalogsQuery = useQuery({
+    queryKey: ['production-catalogs'],
+    queryFn: getProductionCatalogs,
+  });
+  const catalogs = catalogsQuery.data ?? emptyCatalogs;
+  const ordersQuery = useQuery({ queryKey: ['production-orders'], queryFn: getProductionOrders });
+  const orders = ordersQuery.data ?? [];
+  const loading = catalogsQuery.isPending || ordersQuery.isPending;
+  const load = useCallback(
+    () => Promise.all([catalogsQuery.refetch(), ordersQuery.refetch()]),
+    [catalogsQuery, ordersQuery],
+  );
+  // Precarga el producto y el almacén por defecto del formulario apenas llega el catálogo.
+  useEffect(() => {
+    if (!catalogsQuery.data) return;
     setForm((current) => ({
       ...current,
-      productoId: current.productoId || catalogData.productosTerminados[0]?.id || '',
+      productoId: current.productoId || catalogsQuery.data.productosTerminados[0]?.id || '',
       almacenProductoTerminadoId:
-        current.almacenProductoTerminadoId || catalogData.almacenes[0]?.id || '',
+        current.almacenProductoTerminadoId || catalogsQuery.data.almacenes[0]?.id || '',
     }));
-  }
+  }, [catalogsQuery.data]);
   useEffect(() => {
-    void load()
-      .catch((cause) =>
-        toast.error(cause instanceof Error ? cause.message : 'No se pudo cargar producción'),
-      )
-      .finally(() => setLoading(false));
-  }, []);
+    const fallo = catalogsQuery.error ?? ordersQuery.error;
+    if (fallo) {
+      toast.error(fallo instanceof Error ? fallo.message : 'No se pudo cargar producción');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catalogsQuery.error, ordersQuery.error]);
 
   const visible = useMemo(
     () =>
@@ -105,16 +123,97 @@ export default function ProductionPage() {
   }
   // Almacén creado desde el combo de producción: lo sumamos al catálogo y lo dejamos elegido.
   function handleAlmacenCreado(almacen: AlmacenCreado) {
-    setCatalogs((current) => ({
-      ...current,
-      almacenes: [
-        ...current.almacenes,
-        { id: almacen.id, nombre: almacen.nombre, codigo: almacen.codigo },
-      ].sort((a, b) => a.nombre.localeCompare(b.nombre)),
-    }));
+    queryClient.setQueryData<ProductionCatalogs>(['production-catalogs'], (current) =>
+      current
+        ? {
+            ...current,
+            almacenes: [
+              ...current.almacenes,
+              { id: almacen.id, nombre: almacen.nombre, codigo: almacen.codigo },
+            ].sort((a, b) => a.nombre.localeCompare(b.nombre)),
+          }
+        : current,
+    );
     setForm((current) => ({ ...current, almacenProductoTerminadoId: almacen.id }));
     setAlmacenModal(false);
   }
+
+  const columns: DataTableColumn<ProductionOrder>[] = [
+    { key: 'fecha', header: 'Fecha', render: (item) => fechaCorta(item.fechaPlanificada) },
+    {
+      key: 'producto',
+      header: 'Producto terminado',
+      cardLabel: null,
+      render: (item) => (
+        <>
+          <strong className="block text-[13px] font-medium text-fg">{item.producto}</strong>
+          <small className="mt-0.5 block text-[11px] text-muted">
+            {item.lote ? `Lote ${item.lote}` : 'Sin lote'}
+          </small>
+        </>
+      ),
+    },
+    {
+      key: 'cantidad',
+      header: 'Cantidad producida',
+      render: (item) => `${cantidad(item.cantidadProducida)} un.`,
+    },
+    {
+      key: 'insumos',
+      header: 'Insumos',
+      render: (item) => (
+        <>
+          <strong className="block text-[13px] font-medium text-fg">
+            {item.insumos.length} insumos
+          </strong>
+          <small className="mt-0.5 block text-[11px] text-muted">
+            {item.insumos.length
+              ? item.insumos.map((input) => input.producto).join(', ')
+              : 'No registrados'}
+          </small>
+        </>
+      ),
+    },
+    { key: 'almacen', header: 'Almacén destino', render: (item) => item.almacenProductoTerminado },
+    {
+      key: 'kardex',
+      header: 'Kardex',
+      render: (item) =>
+        item.kardexId ? (
+          <Link
+            className="kardex-link"
+            href={`/movimientos?ref=${encodeURIComponent(item.kardexRef ?? '')}`}
+          >
+            {item.kardexRef ?? 'Ver kardex'}
+          </Link>
+        ) : (
+          '—'
+        ),
+    },
+    {
+      key: 'acciones',
+      header: 'Acciones',
+      cardLabel: null,
+      render: (item) => (
+        <div className="flex flex-wrap gap-[7px]">
+          <IconButton
+            onClick={() => setDetail(item)}
+            title="Ver detalle"
+            aria-label={`Ver detalle de ${item.codigo}`}
+          >
+            <Eye size={16} />
+          </IconButton>
+          <IconButton
+            onClick={() => openEdit(item)}
+            title="Editar producción"
+            aria-label={`Editar ${item.codigo}`}
+          >
+            <Pencil size={16} />
+          </IconButton>
+        </div>
+      ),
+    },
+  ];
 
   function updateInput(index: number, patch: Partial<{ productoId: string; cantidad: number }>) {
     setInputs((current) =>
@@ -189,9 +288,9 @@ export default function ProductionPage() {
           <span className="operation-eyebrow">Planta y envasado</span>
           <h1>Producción diaria</h1>
         </div>
-        <button className="btn-primary operation-primary-action" onClick={openCreate}>
+        <Button className="min-h-[44px] shrink-0 px-[19px]" onClick={openCreate}>
           <Plus size={17} /> Registrar producción
-        </button>
+        </Button>
       </div>
       <div className="summary-row">
         <div className="summary-glass">
@@ -219,294 +318,201 @@ export default function ProductionPage() {
           />
         </label>
       </div>
-      <div className="glass-table">
-        <table>
-          <thead>
-            <tr>
-              <th>Fecha</th>
-              <th>Producto terminado</th>
-              <th>Cantidad producida</th>
-              <th>Insumos</th>
-              <th>Almacén destino</th>
-              <th>Kardex</th>
-              <th>Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {visible.length ? (
-              visible.map((item) => (
-                <tr key={item.id}>
-                  <td>{fechaCorta(item.fechaPlanificada)}</td>
-                  <td>
-                    <strong>{item.producto}</strong>
-                    <small>{item.lote ? `Lote ${item.lote}` : 'Sin lote'}</small>
-                  </td>
-                  <td>{cantidad(item.cantidadProducida)} un.</td>
-                  <td>
-                    <strong>{item.insumos.length} insumos</strong>
-                    <small>
-                      {item.insumos.length
-                        ? item.insumos.map((input) => input.producto).join(', ')
-                        : 'No registrados'}
-                    </small>
-                  </td>
-                  <td>{item.almacenProductoTerminado}</td>
-                  <td>
-                    {item.kardexId ? (
-                      <Link
-                        className="kardex-link"
-                        href={`/movimientos?ref=${encodeURIComponent(item.kardexRef ?? '')}`}
-                      >
-                        {item.kardexRef ?? 'Ver kardex'}
-                      </Link>
-                    ) : (
-                      '—'
-                    )}
-                  </td>
-                  <td>
-                    <div className="row-actions">
-                      <button
-                        type="button"
-                        className="icon-soft"
-                        onClick={() => setDetail(item)}
-                        title="Ver detalle"
-                        aria-label={`Ver detalle de ${item.codigo}`}
-                      >
-                        <Eye size={16} />
-                      </button>
-                      <button
-                        type="button"
-                        className="icon-soft"
-                        onClick={() => openEdit(item)}
-                        title="Editar producción"
-                        aria-label={`Editar ${item.codigo}`}
-                      >
-                        <Pencil size={16} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan={7}>
-                  <div className="table-empty">No hay producciones registradas.</div>
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <DataTable
+        columns={columns}
+        rows={visible}
+        rowKey={(item) => item.id}
+        emptyMessage={<span>No hay producciones registradas.</span>}
+      />
 
       {formOpen ? (
-        <div
-          className="modal-backdrop"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget && !saving) closeForm();
-          }}
+        <Modal
+          onClose={closeForm}
+          closeDisabled={saving}
+          className="max-w-[880px] animate-[overlay-panel-in_200ms_ease-out]"
         >
-          <section
-            className="crud-modal production-order-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label={editing ? 'Editar producción' : 'Registrar producción'}
-          >
-            <div className="modal-top">
-              <div>
-                <h2>
-                  {editing ? `Editar producción ${editing.codigo}` : 'Registrar producción diaria'}
-                </h2>
-                <small>
-                  {editing
-                    ? edicionLimitada
-                      ? 'Este lote ya tiene ventas o movimientos de inventario. Solo puedes corregir la fecha de producción y el vencimiento.'
-                      : 'Se revierte el movimiento de inventario anterior y se rehace con los datos nuevos. El producto terminado no cambia.'
-                    : 'El código de orden, lote y almacén de origen se generan automáticamente.'}
-                </small>
+          <ModalHeader
+            title={editing ? `Editar producción ${editing.codigo}` : 'Registrar producción diaria'}
+            subtitle={
+              editing
+                ? edicionLimitada
+                  ? 'Este lote ya tiene ventas o movimientos de inventario. Solo puedes corregir la fecha de producción y el vencimiento.'
+                  : 'Se revierte el movimiento de inventario anterior y se rehace con los datos nuevos. El producto terminado no cambia.'
+                : 'El código de orden, lote y almacén de origen se generan automáticamente.'
+            }
+            onClose={closeForm}
+            closeDisabled={saving}
+          />
+          <form className={modalFormClass} onSubmit={(event) => void submit(event)}>
+            {edicionLimitada ? (
+              <div className={`operation-warning ${fieldWideClass}`}>
+                <AlertCircle size={18} />
+                <div>
+                  <strong>Edición limitada</strong>
+                  <span>
+                    Este lote ya tiene ventas o movimientos de inventario. Solo puedes ajustar la
+                    fecha de producción y el vencimiento; la cantidad, el almacén y los insumos
+                    quedan bloqueados.
+                  </span>
+                </div>
               </div>
-              <button
-                className="modal-close"
-                onClick={closeForm}
-                disabled={saving}
-                aria-label="Cerrar"
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <form className="modal-form" onSubmit={(event) => void submit(event)}>
-              {edicionLimitada ? (
-                <div className="operation-warning field-wide">
-                  <AlertCircle size={18} />
-                  <div>
-                    <strong>Edición limitada</strong>
-                    <span>
-                      Este lote ya tiene ventas o movimientos de inventario. Solo puedes ajustar la
-                      fecha de producción y el vencimiento; la cantidad, el almacén y los insumos
-                      quedan bloqueados.
-                    </span>
-                  </div>
-                </div>
-              ) : null}
-              <label>
-                <span>Fecha de producción</span>
-                <input
-                  type="date"
-                  max={today()}
-                  value={form.fechaPlanificada}
-                  onChange={(event) => setForm({ ...form, fechaPlanificada: event.target.value })}
-                  required
-                />
-              </label>
-              <label>
-                <span>Cantidad a producir</span>
-                <input
-                  type="number"
-                  min="0.001"
-                  step="0.001"
-                  value={form.cantidadPlanificada}
-                  onChange={(event) =>
-                    setForm({ ...form, cantidadPlanificada: event.target.value })
-                  }
-                  disabled={edicionLimitada}
-                  required
-                />
-              </label>
-              <label className="field-wide">
-                <span>Producto terminado</span>
-                {editing ? (
-                  <input value={editing.producto} disabled readOnly />
-                ) : (
-                  <SearchableSelect
-                    value={form.productoId}
-                    onChange={(value) => setForm({ ...form, productoId: value })}
-                    options={catalogs.productosTerminados.map((item) => ({
-                      value: item.id,
-                      label: `${item.codigo} · ${item.nombre}`,
-                    }))}
-                    placeholder="Seleccionar producto"
-                    required
-                  />
-                )}
-              </label>
-              <label>
-                <span>Almacén destino (opcional)</span>
-                <SearchableSelect
-                  value={form.almacenProductoTerminadoId}
-                  onChange={(value) => setForm({ ...form, almacenProductoTerminadoId: value })}
-                  options={catalogs.almacenes.map((item) => ({
-                    value: item.id,
-                    label: item.codigo ? `${item.codigo} · ${item.nombre}` : item.nombre,
-                  }))}
-                  placeholder="Automático"
-                  actionLabel="+ Agregar almacén"
-                  onAction={() => setAlmacenModal(true)}
-                  disabled={edicionLimitada}
-                />
-              </label>
-              <label>
-                <span>Vencimiento (opcional)</span>
-                <input
-                  type="date"
-                  value={form.fechaVencimiento}
-                  onChange={(event) => setForm({ ...form, fechaVencimiento: event.target.value })}
-                />
-              </label>
-              {edicionLimitada ? (
-                <div className="production-advanced field-wide">
-                  <p>
-                    Insumos registrados:{' '}
-                    {editing?.insumos.length
-                      ? editing.insumos.map((input) => input.producto).join(', ')
-                      : 'ninguno'}{' '}
-                    (no editables).
-                  </p>
-                </div>
+            ) : null}
+            <label>
+              <span className={fieldLabelClass}>Fecha de producción</span>
+              <input
+                className={controlClass}
+                type="date"
+                max={today()}
+                value={form.fechaPlanificada}
+                onChange={(event) => setForm({ ...form, fechaPlanificada: event.target.value })}
+                required
+              />
+            </label>
+            <label>
+              <span className={fieldLabelClass}>Cantidad a producir</span>
+              <input
+                className={controlClass}
+                type="number"
+                min="0.001"
+                step="0.001"
+                value={form.cantidadPlanificada}
+                onChange={(event) => setForm({ ...form, cantidadPlanificada: event.target.value })}
+                disabled={edicionLimitada}
+                required
+              />
+            </label>
+            <label className={fieldWideClass}>
+              <span className={fieldLabelClass}>Producto terminado</span>
+              {editing ? (
+                <input className={controlClass} value={editing.producto} disabled readOnly />
               ) : (
-                <details className="production-advanced field-wide">
-                  <summary>Opciones avanzadas: materia prima e insumos</summary>
-                  <p>
-                    Úsalas solo si deseas descontar y valorizar la materia prima usada. Si no
-                    agregas insumos, se registra únicamente la producción diaria.
-                  </p>
-                  <div className="production-inputs">
-                    <div className="lines-head">
-                      <div>
-                        <strong>Materia prima y envases</strong>
-                        <small>Se tomarán del almacén de origen automático.</small>
-                      </div>
+                <SearchableSelect
+                  value={form.productoId}
+                  onChange={(value) => setForm({ ...form, productoId: value })}
+                  options={catalogs.productosTerminados.map((item) => ({
+                    value: item.id,
+                    label: `${item.codigo} · ${item.nombre}`,
+                  }))}
+                  placeholder="Seleccionar producto"
+                  required
+                />
+              )}
+            </label>
+            <label>
+              <span className={fieldLabelClass}>Almacén destino (opcional)</span>
+              <SearchableSelect
+                value={form.almacenProductoTerminadoId}
+                onChange={(value) => setForm({ ...form, almacenProductoTerminadoId: value })}
+                options={catalogs.almacenes.map((item) => ({
+                  value: item.id,
+                  label: item.codigo ? `${item.codigo} · ${item.nombre}` : item.nombre,
+                }))}
+                placeholder="Automático"
+                actionLabel="+ Agregar almacén"
+                onAction={() => setAlmacenModal(true)}
+                disabled={edicionLimitada}
+              />
+            </label>
+            <label>
+              <span className={fieldLabelClass}>Vencimiento (opcional)</span>
+              <input
+                className={controlClass}
+                type="date"
+                value={form.fechaVencimiento}
+                onChange={(event) => setForm({ ...form, fechaVencimiento: event.target.value })}
+              />
+            </label>
+            {edicionLimitada ? (
+              <div className={`production-advanced ${fieldWideClass}`}>
+                <p>
+                  Insumos registrados:{' '}
+                  {editing?.insumos.length
+                    ? editing.insumos.map((input) => input.producto).join(', ')
+                    : 'ninguno'}{' '}
+                  (no editables).
+                </p>
+              </div>
+            ) : (
+              <details className={`production-advanced ${fieldWideClass}`}>
+                <summary>Opciones avanzadas: materia prima e insumos</summary>
+                <p>
+                  Úsalas solo si deseas descontar y valorizar la materia prima usada. Si no agregas
+                  insumos, se registra únicamente la producción diaria.
+                </p>
+                <div className="production-inputs">
+                  <div className="lines-head">
+                    <div>
+                      <strong>Materia prima y envases</strong>
+                      <small>Se tomarán del almacén de origen automático.</small>
+                    </div>
+                    <Button
+                      variant="secondary"
+                      type="button"
+                      onClick={() =>
+                        setInputs((current) => [
+                          ...current,
+                          { productoId: '', cantidad: Number(form.cantidadPlanificada) || 0 },
+                        ])
+                      }
+                    >
+                      <Plus size={15} /> Agregar insumo
+                    </Button>
+                  </div>
+                  {inputs.map((item, index) => (
+                    <div className="production-input-line" key={index}>
+                      <label>
+                        <span className={fieldLabelClass}>Insumo</span>
+                        <SearchableSelect
+                          value={item.productoId}
+                          onChange={(value) => updateInput(index, { productoId: value })}
+                          options={catalogs.insumos.map((product) => ({
+                            value: product.id,
+                            label: `${product.codigo} · ${product.nombre}`,
+                          }))}
+                          placeholder="Seleccionar insumo"
+                        />
+                      </label>
+                      <label>
+                        <span className={fieldLabelClass}>Cantidad</span>
+                        <input
+                          className={controlClass}
+                          type="number"
+                          min="0.001"
+                          step="0.001"
+                          value={item.cantidad}
+                          onChange={(event) =>
+                            updateInput(index, { cantidad: Number(event.target.value) })
+                          }
+                        />
+                      </label>
                       <button
                         type="button"
-                        className="btn-secondary"
+                        className="line-remove"
                         onClick={() =>
-                          setInputs((current) => [
-                            ...current,
-                            { productoId: '', cantidad: Number(form.cantidadPlanificada) || 0 },
-                          ])
+                          setInputs((current) =>
+                            current.filter((_, position) => position !== index),
+                          )
                         }
+                        aria-label="Quitar insumo"
                       >
-                        <Plus size={15} /> Agregar insumo
+                        <Trash2 size={16} />
                       </button>
                     </div>
-                    {inputs.map((item, index) => (
-                      <div className="production-input-line" key={index}>
-                        <label>
-                          <span>Insumo</span>
-                          <SearchableSelect
-                            value={item.productoId}
-                            onChange={(value) => updateInput(index, { productoId: value })}
-                            options={catalogs.insumos.map((product) => ({
-                              value: product.id,
-                              label: `${product.codigo} · ${product.nombre}`,
-                            }))}
-                            placeholder="Seleccionar insumo"
-                          />
-                        </label>
-                        <label>
-                          <span>Cantidad</span>
-                          <input
-                            type="number"
-                            min="0.001"
-                            step="0.001"
-                            value={item.cantidad}
-                            onChange={(event) =>
-                              updateInput(index, { cantidad: Number(event.target.value) })
-                            }
-                          />
-                        </label>
-                        <button
-                          type="button"
-                          className="line-remove"
-                          onClick={() =>
-                            setInputs((current) =>
-                              current.filter((_, position) => position !== index),
-                            )
-                          }
-                          aria-label="Quitar insumo"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </details>
-              )}
-              <div className="modal-actions">
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={closeForm}
-                  disabled={saving}
-                >
-                  Cancelar
-                </button>
-                <button className="btn-primary" disabled={saving}>
-                  <Factory size={16} />{' '}
-                  {saving ? 'Guardando...' : editing ? 'Guardar cambios' : 'Registrar producción'}
-                </button>
-              </div>
-            </form>
-          </section>
-        </div>
+                  ))}
+                </div>
+              </details>
+            )}
+            <div className={modalActionsClass}>
+              <Button variant="secondary" type="button" onClick={closeForm} disabled={saving}>
+                Cancelar
+              </Button>
+              <Button disabled={saving}>
+                <Factory size={16} />{' '}
+                {saving ? 'Guardando...' : editing ? 'Guardar cambios' : 'Registrar producción'}
+              </Button>
+            </div>
+          </form>
+        </Modal>
       ) : null}
 
       {almacenModal ? (
@@ -514,123 +520,103 @@ export default function ProductionPage() {
       ) : null}
 
       {detail ? (
-        <div
-          className="modal-backdrop"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setDetail(null);
-          }}
+        <Modal
+          onClose={() => setDetail(null)}
+          className="max-w-[880px] animate-[overlay-panel-in_200ms_ease-out]"
         >
-          <section
-            className="crud-modal operation-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label={`Detalle de producción ${detail.codigo}`}
-          >
-            <div className="modal-top">
-              <div>
-                <h2>Producción {detail.codigo}</h2>
-                <small>Detalle de la producción y su efecto en inventario</small>
-              </div>
-              <button
-                type="button"
-                className="modal-close"
-                onClick={() => setDetail(null)}
-                aria-label="Cerrar detalle"
-              >
-                <X size={18} />
-              </button>
+          <ModalHeader
+            title={`Producción ${detail.codigo}`}
+            subtitle="Detalle de la producción y su efecto en inventario"
+            onClose={() => setDetail(null)}
+            closeLabel="Cerrar detalle"
+          />
+          <div className="operation-detail">
+            <div className="detail-summary">
+              <span>
+                Producto<strong>{detail.producto}</strong>
+              </span>
+              <span>
+                Lote<strong>{detail.lote ?? 'Sin lote'}</strong>
+              </span>
+              <span>
+                Fecha de producción<strong>{fechaCorta(detail.fechaPlanificada)}</strong>
+              </span>
+              <span>
+                Vencimiento
+                <strong>
+                  {detail.fechaVencimiento ? fechaCorta(detail.fechaVencimiento) : 'Sin fecha'}
+                </strong>
+              </span>
+              <span>
+                Cantidad producida<strong>{cantidad(detail.cantidadProducida)} un.</strong>
+              </span>
+              <span>
+                Almacén destino<strong>{detail.almacenProductoTerminado}</strong>
+              </span>
+              <span>
+                Almacén de insumos<strong>{detail.almacenInsumos}</strong>
+              </span>
+              <span>
+                Responsable<strong>{detail.responsable}</strong>
+              </span>
             </div>
-            <div className="operation-detail">
-              <div className="detail-summary">
-                <span>
-                  Producto<strong>{detail.producto}</strong>
-                </span>
-                <span>
-                  Lote<strong>{detail.lote ?? 'Sin lote'}</strong>
-                </span>
-                <span>
-                  Fecha de producción<strong>{fechaCorta(detail.fechaPlanificada)}</strong>
-                </span>
-                <span>
-                  Vencimiento
-                  <strong>
-                    {detail.fechaVencimiento ? fechaCorta(detail.fechaVencimiento) : 'Sin fecha'}
-                  </strong>
-                </span>
-                <span>
-                  Cantidad producida<strong>{cantidad(detail.cantidadProducida)} un.</strong>
-                </span>
-                <span>
-                  Almacén destino<strong>{detail.almacenProductoTerminado}</strong>
-                </span>
-                <span>
-                  Almacén de insumos<strong>{detail.almacenInsumos}</strong>
-                </span>
-                <span>
-                  Responsable<strong>{detail.responsable}</strong>
-                </span>
-              </div>
-              <div className="operation-detail-items">
-                {detail.insumos.length ? (
-                  detail.insumos.map((input, index) => (
-                    <div className="detail-line" key={`${input.productoId}-${index}`}>
-                      <span>
-                        {input.producto}
-                        <small>
-                          Planificado: {cantidad(input.planificada)} · Consumido:{' '}
-                          {cantidad(input.consumida)}
-                        </small>
-                      </span>
-                    </div>
-                  ))
-                ) : (
-                  <div className="detail-line">
-                    <span>Sin insumos registrados</span>
+            <div className="operation-detail-items">
+              {detail.insumos.length ? (
+                detail.insumos.map((input, index) => (
+                  <div className="detail-line" key={`${input.productoId}-${index}`}>
+                    <span>
+                      {input.producto}
+                      <small>
+                        Planificado: {cantidad(input.planificada)} · Consumido:{' '}
+                        {cantidad(input.consumida)}
+                      </small>
+                    </span>
                   </div>
-                )}
-              </div>
-              <div className="operation-financial-summary">
-                <span>
-                  Costo total<strong>{moneda(detail.costoTotal)}</strong>
-                </span>
-                <span>
-                  Costo unitario
-                  <strong>
-                    {moneda(
-                      detail.cantidadProducida > 0
-                        ? detail.costoTotal / detail.cantidadProducida
-                        : 0,
-                    )}
-                  </strong>
-                </span>
-              </div>
-              <div className="modal-actions">
-                <button type="button" className="btn-secondary" onClick={() => setDetail(null)}>
-                  Cerrar
-                </button>
-                {detail.kardexId ? (
-                  <Link
-                    className="btn-secondary"
-                    href={`/movimientos?ref=${encodeURIComponent(detail.kardexRef ?? '')}`}
-                  >
-                    Ver kardex
-                  </Link>
-                ) : null}
-                <button
-                  type="button"
-                  className="btn-primary"
-                  onClick={() => {
-                    const order = detail;
-                    setDetail(null);
-                    openEdit(order);
-                  }}
-                >
-                  <Pencil size={16} /> Editar
-                </button>
-              </div>
+                ))
+              ) : (
+                <div className="detail-line">
+                  <span>Sin insumos registrados</span>
+                </div>
+              )}
             </div>
-          </section>
-        </div>
+            <div className="operation-financial-summary">
+              <span>
+                Costo total<strong>{moneda(detail.costoTotal)}</strong>
+              </span>
+              <span>
+                Costo unitario
+                <strong>
+                  {moneda(
+                    detail.cantidadProducida > 0 ? detail.costoTotal / detail.cantidadProducida : 0,
+                  )}
+                </strong>
+              </span>
+            </div>
+            <div className={modalActionsClass}>
+              <Button variant="secondary" type="button" onClick={() => setDetail(null)}>
+                Cerrar
+              </Button>
+              {detail.kardexId ? (
+                <Link
+                  className={buttonClass('secondary')}
+                  href={`/movimientos?ref=${encodeURIComponent(detail.kardexRef ?? '')}`}
+                >
+                  Ver kardex
+                </Link>
+              ) : null}
+              <Button
+                type="button"
+                onClick={() => {
+                  const order = detail;
+                  setDetail(null);
+                  openEdit(order);
+                }}
+              >
+                <Pencil size={16} /> Editar
+              </Button>
+            </div>
+          </div>
+        </Modal>
       ) : null}
     </div>
   );

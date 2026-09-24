@@ -3,6 +3,7 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Segmented } from './Segmented';
+import { Button } from './ui/Button';
 
 export type PeriodKind = 'day' | 'week' | 'month' | 'year' | 'custom';
 type Period = PeriodKind;
@@ -305,18 +306,13 @@ export function PeriodFilter({
 
             <div className="period-popover-actions">
               {fixed ? (
-                <button type="button" className="btn-secondary" onClick={() => jump(today)}>
+                <Button variant="secondary" type="button" onClick={() => jump(today)}>
                   Hoy
-                </button>
+                </Button>
               ) : (
-                <button
-                  type="button"
-                  className="btn-primary"
-                  disabled={!customReady}
-                  onClick={applyCustom}
-                >
+                <Button type="button" disabled={!customReady} onClick={applyCustom}>
                   Aplicar
-                </button>
+                </Button>
               )}
             </div>
           </div>

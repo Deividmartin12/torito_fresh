@@ -1,21 +1,16 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, PrismaClient } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { AuthUser } from '../common/auth-user';
 import {
   exigirMismaUnidad,
   filtroUnidadPor,
   resolverAlcanceUnidad,
   resolverUnidadDeEscritura,
-  unidadControlaInventario,
 } from '../common/unit-context';
+import { Transaction, ensureAvailableState, exigirInventario } from '../common/stock';
 import { exigirTrabajadorId } from '../common/worker-context';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateProductionOrderDto, UpdateProductionOrderDto } from './production.dto';
-
-type Transaction = Omit<
-  PrismaClient,
-  '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'
->;
 
 // Un consumo listo para descontar del almacén: cuánto y de qué producto.
 type ConsumoParaDescontar = {
@@ -28,14 +23,6 @@ type ConsumoParaDescontar = {
 @Injectable()
 export class ProductionService {
   constructor(private readonly prisma: PrismaService) {}
-
-  /** Un puesto que solo registra ventas y gastos no produce: no tiene stock que mover. */
-  private async exigirInventario(db: Transaction | PrismaService, unidadNegocioId: bigint) {
-    if (await unidadControlaInventario(db, unidadNegocioId)) return;
-    throw new BadRequestException(
-      'Esta unidad de negocio solo registra ventas y gastos: no lleva inventario ni órdenes de producción.',
-    );
-  }
 
   async catalogs(actor: AuthUser, unidad?: string) {
     // Los almacenes se acotan a la unidad donde se va a registrar, igual que en el formulario
@@ -95,133 +82,152 @@ export class ProductionService {
     // intermedio "BORRADOR" que requiera una confirmación aparte.
     return this.prisma.$transaction(
       async (tx) => {
-        const inputs = dto.insumos ?? [];
-        // Destino y origen acotados a la unidad donde se registra. El fallback era un
-        // `findFirst` sobre toda la base, o sea el primer almacén de la Principal: la
-        // producción de un puesto satélite entraba al almacén de otra unidad, le consumía los
-        // insumos, y el movimiento aparecía en los dos kardex a la vez.
-        const unidadNegocioId = await resolverUnidadDeEscritura(tx, {
-          actor,
-          unidadSolicitada: unidad,
-        });
-        // El menú ya esconde Producción en un puesto que solo registra ventas y gastos, pero
-        // por URL se puede llegar igual.
-        await this.exigirInventario(tx, unidadNegocioId);
-        const destination =
-          (dto.almacenProductoTerminadoId
-            ? await tx.almacen.findUnique({
-                where: { id: BigInt(dto.almacenProductoTerminadoId) },
-              })
-            : null) ??
-          (await tx.almacen.findFirst({
-            where: { estado: true, unidadNegocioId },
-            orderBy: { id: 'asc' },
-          }));
-        if (!destination)
-          throw new BadRequestException(
-            'Registra un almacén en esta unidad de negocio antes de crear producción',
-          );
-        await exigirMismaUnidad(tx, unidadNegocioId, { almacenId: destination.id });
-        const source =
-          (await tx.almacen.findFirst({
-            where: { estado: true, unidadNegocioId, id: { not: destination.id } },
-            orderBy: { id: 'asc' },
-          })) ?? destination;
-        const repeated = new Set(inputs.map((item) => item.productoId));
-        if (repeated.size !== inputs.length)
-          throw new BadRequestException('Cada insumo debe aparecer una sola vez');
-        const trabajadorId = await exigirTrabajadorId(tx, actor.userId);
-        const cantidadProducida = dto.cantidadPlanificada;
-        // La producción se fecha con el día elegido en el formulario, no con "ahora": el
-        // reporte de resumen agrupa por `fechaFin`, así que inicio, fin y la fecha del lote
-        // toman esa misma fecha. Se ancla a medianoche de Lima para que caiga en el día
-        // correcto al agrupar por zona horaria.
-        const fechaProduccion = this.fechaSeleccionada(dto.fechaPlanificada);
-        const order = await tx.ordenProduccion.create({
-          data: {
-            codigo: await this.nextOrderCode(tx),
-            productoId: BigInt(dto.productoId),
-            almacenInsumosId: source.id,
-            almacenProductoTerminadoId: destination.id,
-            trabajadorId,
-            cantidadPlanificada: dto.cantidadPlanificada,
-            fechaPlanificada: fechaProduccion,
-            fechaVencimiento: dto.fechaVencimiento ? new Date(dto.fechaVencimiento) : null,
-            consumos: inputs.length
-              ? {
-                  create: inputs.map((item) => ({
-                    productoId: BigInt(item.productoId),
-                    cantidadPlanificada: item.cantidad,
-                  })),
-                }
-              : undefined,
-          },
-          include: this.include(),
-        });
-
-        const available = await this.ensureAvailableState(tx);
-        const movement = await tx.movimientoInventario.create({
-          data: {
-            tipoMovimiento: 'PRODUCCION',
-            tipoOperacion: 'PRODUCCION',
-            almacenOrigenId: order.almacenInsumosId,
-            almacenDestinoId: order.almacenProductoTerminadoId,
-            ordenProduccionId: order.id,
-            trabajadorId: order.trabajadorId,
-            estado: 'CONFIRMADO',
-            numeroReferencia: order.codigo,
-            observaciones: `Transformación de insumos en ${order.producto.nombre}`,
-          },
-        });
-
-        const totalCost = await this.consumeInputs(
-          tx,
-          movement.id,
-          order.almacenInsumosId,
-          order.consumos,
-        );
-
-        const unitCost = totalCost / cantidadProducida;
-        const lotCode = order.codigoLote || `LOT-${order.id.toString().padStart(6, '0')}`;
-        const lot = await tx.lote.create({
-          data: {
-            productoId: order.productoId,
-            codigoLote: lotCode,
-            fechaProduccion,
-            fechaVencimiento: order.fechaVencimiento,
-            costoUnitario: unitCost,
-            estado: 'ACTIVO',
-          },
-        });
-        await this.produceOutput(tx, {
-          movementId: movement.id,
-          productoId: order.productoId,
-          almacenId: order.almacenProductoTerminadoId,
-          loteId: lot.id,
-          estadoInventarioId: available.id,
-          cantidadProducida,
-          unitCost,
-          totalCost,
-        });
-        await tx.ordenProduccion.update({
-          where: { id: order.id },
-          data: {
-            estado: 'COMPLETADA',
-            cantidadProducida,
-            costoTotal: totalCost,
-            loteId: lot.id,
-            fechaInicio: fechaProduccion,
-            fechaFin: fechaProduccion,
-          },
-        });
+        const orderId = await this.registrarProduccion(tx, dto, actor, unidad);
         const completed = await tx.ordenProduccion.findUniqueOrThrow({
-          where: { id: order.id },
+          where: { id: orderId },
           include: this.include(),
         });
         return this.view(completed);
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
+  }
+
+  /**
+   * El cuerpo de `create`, dentro de una transacción ajena (la usa también la carga diaria).
+   *
+   * `fecharKardex` fecha también el movimiento de kardex en el día de producción. La carga
+   * diaria lo necesita porque registra días pasados y sus ventas se fechan ese mismo día;
+   * el formulario normal sigue anotando el movimiento con la hora en que se registra.
+   */
+  async registrarProduccion(
+    tx: Prisma.TransactionClient,
+    dto: CreateProductionOrderDto,
+    actor: AuthUser,
+    unidad?: string,
+    opciones: { fecharKardex?: boolean } = {},
+  ): Promise<bigint> {
+    const inputs = dto.insumos ?? [];
+    // Destino y origen acotados a la unidad donde se registra. El fallback era un
+    // `findFirst` sobre toda la base, o sea el primer almacén de la Principal: la
+    // producción de un puesto satélite entraba al almacén de otra unidad, le consumía los
+    // insumos, y el movimiento aparecía en los dos kardex a la vez.
+    const unidadNegocioId = await resolverUnidadDeEscritura(tx, {
+      actor,
+      unidadSolicitada: unidad,
+    });
+    // El menú ya esconde Producción en un puesto que solo registra ventas y gastos, pero
+    // por URL se puede llegar igual.
+    await exigirInventario(tx, unidadNegocioId);
+    const destination =
+      (dto.almacenProductoTerminadoId
+        ? await tx.almacen.findUnique({
+            where: { id: BigInt(dto.almacenProductoTerminadoId) },
+          })
+        : null) ??
+      (await tx.almacen.findFirst({
+        where: { estado: true, unidadNegocioId },
+        orderBy: { id: 'asc' },
+      }));
+    if (!destination)
+      throw new BadRequestException(
+        'Registra un almacén en esta unidad de negocio antes de crear producción',
+      );
+    await exigirMismaUnidad(tx, unidadNegocioId, { almacenId: destination.id });
+    const source =
+      (await tx.almacen.findFirst({
+        where: { estado: true, unidadNegocioId, id: { not: destination.id } },
+        orderBy: { id: 'asc' },
+      })) ?? destination;
+    const repeated = new Set(inputs.map((item) => item.productoId));
+    if (repeated.size !== inputs.length)
+      throw new BadRequestException('Cada insumo debe aparecer una sola vez');
+    const trabajadorId = await exigirTrabajadorId(tx, actor.userId);
+    const cantidadProducida = dto.cantidadPlanificada;
+    // La producción se fecha con el día elegido en el formulario, no con "ahora": el
+    // reporte de resumen agrupa por `fechaFin`, así que inicio, fin y la fecha del lote
+    // toman esa misma fecha. Se ancla a medianoche de Lima para que caiga en el día
+    // correcto al agrupar por zona horaria.
+    const fechaProduccion = this.fechaSeleccionada(dto.fechaPlanificada);
+    const order = await tx.ordenProduccion.create({
+      data: {
+        codigo: await this.nextOrderCode(tx),
+        productoId: BigInt(dto.productoId),
+        almacenInsumosId: source.id,
+        almacenProductoTerminadoId: destination.id,
+        trabajadorId,
+        cantidadPlanificada: dto.cantidadPlanificada,
+        fechaPlanificada: fechaProduccion,
+        fechaVencimiento: dto.fechaVencimiento ? new Date(dto.fechaVencimiento) : null,
+        consumos: inputs.length
+          ? {
+              create: inputs.map((item) => ({
+                productoId: BigInt(item.productoId),
+                cantidadPlanificada: item.cantidad,
+              })),
+            }
+          : undefined,
+      },
+      include: this.include(),
+    });
+
+    const available = await ensureAvailableState(tx);
+    const movement = await tx.movimientoInventario.create({
+      data: {
+        ...(opciones.fecharKardex ? { fecha: fechaProduccion } : {}),
+        tipoMovimiento: 'PRODUCCION',
+        tipoOperacion: 'PRODUCCION',
+        almacenOrigenId: order.almacenInsumosId,
+        almacenDestinoId: order.almacenProductoTerminadoId,
+        ordenProduccionId: order.id,
+        trabajadorId: order.trabajadorId,
+        estado: 'CONFIRMADO',
+        numeroReferencia: order.codigo,
+        observaciones: `Transformación de insumos en ${order.producto.nombre}`,
+      },
+    });
+
+    const totalCost = await this.consumeInputs(
+      tx,
+      movement.id,
+      order.almacenInsumosId,
+      order.consumos,
+    );
+
+    const unitCost = totalCost / cantidadProducida;
+    const lotCode = order.codigoLote || `LOT-${order.id.toString().padStart(6, '0')}`;
+    const lot = await tx.lote.create({
+      data: {
+        productoId: order.productoId,
+        codigoLote: lotCode,
+        fechaProduccion,
+        fechaVencimiento: order.fechaVencimiento,
+        costoUnitario: unitCost,
+        estado: 'ACTIVO',
+      },
+    });
+    await this.produceOutput(tx, {
+      movementId: movement.id,
+      productoId: order.productoId,
+      almacenId: order.almacenProductoTerminadoId,
+      loteId: lot.id,
+      estadoInventarioId: available.id,
+      cantidadProducida,
+      unitCost,
+      totalCost,
+    });
+    await tx.ordenProduccion.update({
+      where: { id: order.id },
+      data: {
+        estado: 'COMPLETADA',
+        cantidadProducida,
+        costoTotal: totalCost,
+        loteId: lot.id,
+        fechaInicio: fechaProduccion,
+        fechaFin: fechaProduccion,
+      },
+    });
+    return order.id;
   }
 
   /**
@@ -297,7 +303,7 @@ export class ProductionService {
           include: { producto: true },
         });
 
-        const available = await this.ensureAvailableState(tx);
+        const available = await ensureAvailableState(tx);
         const reapply = await tx.movimientoInventario.create({
           data: {
             tipoMovimiento: 'PRODUCCION',
@@ -708,19 +714,6 @@ export class ProductionService {
         saldoAnterior: previousOutput,
         saldoPosterior: nextOutput,
       },
-    });
-  }
-
-  /**
-   * Algunas instalaciones antiguas no tienen cargado el catálogo inicial. La producción
-   * siempre genera producto terminado disponible, así que aseguramos el estado antes de
-   * registrar el movimiento.
-   */
-  private ensureAvailableState(tx: Transaction) {
-    return tx.estadoInventario.upsert({
-      where: { codigo: 'DISPONIBLE' },
-      update: { estado: true, permiteVenta: true },
-      create: { codigo: 'DISPONIBLE', nombre: 'Disponible', permiteVenta: true },
     });
   }
 

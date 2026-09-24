@@ -23,7 +23,8 @@ export class RecargasService {
   async list(actor: AuthUser, unidad?: string) {
     const alcance = await resolverAlcanceUnidad(this.prisma, actor, unidad);
     const ventas = await this.prisma.venta.findMany({
-      where: { estado: 'CONFIRMADA', ...filtroUnidad(alcance) },
+      // El cliente "Ventas del día" no recarga: es el total de un día sin detalle.
+      where: { estado: 'CONFIRMADA', cliente: { sistema: false }, ...filtroUnidad(alcance) },
       orderBy: { fecha: 'asc' },
       select: {
         clienteId: true,

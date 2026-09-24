@@ -5,6 +5,8 @@ import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { PermisosGuard } from './auth/permisos.guard';
 import { BidonesRotosModule } from './bidones-rotos/bidones-rotos.module';
+import { CargaDiariaModule } from './carga-diaria/carga-diaria.module';
+import { ConteosModule } from './conteos/conteos.module';
 import { ClientsModule } from './clients/clients.module';
 import { ConsultaDocumentoModule } from './consulta-documento/consulta-documento.module';
 import { ContainersModule } from './containers/containers.module';
@@ -36,6 +38,8 @@ import { UsersModule } from './users/users.module';
     ContainersModule,
     RecargasModule,
     BidonesRotosModule,
+    CargaDiariaModule,
+    ConteosModule,
     ReportsModule,
     RolesModule,
     TrabajadoresModule,

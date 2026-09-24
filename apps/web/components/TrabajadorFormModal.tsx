@@ -1,6 +1,5 @@
 'use client';
 
-import { X } from 'lucide-react';
 import { FormEvent, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
@@ -26,6 +25,22 @@ import {
   validarUsername,
 } from '../lib/validacion';
 import { SearchableSelect } from './SearchableSelect';
+import { Button } from './ui/Button';
+import {
+  checkboxFieldClass,
+  checkboxInputClass,
+  controlClass,
+  fieldErrorClass,
+  fieldLabelClass,
+  fieldWideClass,
+  formHintClass,
+  modalActionsClass,
+  modalFormClass,
+  modalFormSectionClass,
+  modalFormSectionHintClass,
+  modalFormSectionTitleClass,
+} from './ui/Field';
+import { Modal, ModalHeader } from './ui/Modal';
 import { UnidadNegocioFormModal } from './UnidadNegocioFormModal';
 
 type Props = {
@@ -253,228 +268,226 @@ export function TrabajadorFormModal({ editando, onClose, onSaved }: Props) {
 
   return createPortal(
     <>
-      <div
-        className="modal-backdrop"
-        onMouseDown={(event) => {
-          if (event.target === event.currentTarget && !saving) onClose();
-        }}
-      >
-        <section className="crud-modal" role="dialog" aria-modal="true" aria-label={titulo}>
-          <div className="modal-top">
-            <h2>{titulo}</h2>
-            <button
-              type="button"
-              className="modal-close"
-              onClick={onClose}
-              aria-label="Cerrar modal"
-              disabled={saving}
+      <Modal onClose={onClose} closeDisabled={saving}>
+        <ModalHeader title={titulo} onClose={onClose} closeDisabled={saving} />
+        <form className={modalFormClass} onSubmit={(event) => void guardar(event)} noValidate>
+          <label>
+            <span className={fieldLabelClass}>Tipo de documento</span>
+            <select
+              className={controlClass}
+              value={form.tipoDocumento}
+              onChange={(event) => {
+                const tipo = event.target.value;
+                setForm((current) => ({
+                  ...current,
+                  tipoDocumento: tipo,
+                  numeroDocumento:
+                    tipo === 'DNI'
+                      ? soloDigitos(current.numeroDocumento, 8)
+                      : soloAlfanumerico(current.numeroDocumento, 15),
+                }));
+                setFieldErrors((current) => ({ ...current, numeroDocumento: undefined }));
+              }}
             >
-              <X size={18} />
-            </button>
-          </div>
-          <form className="modal-form" onSubmit={(event) => void guardar(event)} noValidate>
-            <label>
-              <span>Tipo de documento</span>
-              <select
-                value={form.tipoDocumento}
-                onChange={(event) => {
-                  const tipo = event.target.value;
-                  setForm((current) => ({
-                    ...current,
-                    tipoDocumento: tipo,
-                    numeroDocumento:
-                      tipo === 'DNI'
-                        ? soloDigitos(current.numeroDocumento, 8)
-                        : soloAlfanumerico(current.numeroDocumento, 15),
-                  }));
-                  setFieldErrors((current) => ({ ...current, numeroDocumento: undefined }));
-                }}
-              >
-                <option value="DNI">DNI</option>
-                <option value="CE">Carné de extranjería</option>
-              </select>
-            </label>
-            <label>
-              <span>Número de documento</span>
-              <input
-                value={form.numeroDocumento}
-                onChange={(event) =>
-                  updateField(
-                    'numeroDocumento',
-                    form.tipoDocumento === 'DNI'
-                      ? soloDigitos(event.target.value, 8)
-                      : soloAlfanumerico(event.target.value, 15),
-                  )
-                }
-                inputMode={form.tipoDocumento === 'DNI' ? 'numeric' : 'text'}
-                maxLength={15}
-                required
-                autoFocus
-              />
-              {fieldErrors.numeroDocumento ? (
-                <small className="field-error">{fieldErrors.numeroDocumento}</small>
-              ) : null}
-            </label>
-            <label>
-              <span>Nombres</span>
-              <input
-                value={form.nombres}
-                onChange={(event) => updateField('nombres', soloLetras(event.target.value))}
-                maxLength={100}
-                required
-              />
-              {fieldErrors.nombres ? (
-                <small className="field-error">{fieldErrors.nombres}</small>
-              ) : null}
-            </label>
-            <label>
-              <span>Apellidos</span>
-              <input
-                value={form.apellidos}
-                onChange={(event) => updateField('apellidos', soloLetras(event.target.value))}
-                maxLength={100}
-                required
-              />
-              {fieldErrors.apellidos ? (
-                <small className="field-error">{fieldErrors.apellidos}</small>
-              ) : null}
-            </label>
-            <label>
-              <span>Cargo</span>
-              <select value={form.cargo} onChange={(event) => cambiarCargo(event.target.value)}>
-                {CARGOS_TRABAJADOR.map((cargo) => (
-                  <option key={cargo} value={cargo}>
-                    {cargo}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {/* La unidad define dónde caen las ventas y los gastos que registre esta
+              <option value="DNI">DNI</option>
+              <option value="CE">Carné de extranjería</option>
+            </select>
+          </label>
+          <label>
+            <span className={fieldLabelClass}>Número de documento</span>
+            <input
+              className={controlClass}
+              value={form.numeroDocumento}
+              onChange={(event) =>
+                updateField(
+                  'numeroDocumento',
+                  form.tipoDocumento === 'DNI'
+                    ? soloDigitos(event.target.value, 8)
+                    : soloAlfanumerico(event.target.value, 15),
+                )
+              }
+              inputMode={form.tipoDocumento === 'DNI' ? 'numeric' : 'text'}
+              maxLength={15}
+              required
+              autoFocus
+            />
+            {fieldErrors.numeroDocumento ? (
+              <small className={fieldErrorClass}>{fieldErrors.numeroDocumento}</small>
+            ) : null}
+          </label>
+          <label>
+            <span className={fieldLabelClass}>Nombres</span>
+            <input
+              className={controlClass}
+              value={form.nombres}
+              onChange={(event) => updateField('nombres', soloLetras(event.target.value))}
+              maxLength={100}
+              required
+            />
+            {fieldErrors.nombres ? (
+              <small className={fieldErrorClass}>{fieldErrors.nombres}</small>
+            ) : null}
+          </label>
+          <label>
+            <span className={fieldLabelClass}>Apellidos</span>
+            <input
+              className={controlClass}
+              value={form.apellidos}
+              onChange={(event) => updateField('apellidos', soloLetras(event.target.value))}
+              maxLength={100}
+              required
+            />
+            {fieldErrors.apellidos ? (
+              <small className={fieldErrorClass}>{fieldErrors.apellidos}</small>
+            ) : null}
+          </label>
+          <label>
+            <span className={fieldLabelClass}>Cargo</span>
+            <select
+              className={controlClass}
+              value={form.cargo}
+              onChange={(event) => cambiarCargo(event.target.value)}
+            >
+              {CARGOS_TRABAJADOR.map((cargo) => (
+                <option key={cargo} value={cargo}>
+                  {cargo}
+                </option>
+              ))}
+            </select>
+          </label>
+          {/* La unidad define dónde caen las ventas y los gastos que registre esta
                 persona. Solo aparece si hay más de una: en un negocio sin puestos satélite
                 sería un campo con una sola opción. */}
-            {unidades.length > 1 ? (
-              <label>
-                <span>Unidad de negocio</span>
-                <SearchableSelect
-                  value={form.unidadNegocioId}
-                  onChange={(value) => updateField('unidadNegocioId', value)}
-                  options={unidades.map((unidad) => ({
-                    value: unidad.id,
-                    label: unidad.nombre,
-                    hint: unidad.principal ? 'Principal' : undefined,
-                  }))}
-                  placeholder="Selecciona la unidad"
-                  actionLabel="+ Agregar unidad"
-                  onAction={() => setModalUnidad(true)}
-                  required
-                />
-              </label>
+          {unidades.length > 1 ? (
+            <label>
+              <span className={fieldLabelClass}>Unidad de negocio</span>
+              <SearchableSelect
+                value={form.unidadNegocioId}
+                onChange={(value) => updateField('unidadNegocioId', value)}
+                options={unidades.map((unidad) => ({
+                  value: unidad.id,
+                  label: unidad.nombre,
+                  hint: unidad.principal ? 'Principal' : undefined,
+                }))}
+                placeholder="Selecciona la unidad"
+                actionLabel="+ Agregar unidad"
+                onAction={() => setModalUnidad(true)}
+                required
+              />
+            </label>
+          ) : null}
+          <label>
+            <span className={fieldLabelClass}>Teléfono</span>
+            <input
+              className={controlClass}
+              value={form.telefono}
+              onChange={(event) => updateField('telefono', soloDigitos(event.target.value, 9))}
+              inputMode="numeric"
+              maxLength={9}
+            />
+            {fieldErrors.telefono ? (
+              <small className={fieldErrorClass}>{fieldErrors.telefono}</small>
             ) : null}
-            <label>
-              <span>Teléfono</span>
-              <input
-                value={form.telefono}
-                onChange={(event) => updateField('telefono', soloDigitos(event.target.value, 9))}
-                inputMode="numeric"
-                maxLength={9}
-              />
-              {fieldErrors.telefono ? (
-                <small className="field-error">{fieldErrors.telefono}</small>
-              ) : null}
-            </label>
-            <label>
-              <span>Correo</span>
-              <input
-                type="email"
-                value={form.correo}
-                onChange={(event) => updateField('correo', event.target.value)}
-                maxLength={150}
-              />
-              {fieldErrors.correo ? (
-                <small className="field-error">{fieldErrors.correo}</small>
-              ) : null}
-            </label>
+          </label>
+          <label>
+            <span className={fieldLabelClass}>Correo</span>
+            <input
+              className={controlClass}
+              type="email"
+              value={form.correo}
+              onChange={(event) => updateField('correo', event.target.value)}
+              maxLength={150}
+            />
+            {fieldErrors.correo ? (
+              <small className={fieldErrorClass}>{fieldErrors.correo}</small>
+            ) : null}
+          </label>
 
-            <div className="modal-form-section">
-              <strong>Cuenta de acceso</strong>
-              <small>
-                {tieneCuenta
-                  ? 'Con estos datos entra al sistema. Se guardan junto con el trabajador.'
-                  : 'Con qué usuario y contraseña entrará al sistema. Se crea junto con el trabajador, en un solo guardado.'}
-              </small>
-            </div>
-            {tieneCuenta ? null : (
-              <label className="checkbox-field field-wide">
+          <div className={modalFormSectionClass}>
+            <strong className={modalFormSectionTitleClass}>Cuenta de acceso</strong>
+            <small className={modalFormSectionHintClass}>
+              {tieneCuenta
+                ? 'Con estos datos entra al sistema. Se guardan junto con el trabajador.'
+                : 'Con qué usuario y contraseña entrará al sistema. Se crea junto con el trabajador, en un solo guardado.'}
+            </small>
+          </div>
+          {tieneCuenta ? null : (
+            <label className={`${checkboxFieldClass} ${fieldWideClass}`}>
+              <input
+                className={checkboxInputClass}
+                type="checkbox"
+                checked={conCuenta}
+                onChange={(event) => setConCuenta(event.target.checked)}
+              />
+              <span className="text-[13px] font-medium">Crear cuenta de acceso</span>
+            </label>
+          )}
+          {conCuenta ? (
+            <>
+              <label>
+                <span className={fieldLabelClass}>Usuario</span>
                 <input
-                  type="checkbox"
-                  checked={conCuenta}
-                  onChange={(event) => setConCuenta(event.target.checked)}
+                  className={controlClass}
+                  value={cuenta.username}
+                  onChange={(event) =>
+                    updateCuenta('username', soloUsername(event.target.value).slice(0, 50))
+                  }
+                  maxLength={50}
+                  autoComplete="off"
                 />
-                <span>Crear cuenta de acceso</span>
+                {fieldErrors.username ? (
+                  <small className={fieldErrorClass}>{fieldErrors.username}</small>
+                ) : null}
               </label>
-            )}
-            {conCuenta ? (
-              <>
-                <label>
-                  <span>Usuario</span>
-                  <input
-                    value={cuenta.username}
-                    onChange={(event) =>
-                      updateCuenta('username', soloUsername(event.target.value).slice(0, 50))
-                    }
-                    maxLength={50}
-                    autoComplete="off"
-                  />
-                  {fieldErrors.username ? (
-                    <small className="field-error">{fieldErrors.username}</small>
-                  ) : null}
-                </label>
-                <label>
-                  <span>{tieneCuenta ? 'Nueva contraseña' : 'Contraseña'}</span>
-                  <input
-                    type="password"
-                    value={cuenta.password}
-                    onChange={(event) => updateCuenta('password', event.target.value)}
-                    placeholder={tieneCuenta ? 'Dejar en blanco para no cambiarla' : undefined}
-                    autoComplete="new-password"
-                  />
-                  {fieldErrors.password ? (
-                    <small className="field-error">{fieldErrors.password}</small>
-                  ) : null}
-                </label>
-                <label>
-                  <span>Rol</span>
-                  <select
-                    value={cuenta.role}
-                    onChange={(event) => {
-                      setRolElegido(true);
-                      updateCuenta('role', event.target.value);
-                    }}
-                  >
-                    {roles.map((rol) => (
-                      <option key={rol.clave} value={rol.clave}>
-                        {rol.nombre}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <p className="form-hint field-wide">
-                  Entra con su usuario o con el correo de arriba. El acceso se desactiva solo cuando
-                  se da de baja al trabajador.
-                </p>
-              </>
-            ) : null}
-            <div className="modal-actions">
-              <button className="btn-secondary" type="button" onClick={onClose} disabled={saving}>
-                Cancelar
-              </button>
-              <button className="btn-primary" disabled={saving}>
-                {saving ? 'Guardando...' : editando ? 'Guardar cambios' : 'Registrar trabajador'}
-              </button>
-            </div>
-          </form>
-        </section>
-      </div>
+              <label>
+                <span className={fieldLabelClass}>
+                  {tieneCuenta ? 'Nueva contraseña' : 'Contraseña'}
+                </span>
+                <input
+                  className={controlClass}
+                  type="password"
+                  value={cuenta.password}
+                  onChange={(event) => updateCuenta('password', event.target.value)}
+                  placeholder={tieneCuenta ? 'Dejar en blanco para no cambiarla' : undefined}
+                  autoComplete="new-password"
+                />
+                {fieldErrors.password ? (
+                  <small className={fieldErrorClass}>{fieldErrors.password}</small>
+                ) : null}
+              </label>
+              <label>
+                <span className={fieldLabelClass}>Rol</span>
+                <select
+                  className={controlClass}
+                  value={cuenta.role}
+                  onChange={(event) => {
+                    setRolElegido(true);
+                    updateCuenta('role', event.target.value);
+                  }}
+                >
+                  {roles.map((rol) => (
+                    <option key={rol.clave} value={rol.clave}>
+                      {rol.nombre}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p className={`${formHintClass} ${fieldWideClass}`}>
+                Entra con su usuario o con el correo de arriba. El acceso se desactiva solo cuando
+                se da de baja al trabajador.
+              </p>
+            </>
+          ) : null}
+          <div className={modalActionsClass}>
+            <Button variant="secondary" type="button" onClick={onClose} disabled={saving}>
+              Cancelar
+            </Button>
+            <Button disabled={saving}>
+              {saving ? 'Guardando...' : editando ? 'Guardar cambios' : 'Registrar trabajador'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
       {modalUnidad ? (
         <UnidadNegocioFormModal
           onClose={() => setModalUnidad(false)}

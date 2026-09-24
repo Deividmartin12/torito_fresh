@@ -1,39 +1,36 @@
 'use client';
 
+import { useQuery } from '@tanstack/react-query';
 import { CalendarClock, Search } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import { DataTable, DataTableColumn } from '../../../components/DataTable';
+import { Badge, BadgeTone } from '../../../components/ui/Badge';
 import { fechaCorta, moneda } from '../../../lib/format';
 import { EstadoRecarga, RecargaCliente, getRecargas } from '../../../lib/recargas';
 
-const ESTADO_INFO: Record<EstadoRecarga, { label: string; clase: string }> = {
-  ATRASADO: { label: 'Atrasado', clase: 'status status-red' },
-  POR_VENCER: { label: 'Por vencer', clase: 'status status-amber' },
-  AL_DIA: { label: 'Al día', clase: 'status status-green' },
-  SIN_HISTORIAL: { label: 'Sin historial', clase: 'status status-gray' },
+const ESTADO_INFO: Record<EstadoRecarga, { label: string; tone: BadgeTone }> = {
+  ATRASADO: { label: 'Atrasado', tone: 'red' },
+  POR_VENCER: { label: 'Por vencer', tone: 'amber' },
+  AL_DIA: { label: 'Al día', tone: 'green' },
+  SIN_HISTORIAL: { label: 'Sin historial', tone: 'gray' },
 };
 
 export default function RecargasPage() {
-  const [recargas, setRecargas] = useState<RecargaCliente[]>([]);
   const [search, setSearch] = useState('');
   const [estado, setEstado] = useState<'Todos' | EstadoRecarga>('Todos');
-  const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      setRecargas(await getRecargas());
-    } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : 'No se pudieron cargar las recargas', {
-        action: { label: 'Reintentar', onClick: () => void load() },
-      });
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const query = useQuery({ queryKey: ['recargas'], queryFn: getRecargas });
+  const recargas = query.data ?? [];
+  const loading = query.isPending;
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (query.error) {
+      toast.error(
+        query.error instanceof Error ? query.error.message : 'No se pudieron cargar las recargas',
+        { action: { label: 'Reintentar', onClick: () => void query.refetch() } },
+      );
+    }
+  }, [query.error, query.refetch]);
 
   // El servidor ya ordena por urgencia; aquí solo se refina por estado y por nombre.
   const visibles = useMemo(
@@ -56,6 +53,53 @@ export default function RecargasPage() {
   const porRecargarPronto = recargas.filter(
     (item) => item.estado === 'ATRASADO' || item.estado === 'POR_VENCER',
   ).length;
+
+  const columns: DataTableColumn<RecargaCliente>[] = [
+    {
+      key: 'cliente',
+      header: 'Cliente',
+      cardLabel: null,
+      render: (item) => (
+        <>
+          <strong className="block text-[13px] font-medium text-fg">{item.cliente}</strong>
+          {item.telefono ? (
+            <small className="mt-0.5 block text-[11px] text-muted">{item.telefono}</small>
+          ) : null}
+        </>
+      ),
+    },
+    { key: 'recargas', header: 'Recargas', render: (item) => item.compras },
+    {
+      key: 'ultima',
+      header: 'Última recarga',
+      render: (item) => (
+        <>
+          {fechaCorta(item.ultimaRecarga)}
+          <small className="mt-0.5 block text-[11px] text-muted">
+            Hace {item.diasDesdeUltima} días
+          </small>
+        </>
+      ),
+    },
+    {
+      key: 'intervalo',
+      header: 'Cada cuánto',
+      render: (item) => (item.intervaloDias !== null ? `${item.intervaloDias} días` : '—'),
+    },
+    {
+      key: 'proxima',
+      header: 'Próxima recarga',
+      render: (item) => fechaCorta(item.proximaRecarga),
+    },
+    {
+      key: 'estado',
+      header: 'Estado',
+      render: (item) => (
+        <Badge tone={ESTADO_INFO[item.estado].tone}>{ESTADO_INFO[item.estado].label}</Badge>
+      ),
+    },
+    { key: 'ultimoPago', header: 'Último pago', render: (item) => moneda(item.ultimoPago) },
+  ];
 
   return (
     <div className="module-page operations-list-page">
@@ -117,64 +161,27 @@ export default function RecargasPage() {
           <p>Cuando registres ventas confirmadas, aquí verás cada cuánto compra cada cliente.</p>
         </div>
       ) : (
-        <div className="glass-table">
-          <table>
-            <thead>
-              <tr>
-                <th>Cliente</th>
-                <th>Recargas</th>
-                <th>Última recarga</th>
-                <th>Cada cuánto</th>
-                <th>Próxima recarga</th>
-                <th>Estado</th>
-                <th>Último pago</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibles.length ? (
-                visibles.map((item) => (
-                  <tr key={item.clienteId}>
-                    <td>
-                      <strong>{item.cliente}</strong>
-                      {item.telefono ? <small>{item.telefono}</small> : null}
-                    </td>
-                    <td>{item.compras}</td>
-                    <td>
-                      {fechaCorta(item.ultimaRecarga)}
-                      <small>Hace {item.diasDesdeUltima} días</small>
-                    </td>
-                    <td>{item.intervaloDias !== null ? `${item.intervaloDias} días` : '—'}</td>
-                    <td>{fechaCorta(item.proximaRecarga)}</td>
-                    <td>
-                      <span className={ESTADO_INFO[item.estado].clase}>
-                        {ESTADO_INFO[item.estado].label}
-                      </span>
-                    </td>
-                    <td>{moneda(item.ultimoPago)}</td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={7}>
-                    <div className="table-empty">
-                      <Search size={22} />
-                      <span>No hay clientes que coincidan con los filtros.</span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSearch('');
-                          setEstado('Todos');
-                        }}
-                      >
-                        Limpiar filtros
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        <DataTable
+          columns={columns}
+          rows={visibles}
+          rowKey={(item) => item.clienteId}
+          emptyMessage={
+            <div className="flex flex-col items-center gap-2.5">
+              <Search size={22} />
+              <span>No hay clientes que coincidan con los filtros.</span>
+              <button
+                type="button"
+                className="text-accent underline"
+                onClick={() => {
+                  setSearch('');
+                  setEstado('Todos');
+                }}
+              >
+                Limpiar filtros
+              </button>
+            </div>
+          }
+        />
       )}
     </div>
   );

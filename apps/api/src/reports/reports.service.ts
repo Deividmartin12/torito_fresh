@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { AuthUser } from '../common/auth-user';
 import { accountState } from '../common/receivables';
 import {
+  AlcanceUnidad,
   filtroUnidad,
   filtroUnidadPor,
   resolverAlcanceUnidad,
@@ -13,7 +14,7 @@ import { PrismaService } from '../prisma/prisma.service';
 export class ReportsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async business(actor: AuthUser, from?: string, to?: string, unidad?: string) {
+  async business(actor: AuthUser, from?: string, to?: string, unidad?: string, compare = false) {
     const dateRange = this.dateRange(from, to);
     const expenseRange = this.expenseDateRange(from, to);
     // Una sola resolución para las seis consultas de abajo: sin esto el reporte de un
@@ -26,65 +27,69 @@ export class ReportsService {
     // sería mentira. En consolidado vale `false`, porque mezcla unidades de los dos tipos.
     const costoEstimado =
       alcance.tipo === 'una' && !(await unidadControlaInventario(this.prisma, alcance.id));
-    const [sales, expenses, productionOrders, stocks, paymentMethodRows] = await Promise.all([
-      this.prisma.venta.findMany({
-        where: { ...deUnidad, estado: 'CONFIRMADA', fecha: dateRange },
-        orderBy: { fecha: 'asc' },
-        include: {
-          // Para el desglose por unidad: con varias a la vista hay que poder decir de cuál
-          // viene cada cifra, si no el consolidado es un número sin origen.
-          unidadNegocio: { select: { id: true, nombre: true } },
-          cliente: true,
-          detalles: {
-            include: {
-              producto: true,
-              detallesDevolucion: { where: { devolucionVenta: { estado: 'CONFIRMADA' } } },
+    const [sales, expenses, productionOrders, stocks, paymentMethodRows, newClients] =
+      await Promise.all([
+        this.prisma.venta.findMany({
+          where: { ...deUnidad, estado: 'CONFIRMADA', fecha: dateRange },
+          orderBy: { fecha: 'asc' },
+          include: {
+            // Para el desglose por unidad: con varias a la vista hay que poder decir de cuál
+            // viene cada cifra, si no el consolidado es un número sin origen.
+            unidadNegocio: { select: { id: true, nombre: true } },
+            cliente: true,
+            detalles: {
+              include: {
+                producto: true,
+                detallesDevolucion: { where: { devolucionVenta: { estado: 'CONFIRMADA' } } },
+              },
+            },
+            devoluciones: { where: { estado: 'CONFIRMADA' } },
+            movimientosInventario: {
+              where: { tipoOperacion: 'VENTA', estado: 'CONFIRMADO' },
+              include: { detalles: true },
             },
           },
-          devoluciones: { where: { estado: 'CONFIRMADA' } },
-          movimientosInventario: {
-            where: { tipoOperacion: 'VENTA', estado: 'CONFIRMADO' },
-            include: { detalles: true },
+        }),
+        this.prisma.gasto.findMany({
+          where: { ...deUnidad, fecha: expenseRange },
+          orderBy: { fecha: 'asc' },
+          include: {
+            categoria: { select: { nombre: true } },
+            unidadNegocio: { select: { id: true, nombre: true } },
           },
-        },
-      }),
-      this.prisma.gasto.findMany({
-        where: { ...deUnidad, fecha: expenseRange },
-        orderBy: { fecha: 'asc' },
-        include: {
-          categoria: { select: { nombre: true } },
-          unidadNegocio: { select: { id: true, nombre: true } },
-        },
-      }),
-      this.prisma.ordenProduccion.findMany({
-        where: {
-          estado: 'COMPLETADA',
-          fechaFin: dateRange,
-          ...filtroUnidadPor('almacenProductoTerminado', alcance),
-        },
-        select: { fechaFin: true, cantidadProducida: true },
-      }),
-      // El catálogo de productos es compartido, pero el STOCK no: se filtra por el almacén
-      // de la unidad. Sin esto el panel del puesto satélite avisaría de quiebres de stock
-      // que en realidad son de la Principal.
-      this.prisma.producto.findMany({
-        where: { estado: true },
-        include: {
-          stocks: {
-            where: {
-              estadoInventario: { codigo: 'DISPONIBLE' },
-              ...filtroUnidadPor('almacen', alcance),
+        }),
+        this.prisma.ordenProduccion.findMany({
+          where: {
+            estado: 'COMPLETADA',
+            fechaFin: dateRange,
+            ...filtroUnidadPor('almacenProductoTerminado', alcance),
+          },
+          select: { fechaFin: true, cantidadProducida: true },
+        }),
+        // El catálogo de productos es compartido, pero el STOCK no: se filtra por el almacén
+        // de la unidad. Sin esto el panel del puesto satélite avisaría de quiebres de stock
+        // que en realidad son de la Principal.
+        this.prisma.producto.findMany({
+          where: { estado: true },
+          include: {
+            stocks: {
+              where: {
+                estadoInventario: { codigo: 'DISPONIBLE' },
+                ...filtroUnidadPor('almacen', alcance),
+              },
             },
           },
-        },
-      }),
-      // Método de pago -> su categoría (YAPE, EFECTIVO...), para agrupar las ventas por
-      // forma de cobro. Se agrupa por categoría porque puede haber varios Yape (uno por
-      // repartidor) que en el reporte deben sumar juntos.
-      this.prisma.metodoPago.findMany({
-        select: { id: true, nombre: true, categoria: { select: { nombre: true } } },
-      }),
-    ]);
+        }),
+        // Método de pago -> su categoría (YAPE, EFECTIVO...), para agrupar las ventas por
+        // forma de cobro. Se agrupa por categoría porque puede haber varios Yape (uno por
+        // repartidor) que en el reporte deben sumar juntos.
+        this.prisma.metodoPago.findMany({
+          select: { id: true, nombre: true, categoria: { select: { nombre: true } } },
+        }),
+        // Clientes dados de alta dentro del período. `Cliente` lleva su propia columna de
+        // unidad, así que el filtro de alcance vale tal cual.
+        this.prisma.cliente.count({ where: { ...deUnidad, createdAt: dateRange } }),
+      ]);
 
     // id del método -> nombre con el que se muestra en el reporte (su categoría, o su
     // etiqueta libre si no tiene categoría).
@@ -165,6 +170,10 @@ export class ReportsService {
     let totalExpenses = 0;
     let totalCost = 0;
     let orderCount = 0;
+    // Unidades entregadas en el período. `bidones` cuenta solo los productos retornables,
+    // que es lo que el negocio mira como "bidones despachados"; `units` cuenta todo.
+    let totalUnits = 0;
+    let totalBidones = 0;
 
     for (const sale of sales) {
       const returned = sale.devoluciones.reduce((sum, item) => sum + Number(item.total), 0);
@@ -222,6 +231,8 @@ export class ReportsService {
         current.cost += lineCost;
         current.margin = current.revenue - current.cost;
         products.set(current.id, current);
+        totalUnits += netQuantity;
+        if (detail.producto.esRetornable) totalBidones += netQuantity;
       }
       totalSales += netSale;
       totalCost += saleCost;
@@ -272,7 +283,10 @@ export class ReportsService {
         sale.clienteId.toString(),
         netSale,
       );
-      this.addRanking(clients, sale.cliente.nombreLegal, sale.clienteId.toString(), netSale);
+      // "Ventas del día" no es un cliente: es el total de un día sin detalle de a quién. En el
+      // ranking taparía a los clientes reales, así que se deja afuera.
+      if (!sale.cliente.sistema)
+        this.addRanking(clients, sale.cliente.nombreLegal, sale.clienteId.toString(), netSale);
 
       const paymentRow = paymentMethods.get(paymentName) ?? {
         id: paymentName,
@@ -402,9 +416,14 @@ export class ReportsService {
       { total: 0, count: 0, overdue: 0, overdueCount: 0 },
     );
 
+    // Solo con un rango explícito: el defecto de doce meses no tiene "período anterior"
+    // que el usuario haya pedido comparar.
+    const previous = compare && from && to ? await this.previousTotals(alcance, from, to) : null;
+
     return {
       range: { from: dateRange.gte, to: dateRange.lt },
       receivables,
+      previous,
       // El costo de esta vista salió del costo de referencia de cada producto y no del kardex.
       // Lo lee la pantalla para no llamarlo "costo de inventario" cuando no lo es.
       costoEstimado,
@@ -423,6 +442,9 @@ export class ReportsService {
         ticket: orderCount ? totalSales / orderCount : 0,
         expenseCount: expenses.length,
         averageExpense: expenses.length ? totalExpenses / expenses.length : 0,
+        units: totalUnits,
+        bidones: totalBidones,
+        newClients,
       },
       daily: [...days.values()]
         .sort((a, b) => a.key.localeCompare(b.key))
@@ -464,7 +486,7 @@ export class ReportsService {
     const expenseRange = this.expenseDateRange(from, to);
     const alcance = await resolverAlcanceUnidad(this.prisma, actor, unidad);
     const deUnidad = filtroUnidad(alcance);
-    const [sales, expenses, paymentMethodRows, trabajadores] = await Promise.all([
+    const [sales, expenses, paymentMethodRows, trabajadores, cobranzas] = await Promise.all([
       this.prisma.venta.findMany({
         where: { ...deUnidad, estado: 'CONFIRMADA', fecha: dateRange },
         select: {
@@ -494,6 +516,22 @@ export class ReportsService {
         orderBy: [{ nombres: 'asc' }, { apellidos: 'asc' }],
         select: { id: true, nombres: true, apellidos: true, cargo: true, estado: true },
       }),
+      // Lo que cada trabajador cobró EN LA CALLE de deudas viejas, que es la plata que tiene
+      // que rendir. `PagoCliente` no lleva la unidad: la hereda del cliente de su cuenta.
+      //
+      // Se excluye el origen VENTA porque ese cobro ya está contado arriba, en las ventas por
+      // método: sumarlo acá duplicaría la caja del día. Los REEMBOLSO vienen con monto
+      // negativo y restan solos, que es lo correcto: el día que se anula una venta, esa plata
+      // sale de la caja del trabajador.
+      this.prisma.pagoCliente.findMany({
+        where: {
+          fechaPago: dateRange,
+          estado: 'CONFIRMADO',
+          origen: { in: ['COBRANZA', 'REEMBOLSO'] },
+          cuentaCobrar: filtroUnidadPor('cliente', alcance),
+        },
+        select: { trabajadorId: true, monto: true, metodoPagoId: true },
+      }),
     ]);
 
     // Mismo criterio que el reporte general: un método se muestra por su categoría (YAPE,
@@ -511,8 +549,13 @@ export class ReportsService {
       activo: boolean;
       ventas: { count: number; total: number };
       ventasPorMetodo: Breakdown;
+      // Plata que se le PAGÓ al trabajador (sueldos y adelantos, vía Gasto.beneficiarioId).
       pagosRecibidos: { count: number; total: number };
       pagosPorMetodo: Breakdown;
+      // Plata que el trabajador COBRÓ de deudas viejas y tiene que rendir. Es otra cosa, y
+      // tenerlas separadas es justo el punto: antes solo existía la de arriba y se leía mal.
+      cobranzas: { count: number; total: number };
+      cobranzasPorMetodo: Breakdown;
       gastosRegistrados: { count: number; total: number };
       gastosPorCategoria: Breakdown;
     };
@@ -528,6 +571,8 @@ export class ReportsService {
         ventasPorMetodo: {},
         pagosRecibidos: { count: 0, total: 0 },
         pagosPorMetodo: {},
+        cobranzas: { count: 0, total: 0 },
+        cobranzasPorMetodo: {},
         gastosRegistrados: { count: 0, total: 0 },
         gastosPorCategoria: {},
       });
@@ -548,6 +593,8 @@ export class ReportsService {
           ventasPorMetodo: {},
           pagosRecibidos: { count: 0, total: 0 },
           pagosPorMetodo: {},
+          cobranzas: { count: 0, total: 0 },
+          cobranzasPorMetodo: {},
           gastosRegistrados: { count: 0, total: 0 },
           gastosPorCategoria: {},
         };
@@ -558,6 +605,7 @@ export class ReportsService {
 
     const metodosVenta = new Set<string>();
     const metodosPago = new Set<string>();
+    const metodosCobranza = new Set<string>();
     const categoriasGasto = new Set<string>();
 
     for (const sale of sales) {
@@ -603,6 +651,19 @@ export class ReportsService {
       }
     }
 
+    for (const cobro of cobranzas) {
+      const worker = workerOf(cobro.trabajadorId);
+      if (!worker) continue;
+      const amount = Number(cobro.monto);
+      const metodo = paymentLabel.get(cobro.metodoPagoId.toString()) ?? 'Otro';
+      // Un reembolso resta plata pero no es "una cobranza más": suma al monto, no al conteo.
+      const esCobro = amount > 0;
+      if (esCobro) worker.cobranzas.count += 1;
+      worker.cobranzas.total += amount;
+      this.bumpBreakdown(worker.cobranzasPorMetodo, metodo, amount, esCobro);
+      metodosCobranza.add(metodo);
+    }
+
     const toList = (bucket: Breakdown) =>
       Object.entries(bucket)
         .map(([name, value]) => ({ name, amount: value.amount, count: value.count }))
@@ -612,6 +673,7 @@ export class ReportsService {
       ...row,
       ventasPorMetodo: toList(row.ventasPorMetodo),
       pagosPorMetodo: toList(row.pagosPorMetodo),
+      cobranzasPorMetodo: toList(row.cobranzasPorMetodo),
       gastosPorCategoria: toList(row.gastosPorCategoria),
     }));
     const totals = rows.reduce(
@@ -620,6 +682,8 @@ export class ReportsService {
         acc.montoVendido += row.ventas.total;
         acc.pagosRecibidos += row.pagosRecibidos.count;
         acc.montoPagado += row.pagosRecibidos.total;
+        acc.cobranzas += row.cobranzas.count;
+        acc.montoCobrado += row.cobranzas.total;
         acc.gastosRegistrados += row.gastosRegistrados.count;
         acc.montoGastos += row.gastosRegistrados.total;
         return acc;
@@ -629,6 +693,8 @@ export class ReportsService {
         montoVendido: 0,
         pagosRecibidos: 0,
         montoPagado: 0,
+        cobranzas: 0,
+        montoCobrado: 0,
         gastosRegistrados: 0,
         montoGastos: 0,
       },
@@ -639,6 +705,7 @@ export class ReportsService {
       range: { from: dateRange.gte, to: dateRange.lt },
       metodosVenta: [...metodosVenta].sort(porNombre),
       metodosPago: [...metodosPago].sort(porNombre),
+      metodosCobranza: [...metodosCobranza].sort(porNombre),
       categoriasGasto: [...categoriasGasto].sort(porNombre),
       totals,
       workers: rows.sort(
@@ -651,36 +718,159 @@ export class ReportsService {
    * Panel del repartidor: las ventas que registró hoy (America/Lima) más los totales
    * del día. `cobrado` es lo que se pagó en el momento de la venta (`montoInicial`).
    */
-  async deliverySummary(userId: string) {
+  async deliverySummary(actor: AuthUser, unidad?: string) {
     const { gte, lt } = this.todayRange();
     const fecha = gte.toISOString().slice(0, 10);
+    const vacio = {
+      ventas: 0,
+      monto: 0,
+      cobrado: 0,
+      pendiente: 0,
+      bidones: 0,
+      cobradoDeudas: 0,
+      cajaDelDia: 0,
+    };
     const trabajador = await this.prisma.trabajador.findFirst({
-      where: { userId, estado: true },
+      where: { userId: actor.userId, estado: true },
     });
     if (!trabajador) {
-      return { fecha, totales: { ventas: 0, monto: 0, cobrado: 0 }, items: [] };
+      return { fecha, totales: vacio, porHora: this.horasVacias(), items: [] };
     }
 
+    const alcance = await resolverAlcanceUnidad(this.prisma, actor, unidad);
+    const deUnidad = filtroUnidad(alcance);
+
     const ventas = await this.prisma.venta.findMany({
-      where: { trabajadorId: trabajador.id, fecha: { gte, lt } },
+      where: { trabajadorId: trabajador.id, ...deUnidad, fecha: { gte, lt } },
       orderBy: { fecha: 'desc' },
-      include: { cliente: true },
+      include: {
+        cliente: true,
+        cuentaCobrar: { select: { saldoPendiente: true } },
+        detalles: { select: { cantidad: true, producto: { select: { esRetornable: true } } } },
+      },
     });
+
+    // Lo que cobró hoy de deudas viejas, con los reembolsos ya restados (vienen en negativo).
+    // Es plata que tiene en el bolsillo y no aparece en ninguna de sus ventas de hoy.
+    const cobros = await this.prisma.pagoCliente.findMany({
+      where: {
+        trabajadorId: trabajador.id,
+        fechaPago: { gte, lt },
+        estado: 'CONFIRMADO',
+        origen: { in: ['COBRANZA', 'REEMBOLSO'] },
+        // El pago no guarda la unidad directamente: la hereda del cliente de la cuenta.
+        cuentaCobrar: filtroUnidadPor('cliente', alcance),
+      },
+      select: { monto: true },
+    });
+    const cobradoDeudas = cobros.reduce((sum, cobro) => sum + Number(cobro.monto), 0);
+
+    const monto = ventas.reduce((sum, venta) => sum + Number(venta.total), 0);
+    const cobrado = ventas.reduce((sum, venta) => sum + Number(venta.montoInicial), 0);
+    // Una cubeta por hora del día, para la curva del panel. Se arman las 24 aunque estén en
+    // cero: si no, la curva cambiaría de forma según a qué hora se mire.
+    const porHora = this.horasVacias();
+    for (const venta of ventas) {
+      porHora[this.localParts(venta.fecha).hour].monto += Number(venta.total);
+    }
 
     return {
       fecha,
       totales: {
         ventas: ventas.length,
-        monto: ventas.reduce((sum, venta) => sum + Number(venta.total), 0),
-        cobrado: ventas.reduce((sum, venta) => sum + Number(venta.montoInicial), 0),
+        monto,
+        cobrado,
+        pendiente: Math.max(monto - cobrado, 0),
+        cobradoDeudas,
+        // Todo lo que entró hoy por sus manos: lo que cobró al vender más lo que cobró de
+        // deudas. Es la cifra que tiene que cuadrar al rendir.
+        cajaDelDia: cobrado + cobradoDeudas,
+        bidones: ventas.reduce(
+          (sum, venta) =>
+            sum +
+            venta.detalles.reduce(
+              (linea, detalle) =>
+                linea + (detalle.producto.esRetornable ? Number(detalle.cantidad) : 0),
+              0,
+            ),
+          0,
+        ),
       },
+      porHora,
       items: ventas.map((venta) => ({
         codigo: `V-${venta.id.toString().padStart(6, '0')}`,
+        fecha: venta.fecha.toISOString(),
         cliente: venta.cliente.nombreLegal,
         total: Number(venta.total),
+        saldo: Number(venta.cuentaCobrar?.saldoPendiente ?? 0),
         estadoPago: venta.estadoPago,
         estado: venta.estado,
       })),
+    };
+  }
+
+  /** Las 24 horas del día en cero, base de la curva del panel del repartidor. */
+  private horasVacias() {
+    return Array.from({ length: 24 }, (_, hora) => ({ hora, monto: 0 }));
+  }
+
+  /**
+   * Totales del período inmediatamente anterior, que el panel usa para las variaciones.
+   *
+   * Se resuelve con agregados y no repitiendo el pipeline de `business()`: esa consulta trae
+   * a memoria todas las ventas del rango con sus detalles y su kardex, y pedirla dos veces en
+   * cada carga del panel duplicaría la consulta más cara de la app.
+   *
+   * Hay una diferencia sabida con el cálculo principal: allá las devoluciones se restan venta
+   * por venta con piso en cero, y acá se resta el total devuelto del total vendido. Solo
+   * difieren si una venta se devolvió por más de lo que valía, que no debería poder pasar, y
+   * es una cifra de contexto, no el indicador en sí.
+   */
+  private async previousTotals(alcance: AlcanceUnidad, from: string, to: string) {
+    const inicio = new Date(`${from}T00:00:00-05:00`);
+    const fin = new Date(`${to}T00:00:00-05:00`);
+    const dias = Math.round((fin.getTime() - inicio.getTime()) / 86_400_000) + 1;
+    const finPrevio = new Date(inicio);
+    finPrevio.setDate(finPrevio.getDate() - 1);
+    const inicioPrevio = new Date(finPrevio);
+    inicioPrevio.setDate(inicioPrevio.getDate() - (dias - 1));
+    const clave = (fecha: Date) =>
+      new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Lima' }).format(fecha);
+
+    const rango = this.dateRange(clave(inicioPrevio), clave(finPrevio));
+    const rangoGasto = this.expenseDateRange(clave(inicioPrevio), clave(finPrevio));
+    const deUnidad = filtroUnidad(alcance);
+    const deVentas = { ...deUnidad, estado: 'CONFIRMADA', fecha: rango };
+
+    const [ventas, devoluciones, gastos, retornables, nuevos] = await Promise.all([
+      this.prisma.venta.aggregate({ where: deVentas, _sum: { total: true }, _count: true }),
+      this.prisma.devolucionVenta.aggregate({
+        where: { estado: 'CONFIRMADA', venta: deVentas },
+        _sum: { total: true },
+      }),
+      this.prisma.gasto.aggregate({
+        where: { ...deUnidad, fecha: rangoGasto },
+        _sum: { monto: true },
+      }),
+      this.prisma.detalleVenta.aggregate({
+        where: { producto: { esRetornable: true }, venta: deVentas },
+        _sum: { cantidad: true },
+      }),
+      this.prisma.cliente.count({ where: { ...deUnidad, createdAt: rango } }),
+    ]);
+
+    const sales = Math.max(
+      Number(ventas._sum.total ?? 0) - Number(devoluciones._sum.total ?? 0),
+      0,
+    );
+    const expenses = Number(gastos._sum.monto ?? 0);
+    return {
+      sales,
+      expenses,
+      profit: sales - expenses,
+      orders: ventas._count,
+      bidones: Number(retornables._sum.cantidad ?? 0),
+      newClients: nuevos,
     };
   }
 
@@ -767,10 +957,14 @@ export class ReportsService {
     bucket: Record<string, { amount: number; count: number }>,
     name: string,
     amount: number,
+    // Un reembolso resta plata pero no es "una operación más": entra al monto y no al conteo,
+    // igual que en el total de la fila. Sin esto, el desglose por método decía 4 cobros
+    // cuando el total de la fila decía 1, porque contaba también las devoluciones.
+    cuenta = true,
   ) {
     const current = bucket[name] ?? { amount: 0, count: 0 };
     current.amount += amount;
-    current.count += 1;
+    if (cuenta) current.count += 1;
     bucket[name] = current;
   }
 
