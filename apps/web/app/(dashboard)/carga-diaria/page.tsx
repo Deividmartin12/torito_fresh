@@ -347,10 +347,12 @@ export default function CargaDiariaPage() {
 
       {producto ? (
         <p className="mb-3 text-[13px] text-muted">
-          Las ventas se registran a nombre de «Ventas del día». Los bidones vendidos se calculan con
-          el precio de {producto.nombre} ({moneda(producto.precio)}) y descuentan stock
-          {producto.retornable ? ', con canje de envases uno a uno' : ''}. Puedes pegar un bloque
-          copiado de Excel: se reparte desde la celda donde pegas.
+          Las ventas se registran a nombre de «Ventas del día» y se llevan toda la producción de ese
+          día, repartida entre los métodos de pago según el monto de cada uno: lo producido no queda
+          en stock. Si el día no tiene producción, los bidones se calculan con el precio de{' '}
+          {producto.nombre} ({moneda(producto.precio)})
+          {producto.retornable ? '. Los envases van con canje uno a uno' : ''}. Puedes pegar un
+          bloque copiado de Excel: se reparte desde la celda donde pegas.
         </p>
       ) : null}
 

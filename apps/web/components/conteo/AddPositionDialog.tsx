@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
-import { CatalogItem } from '../../lib/operations';
+import { CatalogItem, etiquetaProducto } from '../../lib/operations';
 import { SearchableSelect } from '../SearchableSelect';
 import { Button } from '../ui/Button';
 import { controlClass, fieldLabelClass, modalActionsClass, modalFormClass } from '../ui/Field';
@@ -95,8 +95,7 @@ export function AddPositionDialog({
             }}
             options={productos.map((item) => ({
               value: item.id,
-              label: item.nombre,
-              hint: item.codigo,
+              label: etiquetaProducto(item),
             }))}
             placeholder="Buscar producto"
           />

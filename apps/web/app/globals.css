@@ -1850,6 +1850,7 @@ body {
   color: var(--text);
   font-size: clamp(28px, 3vw, 36px);
   line-height: 1.15;
+  text-wrap: balance;
 }
 
 .operation-list-head p,
@@ -1896,29 +1897,40 @@ body {
   font-weight: 500;
 }
 
-.operations-filters {
-  justify-content: space-between;
-  border: 1px solid var(--border);
-  border-radius: 15px;
-  background: var(--surface);
-  padding: 12px !important;
-  box-shadow: var(--shadow);
+/* Contexto de unidad bajo los títulos con período. Se mantiene plano, azul y compacto para
+ * que el título siga siendo el protagonista y quede aire antes de los indicadores/filtros. */
+.operation-list-head .report-scope-caption,
+.dashboard-head .report-scope-caption,
+.report-page-head .report-scope-caption {
+  display: block;
+  margin: 8px 0 0;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  line-height: 1.35;
+  text-transform: uppercase;
 }
 
-/* Un mismo contenedor de filtros para todos los modulos. */
+.operation-list-head > div:first-child,
+.report-page-head > div {
+  min-width: 0;
+}
+
+.operations-filters {
+  justify-content: space-between;
+}
+
+/* Los filtros comparten alineación y medidas, pero no una tarjeta exterior: cada control
+   conserva su propio borde y la barra se integra directamente con el fondo de la pantalla. */
 .module-tools:has(.pill-search) {
   display: flex;
-  min-height: 66px;
   align-items: center;
   justify-content: flex-start;
   flex-wrap: wrap;
   gap: 10px !important;
   margin: 16px 0 14px !important;
-  border: 1px solid var(--border);
-  border-radius: 15px;
-  background: var(--surface);
-  padding: 12px !important;
-  box-shadow: var(--shadow);
+  padding: 0 !important;
 }
 
 .module-tools:has(.pill-search) .pill-search {
@@ -3357,10 +3369,16 @@ a.entity-row:hover {
   margin: 0;
 }
 
+.report-page-head {
+  margin-bottom: 18px;
+}
+
 .report-page-head h1 {
   margin-top: 2px;
   color: var(--text);
   font-size: clamp(28px, 3vw, 36px);
+  line-height: 1.15;
+  text-wrap: balance;
 }
 
 .report-page-head p {
@@ -3466,17 +3484,13 @@ a.entity-row:hover {
 }
 
 /* Resumen diario: los dos filtros (rango y agrupación) presentados como pasos rotulados,
-   uno junto al otro en una sola fila; el segundo se empuja a la derecha. */
+   uno junto al otro en una sola fila y sin una tarjeta exterior. */
 .summary-filters {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 16px;
   margin: 16px 0 14px;
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  background: var(--surface);
-  padding: 16px 18px;
 }
 
 .summary-filter-step {
@@ -3548,7 +3562,8 @@ a.entity-row:hover {
   opacity: 0.4;
 }
 
-/* Barra de filtro de fechas: segmentado + divisor + navegador «‹ etiqueta ›». */
+/* Barra de filtro de fechas: segmentado + divisor + navegador «‹ etiqueta ›».
+   Se muestra directamente sobre la pantalla; el segmentado mantiene su propia cápsula. */
 .period-filter {
   position: relative;
   display: flex;
@@ -3556,11 +3571,6 @@ a.entity-row:hover {
   flex-wrap: wrap;
   gap: 12px;
   margin: 16px 0 14px;
-  border: 1px solid var(--border);
-  border-radius: 15px;
-  background: var(--surface);
-  padding: 10px 12px;
-  box-shadow: var(--shadow);
 }
 
 .period-filter-rail {
@@ -4237,10 +4247,14 @@ a.entity-row:hover {
 .demand-heatmap > span {
   text-align: right;
 }
+/* Cada cuadro lleva dos líneas: el monto vendido y la cantidad de ventas. */
 .demand-heatmap > i {
   display: grid;
-  min-height: 29px;
-  place-items: center;
+  min-height: 40px;
+  align-content: center;
+  justify-items: center;
+  gap: 3px;
+  padding: 4px 2px;
   border-radius: 6px;
   background: rgb(37 99 235 / calc(0.1 + var(--heat) * 0.8));
   color: var(--text);
@@ -7699,23 +7713,6 @@ input[type='radio'] {
   line-height: 1.35;
 }
 
-/* Buscador, tabla y paginación forman una sola superficie en todos los listados. */
-.module-tools:has(+ .glass-table),
-.module-tools:has(+ .table-wrap) {
-  margin-bottom: 0 !important;
-  border-bottom: 0;
-  border-bottom-right-radius: 0 !important;
-  border-bottom-left-radius: 0 !important;
-  box-shadow: none !important;
-}
-
-.module-tools + .glass-table,
-.module-tools + .table-wrap {
-  margin-top: 0;
-  border-top-right-radius: 0 !important;
-  border-top-left-radius: 0 !important;
-}
-
 .glass-table:has(+ .table-pagination),
 .table-wrap:has(+ .table-pagination) {
   margin-bottom: 0;
@@ -8893,27 +8890,20 @@ input[type='radio'] {
     background: var(--surface-hover);
   }
 
-  /* El buscador y la paginación automáticos viven DENTRO de .glass-table, que en
-     modo tarjeta deja de ser una superficie: recuperan su propia caja. */
+  /* En modo tarjeta el buscador sigue plano; su campo conserva el borde interactivo. */
   .glass-table > .auto-table-toolbar,
   .table-wrap > .auto-table-toolbar {
     margin-bottom: 12px !important;
-    border: 1px solid var(--border);
-    border-radius: var(--ui-radius);
-    padding: 10px 12px !important;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 0 !important;
   }
 
   .glass-table > .table-pagination,
   .table-wrap > .table-pagination {
     border: 1px solid var(--border);
     border-radius: var(--ui-radius);
-  }
-
-  /* Buscador y paginación ya no están soldados a una tabla: recuperan su caja. */
-  .module-tools:has(+ .glass-table),
-  .module-tools:has(+ .table-wrap) {
-    border-bottom-right-radius: var(--ui-radius) !important;
-    border-bottom-left-radius: var(--ui-radius) !important;
   }
 
   .glass-table:has(+ .table-pagination),
@@ -9297,4 +9287,48 @@ input[type='radio'] {
   font-size: 12px !important;
   line-height: 1.35;
   text-transform: none;
+}
+
+/* ===== Entrada de los gráficos del panel y los reportes ===================
+   Las barras crecen desde su base, las curvas se descubren de izquierda a
+   derecha y el resto aparece. Se usan con utilidades arbitrarias de Tailwind
+   (ver `components/charts/animacion.ts`). Viven acá y no en la configuración
+   de Tailwind porque el servidor de desarrollo no relee esa configuración sin
+   reiniciarse; este archivo sí se recarga solo.
+   ====================================================================== */
+@keyframes crecer-y {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+@keyframes crecer-x {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+/* Un recorte y no un trazo punteado (`stroke-dashoffset`): la curva del panel
+   usa `vector-effect: non-scaling-stroke`, y con eso el punteado se mide en
+   píxeles de pantalla y deja huecos. */
+@keyframes dibujar {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes aparecer {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes entrar-giro {
+  from {
+    opacity: 0;
+    transform: rotate(-90deg) scale(0.85);
+  }
 }

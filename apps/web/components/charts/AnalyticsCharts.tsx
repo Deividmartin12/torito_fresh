@@ -5,6 +5,14 @@ import { useId, useMemo } from 'react';
 import { AnalyticsRanking, HeatmapPoint } from '../../lib/analytics';
 import { ChartPoint } from '../../lib/chart-axis';
 import { moneda } from '../../lib/format';
+import {
+  aparece,
+  barraHorizontal,
+  barraVertical,
+  firma,
+  retraso,
+  trazoDibujado,
+} from './animacion';
 import { AxisTick, ColumnTick, tickEvery } from './AxisTick';
 
 export function ComparisonBarChart({
@@ -34,25 +42,32 @@ export function ComparisonBarChart({
       }
     >
       {rows.length ? (
-        <div className={`comparison-chart${showValues ? ' comparison-chart-labeled' : ''}`}>
+        <div
+          className={`comparison-chart${showValues ? ' comparison-chart-labeled' : ''}`}
+          key={firma(rows.map((row) => [row.key, row.sales, row.expenses]))}
+        >
           {rows.map((row, index) => (
             <div className="comparison-column" key={row.key}>
               {showValues ? (
-                <div className="comparison-values">
+                <div className={`comparison-values ${aparece}`} style={retraso(index, 60, 900)}>
                   <span className="comparison-value-sales">{compactMoney(row.sales)}</span>
                   <span className="comparison-value-expenses">{compactMoney(row.expenses)}</span>
                 </div>
               ) : null}
               <div className="comparison-bars">
                 <span
-                  className="comparison-sales"
-                  style={{ height: `${Math.max(row.sales ? 4 : 0, (row.sales / max) * 100)}%` }}
+                  className={`comparison-sales ${barraVertical}`}
+                  style={{
+                    height: `${Math.max(row.sales ? 4 : 0, (row.sales / max) * 100)}%`,
+                    ...retraso(index),
+                  }}
                   title={`${row.tooltip} · Ventas: ${moneda(row.sales)}`}
                 />
                 <span
-                  className="comparison-purchases"
+                  className={`comparison-purchases ${barraVertical}`}
                   style={{
                     height: `${Math.max(row.expenses ? 4 : 0, (row.expenses / max) * 100)}%`,
+                    ...retraso(index + 2),
                   }}
                   title={`${row.tooltip} · Gastos: ${moneda(row.expenses)}`}
                 />
@@ -96,15 +111,21 @@ export function RankingBarChart({
       subtitle={subtitle}
     >
       {visible.length ? (
-        <div className="analytics-ranking">
-          {visible.map((row) => (
+        <div className="analytics-ranking" key={firma(visible.map((row) => [row.id, row.value]))}>
+          {visible.map((row, index) => (
             <div key={`${row.id}-${row.name}`}>
               <div>
                 <span title={row.name}>{row.name}</span>
                 <strong>{valueKind === 'moneda' ? moneda(row.value) : row.value}</strong>
               </div>
               <div className="analytics-track">
-                <span style={{ width: `${Math.max(3, (row.value / max) * 100)}%` }} />
+                <span
+                  className={barraHorizontal}
+                  style={{
+                    width: `${Math.max(3, (row.value / max) * 100)}%`,
+                    ...retraso(index, 70),
+                  }}
+                />
               </div>
               <small>
                 {detail
@@ -123,9 +144,11 @@ export function RankingBarChart({
 
 export function MarginChart({
   data,
+  title = 'Evolución del margen',
   subtitle = 'Venta sin IGV menos costo de inventario',
 }: {
   data: ChartPoint[];
+  title?: string;
   subtitle?: string;
 }) {
   const gradientId = useId().replace(/:/g, '');
@@ -151,11 +174,12 @@ export function MarginChart({
   const labelEvery = tickEvery(rows.length);
 
   return (
-    <ChartCard icon={<TrendingUp size={18} />} title="Evolución del margen" subtitle={subtitle}>
+    <ChartCard icon={<TrendingUp size={18} />} title={title} subtitle={subtitle}>
       {rows.length ? (
         <div className="line-chart-wrap">
           <svg
             className="line-chart margin-area-chart"
+            key={firma(rows.map((row) => [row.key, row.margin]))}
             viewBox={`0 0 ${width} ${height}`}
             role="img"
             aria-label="Gráfico de evolución del margen"
@@ -199,15 +223,20 @@ export function MarginChart({
               />
             ) : null}
             <polygon
-              className="chart-area margin-area-fill"
+              className={`chart-area margin-area-fill ${aparece}`}
+              style={{ animationDelay: '600ms' }}
               points={areaPoints}
               fill={`url(#${gradientId})`}
             />
-            <polyline className="chart-line margin-area-line" points={linePoints} />
+            <polyline
+              className={`chart-line margin-area-line ${trazoDibujado}`}
+              points={linePoints}
+            />
             {rows.map((row, index) => (
               <g key={row.key}>
                 <circle
-                  className={`chart-dot margin-area-dot${row.margin < 0 ? ' negative' : ''}`}
+                  className={`chart-dot margin-area-dot${row.margin < 0 ? ' negative' : ''} ${aparece}`}
+                  style={retraso(rows.length > 1 ? (index / (rows.length - 1)) * 1000 : 0, 1, 1100)}
                   cx={x(index)}
                   cy={y(row.margin)}
                   r="4"
@@ -248,18 +277,20 @@ export function DemandHeatmap({ data }: { data: HeatmapPoint[] }) {
     const max = Math.min(23, Math.max(...populated));
     return Array.from({ length: max - min + 1 }, (_, index) => min + index);
   }, [data]);
-  const max = Math.max(1, ...data.map((point) => point.orders));
+  // El color sigue al monto vendido: es lo que el negocio mira para saber qué hora rinde más.
+  const max = Math.max(1, ...data.map((point) => point.sales));
   const days = ['Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado', 'Domingo'];
   const byCell = new Map(data.map((point) => [`${point.day}-${point.hour}`, point]));
   return (
     <ChartCard
       icon={<CalendarClock size={18} />}
       title="Demanda por día y hora"
-      subtitle="Cantidad de ventas confirmadas; más oscuro significa más demanda"
+      subtitle="Monto vendido y cantidad de ventas por hora; más oscuro significa más monto"
     >
       <div
         className="demand-heatmap"
-        style={{ gridTemplateColumns: `90px repeat(${hours.length}, minmax(32px, 1fr))` }}
+        style={{ gridTemplateColumns: `90px repeat(${hours.length}, minmax(52px, 1fr))` }}
+        key={firma(data.map((point) => [point.day, point.hour, point.orders, point.sales]))}
       >
         <span />
         {hours.map((hour) => (
@@ -296,16 +327,33 @@ function HeatmapRow({
   return (
     <>
       <span>{day}</span>
-      {hours.map((hour) => {
+      {hours.map((hour, hourIndex) => {
         const point = byCell.get(`${dayIndex}-${hour}`);
-        const intensity = (point?.orders ?? 0) / max;
+        const intensity = (point?.sales ?? 0) / max;
         return (
           <i
             key={hour}
-            style={{ '--heat': intensity } as React.CSSProperties}
-            title={`${day} ${hour}:00 · ${point?.orders ?? 0} ventas · ${moneda(point?.sales ?? 0)}`}
+            // Sobre los cuadros más oscuros el texto pasa a blanco para seguir leyéndose.
+            className={`${aparece} ${intensity > 0.55 ? '!text-white' : ''}`}
+            // Entra en diagonal: por día y por hora, como una ola.
+            style={
+              {
+                '--heat': intensity,
+                ...retraso(dayIndex * 2 + hourIndex, 25, 900),
+              } as React.CSSProperties
+            }
+            title={`${day} ${hour}:00 · ${point?.orders ?? 0} ${point?.orders === 1 ? 'venta' : 'ventas'} · ${moneda(point?.sales ?? 0)}`}
           >
-            {point?.orders || ''}
+            {point?.orders ? (
+              <>
+                <b className="text-[10px] font-semibold leading-none tabular-nums">
+                  {compactMoney(point.sales)}
+                </b>
+                <small className="text-[9px] leading-none opacity-80">
+                  {point.orders} {point.orders === 1 ? 'venta' : 'ventas'}
+                </small>
+              </>
+            ) : null}
           </i>
         );
       })}

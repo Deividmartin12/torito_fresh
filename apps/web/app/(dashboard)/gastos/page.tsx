@@ -13,17 +13,16 @@ import {
   X,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { CategoriaGastoFormModal } from '../../../components/CategoriaGastoFormModal';
-import { DonutChart } from '../../../components/charts/DonutChart';
 import { DataTable, DataTableColumn } from '../../../components/DataTable';
-import { PanelCard } from '../../../components/dashboard/PanelCard';
 import { StatCard } from '../../../components/dashboard/StatCard';
 import { PeriodFilter } from '../../../components/PeriodFilter';
 import { ProveedorFormModal } from '../../../components/ProveedorFormModal';
 import { SearchableSelect } from '../../../components/SearchableSelect';
 import { TrabajadorFormModal } from '../../../components/TrabajadorFormModal';
+import { useUnidad } from '../../../components/UnidadProvider';
 import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
 import {
@@ -78,6 +77,7 @@ export default function GastosPage() {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('Todas');
   const [rango, setRango] = useState<{ from: string; to: string } | null>(null);
+  const [etiquetaPeriodo, setEtiquetaPeriodo] = useState('');
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Expense | null>(null);
   const [detail, setDetail] = useState<Expense | null>(null);
@@ -86,14 +86,20 @@ export default function GastosPage() {
   const [proveedorModal, setProveedorModal] = useState(false);
   const [trabajadorModal, setTrabajadorModal] = useState(false);
   const [saving, setSaving] = useState(false);
+  const montoInputRef = useRef<HTMLInputElement>(null);
+  const conceptoInputRef = useRef<HTMLInputElement>(null);
   const permisos = usePermisos();
+  const { clave: unidad, resumen: unidadResumen } = useUnidad();
   const puedeCrearTrabajador = puede(permisos, 'trabajadores.administrar');
   const puedeCrearCategoria = puede(permisos, 'gastos.categorias.crear');
 
   // Cinco consultas independientes: con React Query cada una aísla su propio error de las
   // demás, así que no hace falta `cargarParcial` acá (una que falle no apaga el formulario
   // entero, que era justo el problema que ese helper resolvía a mano).
-  const expensesQuery = useQuery({ queryKey: ['expenses'], queryFn: () => getExpenses() });
+  const expensesQuery = useQuery({
+    queryKey: ['expenses', unidad],
+    queryFn: () => getExpenses(),
+  });
   const expenses = expensesQuery.data ?? [];
   const loading = expensesQuery.isPending;
   const load = expensesQuery.refetch;
@@ -165,8 +171,9 @@ export default function GastosPage() {
     (id: string) => expenseCategories.find((item) => item.id === id)?.nombre ?? '',
     [expenseCategories],
   );
-  const handlePeriod = useCallback((from: string, to: string) => {
+  const handlePeriod = useCallback((from: string, to: string, meta: { label: string }) => {
     setRango({ from, to });
+    setEtiquetaPeriodo(meta.label);
   }, []);
 
   // Se cargan todos los gastos (más nuevos primero, orden del servidor); aquí solo se
@@ -185,24 +192,6 @@ export default function GastosPage() {
     [category, expenses, rango, search],
   );
   const total = visible.reduce((sum, item) => sum + item.monto, 0);
-
-  // Desglose por categoría de lo que se está viendo. Se arma en el cliente sobre `visible`
-  // para que siga al buscador y a los filtros, no solo al período.
-  const porCategoria = useMemo(() => {
-    const acumulado = new Map<string, { id: string; name: string; value: number; count: number }>();
-    for (const gasto of visible) {
-      const fila = acumulado.get(gasto.categoria) ?? {
-        id: gasto.categoria,
-        name: gasto.categoria,
-        value: 0,
-        count: 0,
-      };
-      fila.value += gasto.monto;
-      fila.count += 1;
-      acumulado.set(gasto.categoria, fila);
-    }
-    return [...acumulado.values()].sort((a, b) => b.value - a.value);
-  }, [visible]);
 
   function openForm(expense?: Expense) {
     setEditing(expense ?? null);
@@ -231,12 +220,18 @@ export default function GastosPage() {
   }
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (!form.fecha) {
+      toast.error('Selecciona la fecha del gasto.');
+      return;
+    }
     if (!form.concepto.trim()) {
       toast.error('Ingresa el concepto del gasto.');
+      conceptoInputRef.current?.focus();
       return;
     }
     if (!Number.isFinite(form.monto) || form.monto < 0.01) {
       toast.error('El monto debe ser mayor a 0.');
+      montoInputRef.current?.focus();
       return;
     }
     if (!form.categoriaId) {
@@ -264,7 +259,7 @@ export default function GastosPage() {
       const saved = editing
         ? await updateExpense(editing.id, payload)
         : await createExpense(payload);
-      queryClient.setQueryData<Expense[]>(['expenses'], (current) =>
+      queryClient.setQueryData<Expense[]>(['expenses', unidad], (current) =>
         editing
           ? current?.map((item) => (item.id === saved.id ? saved : item))
           : [saved, ...(current ?? [])],
@@ -393,7 +388,10 @@ export default function GastosPage() {
       <div className="operation-list-head">
         <div>
           <span className="operation-eyebrow">Finanzas</span>
-          <h1>Gastos</h1>
+          <h1>{`Gastos${etiquetaPeriodo ? ` · ${etiquetaPeriodo}` : ''}`}</h1>
+          {unidadResumen ? (
+            <span className="report-scope-caption">Alcance: {unidadResumen}</span>
+          ) : null}
         </div>
         <Button
           className="min-h-[44px] shrink-0 px-[19px]"
@@ -463,10 +461,6 @@ export default function GastosPage() {
         </div>
       ) : (
         <>
-          <PanelCard title="Gastos por categoría">
-            <DonutChart rows={porCategoria} centerLabel="Total" />
-          </PanelCard>
-
           <DataTable
             columns={columns}
             rows={visible}
@@ -602,7 +596,7 @@ export default function GastosPage() {
               onClose={closeForm}
               closeDisabled={saving}
             />
-            <form className={modalFormClass} onSubmit={(event) => void submit(event)}>
+            <form className={modalFormClass} noValidate onSubmit={(event) => void submit(event)}>
               <label>
                 <span className={fieldLabelClass}>Fecha</span>
                 <input
@@ -619,6 +613,7 @@ export default function GastosPage() {
               <label>
                 <span className={fieldLabelClass}>Monto (S/)</span>
                 <input
+                  ref={montoInputRef}
                   className={controlClass}
                   type="number"
                   min="0.01"
@@ -705,6 +700,7 @@ export default function GastosPage() {
               <label className={fieldWideClass}>
                 <span className={fieldLabelClass}>Concepto</span>
                 <input
+                  ref={conceptoInputRef}
                   className={controlClass}
                   maxLength={200}
                   value={form.concepto}
@@ -764,7 +760,7 @@ export default function GastosPage() {
                 <Button variant="secondary" type="button" onClick={closeForm} disabled={saving}>
                   Cancelar
                 </Button>
-                <Button disabled={saving || !expenseCategories.length}>
+                <Button type="submit" disabled={saving || !expenseCategories.length}>
                   {saving ? 'Guardando...' : editing ? 'Guardar cambios' : 'Registrar gasto'}
                 </Button>
               </div>

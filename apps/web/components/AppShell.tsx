@@ -412,7 +412,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div
-      className={`min-h-screen px-[10px] py-0 tablet:px-4 desktop:py-0 desktop:pr-5 desktop:pb-[34px] desktop:transition-[padding-left] desktop:duration-200 desktop:ease-linear print:!m-0 print:!block print:!p-0 ${
+      className={`min-h-screen px-4 py-0 desktop:py-0 desktop:pr-5 desktop:pb-[34px] desktop:transition-[padding-left] desktop:duration-200 desktop:ease-linear print:!m-0 print:!block print:!p-0 ${
         sidebarCollapsed ? 'desktop:pl-[88px]' : 'desktop:pl-[252px]'
       }`}
       // Lo lee el CSS de las barras fijas de acciones (`.operation-sticky-actions`), que se
@@ -575,7 +575,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <IdentidadUsuario user={user} colapsado={sidebarCollapsed} />
       </aside>
 
-      <header className="sticky top-0 z-30 -mx-2.5 flex min-h-[60px] items-center justify-between gap-3 border-b border-line bg-surface px-4 tablet:-mx-4 tablet:min-h-16 tablet:px-5 desktop:-mx-5 desktop:px-5 print:!hidden">
+      <header className="sticky top-0 z-30 -mx-4 flex min-h-[60px] items-center justify-between gap-3 border-b border-line bg-surface px-4 tablet:min-h-16 tablet:px-5 desktop:-mx-5 desktop:px-5 print:!hidden">
         <div className="flex min-w-0 items-center gap-3">
           <button
             className="hidden h-[31px] w-[31px] flex-none place-items-center rounded-[9px] border border-line bg-surface-soft text-muted transition-colors duration-150 hover:border-line-strong hover:bg-surface-hover hover:text-accent desktop:grid"

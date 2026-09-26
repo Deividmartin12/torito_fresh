@@ -2,6 +2,7 @@
 
 import { Minus, TrendingDown, TrendingUp } from 'lucide-react';
 import { Variacion } from '../../lib/format';
+import { CifraAnimada } from '../ui/CifraAnimada';
 
 export function ReportHeader({
   eyebrow,
@@ -19,7 +20,7 @@ export function ReportHeader({
       <div>
         <span className="operation-eyebrow">{eyebrow}</span>
         <h1>{title}</h1>
-        {caption ? <p className="operation-period-caption">{caption}</p> : null}
+        {caption ? <p className="report-scope-caption">{caption}</p> : null}
       </div>
     </div>
   );
@@ -43,7 +44,9 @@ export function ReportMetric({
   return (
     <article className="report-metric">
       <span>{label}</span>
-      <strong>{value}</strong>
+      <strong>
+        <CifraAnimada valor={value} />
+      </strong>
       <small>{detail}</small>
       {change ? (
         <small className={`report-metric-change report-metric-change-${change.direccion}`}>

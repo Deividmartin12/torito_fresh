@@ -1,5 +1,7 @@
 import { TrendingDown, TrendingUp } from 'lucide-react';
 import { Variacion } from '../../lib/format';
+import { aparece, trazoDibujado } from '../charts/animacion';
+import { CifraAnimada } from '../ui/CifraAnimada';
 
 const ANCHO = 300;
 const ALTO = 80;
@@ -59,20 +61,30 @@ export function StatHero({
 
   return (
     <section
-      className="relative mb-3 grid gap-1.5 rounded-container-lg bg-[linear-gradient(135deg,var(--hero-from),var(--hero-to))] p-[18px_16px] text-white tablet:p-5"
+      className="relative mb-3 grid gap-1.5 rounded-container-lg border border-line bg-surface p-[18px_16px] text-fg tablet:p-5"
       aria-label={label}
     >
       <div className="flex items-start justify-between gap-3">
-        <span className="text-[13px] opacity-[0.82]">{label}</span>
+        <span className="text-[13px] text-muted">{label}</span>
         {chip ? (
-          <span className="flex-none whitespace-nowrap rounded-control bg-white/[0.18] px-3 py-[5px] text-xs font-semibold">
+          <span className="flex-none whitespace-nowrap rounded-control bg-accent-soft px-3 py-[5px] text-xs font-semibold text-accent-soft-text">
             {chip}
           </span>
         ) : null}
       </div>
-      <strong className="text-[clamp(32px,9vw,44px)] font-bold leading-[1.05]">{value}</strong>
+      <strong className="text-[clamp(32px,9vw,44px)] font-bold leading-[1.05] text-fg">
+        <CifraAnimada valor={value} />
+      </strong>
       {change ? (
-        <span className="flex items-center gap-1.5 text-[13px] opacity-90">
+        <span
+          className={`flex items-center gap-1.5 text-[13px] font-medium ${
+            change.direccion === 'up'
+              ? 'text-status-green-text'
+              : change.direccion === 'down'
+                ? 'text-status-red-text'
+                : 'text-muted'
+          }`}
+        >
           {change.direccion === 'down' ? <TrendingDown size={15} /> : null}
           {change.direccion === 'up' ? <TrendingUp size={15} /> : null}
           {change.texto}
@@ -81,17 +93,26 @@ export function StatHero({
       ) : null}
       {conCurva ? (
         <svg
-          className="mt-1 block h-[72px] w-full"
+          className="mt-1 block h-[72px] w-full text-accent"
           viewBox={`0 0 ${ANCHO} ${ALTO}`}
           preserveAspectRatio="none"
           aria-hidden="true"
+          // La `key` vuelve a montar la curva cuando cambia el período: así se redibuja.
+          key={trazo}
         >
-          <path d={`${trazo} L ${ANCHO} ${ALTO} L 0 ${ALTO} Z`} fill="rgba(255,255,255,0.16)" />
+          <path
+            className={aparece}
+            style={{ animationDelay: '500ms' }}
+            d={`${trazo} L ${ANCHO} ${ALTO} L 0 ${ALTO} Z`}
+            fill="currentColor"
+            fillOpacity={0.1}
+          />
           {/* Sin esto el trazo se deformaría con el estirado horizontal del viewBox. */}
           <path
+            className={trazoDibujado}
             d={trazo}
             fill="none"
-            stroke="#fff"
+            stroke="currentColor"
             strokeWidth="2"
             strokeLinecap="round"
             vectorEffect="non-scaling-stroke"

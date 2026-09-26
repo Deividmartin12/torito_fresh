@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { TrendingDown, TrendingUp } from 'lucide-react';
 import { Variacion } from '../../lib/format';
+import { CifraAnimada } from '../ui/CifraAnimada';
 
 export type StatTone = 'blue' | 'green' | 'amber' | 'red' | 'violet';
 
@@ -63,7 +64,7 @@ export function StatCard({
         ) : null}
       </div>
       <strong className="overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(20px,5.5vw,26px)] font-bold leading-[1.2] text-fg">
-        {value}
+        <CifraAnimada valor={value} />
       </strong>
       <span className="text-xs text-muted">{label}</span>
       {change ? (

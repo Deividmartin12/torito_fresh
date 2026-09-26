@@ -27,6 +27,7 @@ import { OperationDetailDialog } from '../../../components/operations/OperationD
 import { RegisterCollectionModal } from '../../../components/operations/RegisterCollectionModal';
 import { SaleReceipt } from '../../../components/operations/SaleReceipt';
 import { PeriodFilter } from '../../../components/PeriodFilter';
+import { useUnidad } from '../../../components/UnidadProvider';
 import { Badge } from '../../../components/ui/Badge';
 import { buttonClass } from '../../../components/ui/Button';
 import { IconButton } from '../../../components/ui/IconButton';
@@ -66,18 +67,20 @@ export default function VentasPage() {
   const [buscar, setBuscar] = useState('');
   const [pago, setPago] = useState('Todos');
   const [rango, setRango] = useState<{ from: string; to: string } | null>(null);
+  const [etiquetaPeriodo, setEtiquetaPeriodo] = useState('');
   const [detalle, setDetalle] = useState<Sale | null>(null);
   const [boleta, setBoleta] = useState<Sale | null>(null);
   const [cobrarAccount, setCobrarAccount] = useState<OperationalAccount | null>(null);
   // La venta que se está por anular (null = modal cerrado).
   const [anulando, setAnulando] = useState<Sale | null>(null);
   const permisos = usePermisos();
+  const { clave: unidad, resumen: unidadResumen } = useUnidad();
   // Quien solo crea y lee ventas no ve confirmaciones, cobranzas ni el resumen por cobrar.
   const editable = puede(permisos, 'ventas.editar');
   // Anular es su propio permiso: no es corregir, es deshacer y sacar plata de la caja.
   const anulable = puede(permisos, 'ventas.anular');
 
-  const ventasQuery = useQuery({ queryKey: ['sales'], queryFn: () => getSales() });
+  const ventasQuery = useQuery({ queryKey: ['sales', unidad], queryFn: () => getSales() });
   const ventas = ventasQuery.data ?? [];
   const loading = ventasQuery.isPending;
   const load = ventasQuery.refetch;
@@ -95,7 +98,7 @@ export default function VentasPage() {
   // El resumen por cobrar es informativo: si falla, no bloquea la lista de ventas (por eso no
   // hay toast de error acá, a diferencia de la consulta de arriba).
   const receivablesQuery = useQuery({
-    queryKey: ['operational-accounts', 'cobrar'],
+    queryKey: ['operational-accounts', 'cobrar', unidad],
     queryFn: () => getOperationalAccounts('cobrar'),
     enabled: editable,
   });
@@ -110,8 +113,9 @@ export default function VentasPage() {
   const porCobrarTotal = receivables.reduce((sum, item) => sum + item.saldo, 0);
   const vencidasCount = receivables.filter((item) => item.estado === 'VENCIDA').length;
 
-  const handlePeriod = useCallback((from: string, to: string) => {
+  const handlePeriod = useCallback((from: string, to: string, meta: { label: string }) => {
     setRango({ from, to });
+    setEtiquetaPeriodo(meta.label);
   }, []);
 
   // Se cargan todas las ventas (más nuevas primero, orden del servidor); aquí solo se
@@ -252,7 +256,10 @@ export default function VentasPage() {
       <div className="operation-list-head">
         <div>
           <span className="operation-eyebrow">Operaciones</span>
-          <h1>Ventas</h1>
+          <h1>{`Ventas${etiquetaPeriodo ? ` · ${etiquetaPeriodo}` : ''}`}</h1>
+          {unidadResumen ? (
+            <span className="report-scope-caption">Alcance: {unidadResumen}</span>
+          ) : null}
         </div>
         <div className="operation-head-actions">
           {puede(permisos, 'ventas.registrar') ? (

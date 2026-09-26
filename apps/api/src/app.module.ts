@@ -22,6 +22,7 @@ import { RolesModule } from './roles/roles.module';
 import { TrabajadoresModule } from './trabajadores/trabajadores.module';
 import { UnidadesModule } from './unidades/unidades.module';
 import { UsersModule } from './users/users.module';
+import { HealthController } from './health.controller';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { UsersModule } from './users/users.module';
     UnidadesModule,
     UsersModule,
   ],
+  controllers: [HealthController],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PermisosGuard },

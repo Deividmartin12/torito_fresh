@@ -3,7 +3,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, Eye, Factory, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import Link from 'next/link';
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { AlmacenCreado, AlmacenFormModal } from '../../../components/AlmacenFormModal';
 import { DataTable, DataTableColumn } from '../../../components/DataTable';
@@ -19,6 +19,7 @@ import {
 import { IconButton } from '../../../components/ui/IconButton';
 import { Modal, ModalHeader } from '../../../components/ui/Modal';
 import { fechaCorta } from '../../../lib/format';
+import { etiquetaProducto } from '../../../lib/operations';
 import {
   createProductionOrder,
   getProductionCatalogs,
@@ -30,7 +31,8 @@ import {
 } from '../../../lib/production';
 
 const emptyCatalogs: ProductionCatalogs = { productosTerminados: [], insumos: [], almacenes: [] };
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () =>
+  new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
 const cantidad = (value: number) =>
   new Intl.NumberFormat('es-PE', { maximumFractionDigits: 3 }).format(value);
 const moneda = (value: number) =>
@@ -53,6 +55,7 @@ export default function ProductionPage() {
   const [search, setSearch] = useState('');
   const [form, setForm] = useState(emptyForm);
   const [inputs, setInputs] = useState<{ productoId: string; cantidad: number }[]>([]);
+  const cantidadInputRef = useRef<HTMLInputElement>(null);
   // El lote de esta producción ya se vendió/movió: solo se pueden corregir las fechas.
   const edicionLimitada = Boolean(editing?.loteMovido);
 
@@ -97,7 +100,11 @@ export default function ProductionPage() {
   const totalCost = orders.reduce((sum, item) => sum + item.costoTotal, 0);
   function openCreate() {
     setEditing(null);
-    setForm(emptyForm());
+    setForm({
+      ...emptyForm(),
+      productoId: catalogs.productosTerminados[0]?.id || '',
+      almacenProductoTerminadoId: catalogs.almacenes[0]?.id || '',
+    });
     setInputs([]);
     setFormOpen(true);
   }
@@ -222,6 +229,20 @@ export default function ProductionPage() {
   }
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (!form.fechaPlanificada) {
+      toast.error('Elige la fecha de producción.');
+      return;
+    }
+    if (!editing && !form.productoId) {
+      toast.error('Elige el producto terminado.');
+      return;
+    }
+    const cantidadPlanificada = Number(form.cantidadPlanificada);
+    if (!Number.isFinite(cantidadPlanificada) || cantidadPlanificada <= 0) {
+      toast.error('Ingresa una cantidad a producir mayor que cero.');
+      cantidadInputRef.current?.focus();
+      return;
+    }
     if (!edicionLimitada && inputs.some((item) => !item.productoId || item.cantidad <= 0)) {
       toast.error('Completa o elimina los insumos agregados.');
       return;
@@ -238,7 +259,7 @@ export default function ProductionPage() {
           }
         : {
             almacenProductoTerminadoId: form.almacenProductoTerminadoId || undefined,
-            cantidadPlanificada: Number(form.cantidadPlanificada),
+            cantidadPlanificada,
             fechaPlanificada: form.fechaPlanificada,
             fechaVencimiento: form.fechaVencimiento || undefined,
             insumos: inputs,
@@ -248,7 +269,7 @@ export default function ProductionPage() {
         : await createProductionOrder({
             productoId: form.productoId,
             almacenProductoTerminadoId: form.almacenProductoTerminadoId || undefined,
-            cantidadPlanificada: Number(form.cantidadPlanificada),
+            cantidadPlanificada,
             fechaPlanificada: form.fechaPlanificada,
             fechaVencimiento: form.fechaVencimiento || undefined,
             insumos: inputs,
@@ -343,7 +364,7 @@ export default function ProductionPage() {
             onClose={closeForm}
             closeDisabled={saving}
           />
-          <form className={modalFormClass} onSubmit={(event) => void submit(event)}>
+          <form className={modalFormClass} noValidate onSubmit={(event) => void submit(event)}>
             {edicionLimitada ? (
               <div className={`operation-warning ${fieldWideClass}`}>
                 <AlertCircle size={18} />
@@ -371,6 +392,7 @@ export default function ProductionPage() {
             <label>
               <span className={fieldLabelClass}>Cantidad a producir</span>
               <input
+                ref={cantidadInputRef}
                 className={controlClass}
                 type="number"
                 min="0.001"
@@ -391,7 +413,7 @@ export default function ProductionPage() {
                   onChange={(value) => setForm({ ...form, productoId: value })}
                   options={catalogs.productosTerminados.map((item) => ({
                     value: item.id,
-                    label: `${item.codigo} · ${item.nombre}`,
+                    label: etiquetaProducto(item),
                   }))}
                   placeholder="Seleccionar producto"
                   required
@@ -467,7 +489,7 @@ export default function ProductionPage() {
                           onChange={(value) => updateInput(index, { productoId: value })}
                           options={catalogs.insumos.map((product) => ({
                             value: product.id,
-                            label: `${product.codigo} · ${product.nombre}`,
+                            label: etiquetaProducto(product),
                           }))}
                           placeholder="Seleccionar insumo"
                         />
@@ -506,7 +528,7 @@ export default function ProductionPage() {
               <Button variant="secondary" type="button" onClick={closeForm} disabled={saving}>
                 Cancelar
               </Button>
-              <Button disabled={saving}>
+              <Button type="submit" disabled={saving}>
                 <Factory size={16} />{' '}
                 {saving ? 'Guardando...' : editing ? 'Guardar cambios' : 'Registrar producción'}
               </Button>

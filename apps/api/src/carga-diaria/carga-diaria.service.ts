@@ -6,7 +6,7 @@ import { limaTodayKey } from '../common/receivables';
 import { TRANSACCION_DE_STOCK, Transaction } from '../common/stock';
 import { resolverUnidadDeEscritura, unidadControlaInventario } from '../common/unit-context';
 import { exigirTrabajadorId } from '../common/worker-context';
-import { CreateOperationalSaleDto } from '../operations/operations.dto';
+import { CreateOperationalSaleDto, UpdateOperationalSaleDto } from '../operations/operations.dto';
 import { OperationsService } from '../operations/operations.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProductionService } from '../production/production.service';
@@ -211,7 +211,7 @@ export class CargaDiariaService {
 
     const yaCargados = await tx.registroDiario.findMany({
       where: { unidadNegocioId: ctx.unidadNegocioId, fecha: diaUtc(fecha) },
-      select: { concepto: true, categoriaMetodoPagoId: true },
+      select: { concepto: true, categoriaMetodoPagoId: true, cantidad: true },
     });
     const cargado = (concepto: Concepto, categoriaId = 0n) =>
       yaCargados.some(
@@ -259,15 +259,37 @@ export class CargaDiariaService {
     }
 
     if (ventas.length) {
-      if (ctx.producto.precio <= 0)
+      // Lo producido en el día se consume ese mismo día: las ventas se llevan toda la
+      // producción, repartida entre los métodos de pago según el monto de cada uno. Cuenta
+      // también la producción cargada antes para ese día, menos lo que ya se vendió en él.
+      const producidoDia =
+        dia.produccion ?? yaCargados.find((row) => row.concepto === 'PRODUCCION')?.cantidad ?? 0;
+      const vendidoDia = yaCargados
+        .filter((row) => row.concepto === 'VENTA')
+        .reduce((suma, row) => suma + row.cantidad, 0);
+      const porConsumir = producidoDia - vendidoDia;
+      // Sin producción del día (o si no alcanza para al menos un bidón por método), la
+      // cantidad se calcula con el precio del producto, como antes.
+      const cantidades =
+        porConsumir >= ventas.length
+          ? repartirCantidad(
+              porConsumir,
+              ventas.map((venta) => venta.monto),
+            )
+          : null;
+      if (!cantidades && ctx.producto.precio <= 0)
         throw new BadRequestException(
           'El producto no tiene precio de venta: no se puede calcular cuántos se vendieron',
         );
       const clienteId = await this.clienteDelDia(tx, ctx.unidadNegocioId);
-      for (const venta of ventas) {
+      for (const [indice, venta] of ventas.entries()) {
         const categoriaId = BigInt(venta.categoriaId);
         const metodoPagoId = await this.metodoGlobal(tx, categoriaId);
-        const items = lineasPorMonto(venta.monto, ctx.producto.precio, Number(ctx.producto.id));
+        const items = lineasPorMonto(
+          venta.monto,
+          cantidades?.[indice] ?? cantidadPorPrecio(venta.monto, ctx.producto.precio),
+          Number(ctx.producto.id),
+        );
         const cantidad = items.reduce((suma, item) => suma + item.cantidad, 0);
         const ventaId = await this.operations.registrarVenta(
           tx as Transaction,
@@ -314,6 +336,66 @@ export class CargaDiariaService {
         data: { ...bitacora, concepto: 'GASTO', monto: dia.gasto, gastoId: gasto.id },
       });
     }
+  }
+
+  /**
+   * Corrige un día cargado antes de que las ventas consumieran toda la producción: vuelve a
+   * repartir los bidones producidos entre las ventas del día y edita cada venta con su cantidad
+   * nueva. La edición revierte la salida vieja y escribe la nueva (el kardex no se borra), todo
+   * fechado ese mismo día. Los montos cobrados no cambian.
+   */
+  async consumirProduccionDelDia(fecha: string, actor: AuthUser, unidad?: string) {
+    const unidadNegocioId = await resolverUnidadDeEscritura(this.prisma, {
+      actor,
+      unidadSolicitada: unidad,
+    });
+    const registros = await this.prisma.registroDiario.findMany({
+      where: { unidadNegocioId, fecha: diaUtc(fecha) },
+      orderBy: { id: 'asc' },
+    });
+    const produccion = registros.find((row) => row.concepto === 'PRODUCCION');
+    const ventas = registros.filter((row) => row.concepto === 'VENTA' && row.ventaId);
+    if (!produccion || !ventas.length) return { fecha, cambios: [] };
+    const cantidades = repartirCantidad(
+      produccion.cantidad,
+      ventas.map((row) => Number(row.monto)),
+    );
+
+    const cambios: { venta: string; antes: number; despues: number }[] = [];
+    for (const [indice, registro] of ventas.entries()) {
+      const cantidad = cantidades[indice];
+      if (cantidad === registro.cantidad) continue;
+      const venta = await this.prisma.venta.findUniqueOrThrow({
+        where: { id: registro.ventaId! },
+        include: {
+          detalles: { include: { producto: true } },
+          cuentaCobrar: { include: { pagos: { where: { origen: 'VENTA' } } } },
+        },
+      });
+      const producto = venta.detalles[0].producto;
+      const monto = Number(registro.monto);
+      const pagos = venta.cuentaCobrar?.pagos ?? [];
+      await this.operations.updateSale(
+        venta.id.toString(),
+        {
+          clienteId: Number(venta.clienteId),
+          almacenId: Number(venta.almacenOrigenId),
+          tipoPago: 'CONTADO',
+          pagosIniciales: pagos.map((pago) => ({
+            metodoPagoId: Number(pago.metodoPagoId),
+            monto: Number(pago.monto),
+          })),
+          items: lineasPorMonto(monto, cantidad, Number(producto.id)),
+          vaciosDevueltos: producto.esRetornable ? cantidad : 0,
+        } as UpdateOperationalSaleDto,
+        actor,
+        unidad,
+        { fecharEnLaVenta: true },
+      );
+      await this.prisma.registroDiario.update({ where: { id: registro.id }, data: { cantidad } });
+      cambios.push({ venta: codigoVenta(venta.id), antes: registro.cantidad, despues: cantidad });
+    }
+    return { fecha, cambios };
   }
 
   /** El cliente "Ventas del día" de la unidad; se crea la primera vez que hace falta. */
@@ -382,17 +464,42 @@ export class CargaDiariaService {
   }
 }
 
+/** Bidones que corresponden a un monto cuando no hay producción del día: `monto ÷ precio`. */
+export const cantidadPorPrecio = (monto: number, precio: number) =>
+  Math.max(1, Math.round(monto / precio));
+
 /**
- * Convierte un monto en líneas de venta del producto.
- *
- * La cantidad es `monto ÷ precio`, redondeada (mínimo 1). Casi nunca el monto es exacto, así
- * que el precio se reparte en céntimos: `resto` unidades llevan un céntimo más que las demás.
- * Así la suma de las líneas da exactamente el monto tecleado, sin descuentos inventados.
- * Ejemplo: S/ 100.01 a S/ 20 → 5 bidones: 4 a S/ 20.00 y 1 a S/ 20.01.
+ * Reparte `total` unidades entre varios montos, en proporción a cada monto (método del mayor
+ * resto), con al menos una unidad por monto. La suma da exactamente `total`.
+ * Ejemplo: 141 bidones entre S/ 214 y S/ 485 → 43 y 98.
  */
-export function lineasPorMonto(monto: number, precio: number, productoId: number) {
+export function repartirCantidad(total: number, montos: number[]) {
+  const suma = montos.reduce((acumulado, monto) => acumulado + monto, 0);
+  const libres = total - montos.length;
+  const exactas = montos.map((monto) => (monto / suma) * libres);
+  const cantidades = exactas.map((valor) => 1 + Math.floor(valor));
+  let restantes = total - cantidades.reduce((acumulado, valor) => acumulado + valor, 0);
+  const porResto = exactas
+    .map((valor, indice) => ({ indice, resto: valor - Math.floor(valor) }))
+    .sort((a, b) => b.resto - a.resto);
+  for (const { indice } of porResto) {
+    if (restantes <= 0) break;
+    cantidades[indice] += 1;
+    restantes -= 1;
+  }
+  return cantidades;
+}
+
+/**
+ * Convierte un monto y una cantidad en líneas de venta del producto.
+ *
+ * Casi nunca el monto se divide exacto entre la cantidad, así que el precio se reparte en
+ * céntimos: `resto` unidades llevan un céntimo más que las demás. Así la suma de las líneas da
+ * exactamente el monto tecleado, sin descuentos inventados.
+ * Ejemplo: S/ 100.01 en 5 bidones → 4 a S/ 20.00 y 1 a S/ 20.01.
+ */
+export function lineasPorMonto(monto: number, cantidad: number, productoId: number) {
   const centimos = Math.round(monto * 100);
-  const cantidad = Math.max(1, Math.round(monto / precio));
   const base = Math.floor(centimos / cantidad);
   const resto = centimos - base * cantidad;
   return [

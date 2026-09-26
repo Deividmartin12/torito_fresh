@@ -23,6 +23,7 @@ import {
   createSale,
   emptyCatalogs,
   emptyLine,
+  etiquetaProducto,
   getOperationCatalogs,
   getOperationStock,
   getOperationalPaymentMethods,
@@ -564,12 +565,12 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
                     onChange={(value) => selectProduct(index, value)}
                     options={catalogs.productos.map((product) => ({
                       value: product.id,
-                      label: `${product.codigo ?? ''} · ${product.nombre}`,
+                      label: etiquetaProducto(product),
                       // Sin inventario no hay disponible que mostrar: sería 0 en todo y solo
                       // confundiría.
                       hint: controlaInventario ? `Disponible: ${available(product.id)}` : undefined,
                     }))}
-                    placeholder="Buscar por código o nombre"
+                    placeholder="Buscar por tipo o nombre"
                     required
                   />
                   {controlaInventario &&

@@ -4,7 +4,13 @@ import { Download, PackageSearch } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { moneda, cantidad, fechaCorta } from '../../lib/format';
-import { CatalogItem, KardexLedger, getKardex, getOperationCatalogs } from '../../lib/operations';
+import {
+  CatalogItem,
+  KardexLedger,
+  etiquetaProducto,
+  getKardex,
+  getOperationCatalogs,
+} from '../../lib/operations';
 import { PeriodFilter } from '../PeriodFilter';
 import { SearchableSelect } from '../SearchableSelect';
 import { Badge } from '../ui/Badge';
@@ -70,7 +76,7 @@ export function ProductLedger({
   }, []);
 
   const productOptions = useMemo(
-    () => products.map((item) => ({ value: item.id, label: item.nombre })),
+    () => products.map((item) => ({ value: item.id, label: etiquetaProducto(item) })),
     [products],
   );
   const warehouseOptions = useMemo(

@@ -2,6 +2,7 @@
 
 import { AnalyticsRanking } from '../../lib/analytics';
 import { moneda } from '../../lib/format';
+import { aparece, entraGirando, firma, retraso } from './animacion';
 
 const RADIO = 45;
 const GROSOR = 15;
@@ -35,8 +36,13 @@ export function DonutChart({
 
   let acumulado = 0;
   return (
-    <div className="donut-breakdown">
-      <svg viewBox="0 0 120 120" role="img" aria-label={`${centerLabel}: ${moneda(total)}`}>
+    <div className="donut-breakdown" key={firma(rows.map((fila) => [fila.id, fila.value]))}>
+      <svg
+        className={entraGirando}
+        viewBox="0 0 120 120"
+        role="img"
+        aria-label={`${centerLabel}: ${moneda(total)}`}
+      >
         {rows.map((fila, indice) => {
           const porcion = (fila.value / total) * PERIMETRO;
           // El arco empieza arriba (de ahí el giro de 90°) y cada uno arranca donde terminó
@@ -67,7 +73,7 @@ export function DonutChart({
       </svg>
       <div className="donut-legend">
         {rows.map((fila, indice) => (
-          <div className="donut-legend-row" key={fila.id}>
+          <div className={`donut-legend-row ${aparece}`} key={fila.id} style={retraso(indice, 60)}>
             <span
               className="donut-legend-dot"
               style={{ background: COLORES[indice % COLORES.length] }}

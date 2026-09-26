@@ -11,7 +11,7 @@ import {
   getBidonesRotos,
 } from '../../../lib/bidones-rotos';
 import { fechaCorta } from '../../../lib/format';
-import { getOperationCatalogs } from '../../../lib/operations';
+import { etiquetaProducto, getOperationCatalogs } from '../../../lib/operations';
 import { DataTable, DataTableColumn } from '../../../components/DataTable';
 import { SearchableSelect } from '../../../components/SearchableSelect';
 import { Badge } from '../../../components/ui/Badge';
@@ -264,8 +264,7 @@ export default function BidonesRotosPage() {
                 onChange={(value) => setForm((current) => ({ ...current, productoId: value }))}
                 options={productos.map((item) => ({
                   value: item.id,
-                  label: item.nombre,
-                  hint: item.codigo,
+                  label: etiquetaProducto(item),
                 }))}
                 placeholder="Buscar producto"
               />

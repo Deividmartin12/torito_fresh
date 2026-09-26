@@ -1,0 +1,122 @@
+name: torito
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: '10m'
+    max-file: '3'
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?Define POSTGRES_DB en .env}
+      POSTGRES_USER: ${POSTGRES_USER:?Define POSTGRES_USER en .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD en .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - torito_internal
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging: *default-logging
+
+  migrate:
+    build:
+      context: .
+      target: migrate
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:?Define POSTGRES_USER en .env}:${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD en .env}@db:5432/${POSTGRES_DB:?Define POSTGRES_DB en .env}?schema=public
+    command:
+      - /bin/sh
+      - -ec
+      - >-
+        npx prisma migrate deploy --schema packages/database/prisma/schema.prisma &&
+        npx prisma db execute --schema packages/database/prisma/schema.prisma
+        --file packages/database/prisma/constraints.sql
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - torito_internal
+    restart: 'no'
+    logging: *default-logging
+
+  api:
+    build:
+      context: .
+      target: api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 4070
+      DATABASE_URL: postgresql://${POSTGRES_USER:?Define POSTGRES_USER en .env}:${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD en .env}@db:5432/${POSTGRES_DB:?Define POSTGRES_DB en .env}?schema=public
+      JWT_SECRET: ${JWT_SECRET:?Define JWT_SECRET en .env}
+      WEB_ORIGIN: ${WEB_ORIGIN:-https://toritofresh.com,https://www.toritofresh.com}
+      DECOLECTA_API_TOKEN: ${DECOLECTA_API_TOKEN:-}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - '127.0.0.1:4070:4070'
+    networks:
+      - torito_internal
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:4070/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging: *default-logging
+
+  torito:
+    build:
+      context: .
+      target: web
+      args:
+        NEXT_PUBLIC_API_URL: ''
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://toritofresh.com}
+        NEXT_PUBLIC_WHATSAPP_NUMBER: ${NEXT_PUBLIC_WHATSAPP_NUMBER:-51999999999}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: 3070
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - '127.0.0.1:3070:3070'
+    networks:
+      - torito_internal
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3070/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging: *default-logging
+
+volumes:
+  postgres_data:
+
+networks:
+  torito_internal:
+    driver: bridge

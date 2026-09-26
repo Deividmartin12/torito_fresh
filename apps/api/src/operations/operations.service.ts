@@ -96,7 +96,11 @@ export class OperationsService {
         where: { estado: true, ...deUnidad },
         orderBy: { nombre: 'asc' },
       }),
-      this.prisma.producto.findMany({ where: { estado: true }, orderBy: { nombre: 'asc' } }),
+      this.prisma.producto.findMany({
+        where: { estado: true },
+        include: { tipoProducto: { select: { nombre: true } } },
+        orderBy: { nombre: 'asc' },
+      }),
       this.prisma.trabajador.findMany({
         where: { estado: true, ...deUnidad },
         orderBy: { nombres: 'asc' },
@@ -141,6 +145,9 @@ export class OperationsService {
         id: item.id.toString(),
         codigo: item.codigo,
         nombre: item.nombre,
+        // Los combos muestran "tipo · nombre" (CUBO · 100): el código interno no le dice
+        // nada a quien vende.
+        tipo: item.tipoProducto.nombre,
         precioVenta: Number(item.precioVenta),
         costoReferencia: Number(item.costoReferencia),
         // El formulario lo necesita para saber cuántos envases entrega la venta y, con eso,
@@ -1198,6 +1205,10 @@ export class OperationsService {
     dto: UpdateOperationalSaleDto,
     actor: AuthUser,
     unidadActiva?: string,
+    // Solo para la carga diaria, que corrige ventas de días pasados: la reversión, la salida
+    // nueva y el cobro quedan en el día de la venta y no en el de la corrección. El formulario
+    // de edición no lo usa y sigue anotando todo con la hora en que se corrige.
+    opciones: { fecharEnLaVenta?: boolean } = {},
   ) {
     return this.prisma.$transaction(async (tx) => {
       const saleId = BigInt(id);
@@ -1272,7 +1283,8 @@ export class OperationsService {
       // El gateo va acá afuera y NO adentro de `reverseSaleOutbound`: ese método tiene que
       // seguir fallando cuando una venta con inventario no tiene movimiento, porque es lo que
       // impide que al editar una venta vieja se descuente stock que nunca se descontó.
-      if (controlaInventario) await this.reverseSaleOutbound(tx, saleId);
+      const fechaAsiento = opciones.fecharEnLaVenta ? (nuevaFecha?.venta ?? sale.fecha) : undefined;
+      if (controlaInventario) await this.reverseSaleOutbound(tx, saleId, fechaAsiento);
       // Los envases se deshacen contra el cliente ORIGINAL: el DTO permite cambiar de cliente,
       // y los bidones se los llevó el que figuraba antes.
       await this.revertirEnvasesDeVenta(
@@ -1341,7 +1353,7 @@ export class OperationsService {
         },
       });
 
-      if (controlaInventario) await this.applySaleOutbound(tx, saleId, '-R');
+      if (controlaInventario) await this.applySaleOutbound(tx, saleId, '-R', fechaAsiento);
       await this.aplicarEnvasesDeVenta(
         tx,
         saleId,
@@ -1373,6 +1385,7 @@ export class OperationsService {
           { id: sale.cuentaCobrar.id, montoOriginal: totals.total },
           trabajadorId,
           terms.payments,
+          fechaAsiento,
         );
         const estadoPago =
           terms.initial >= totals.total - 0.005
@@ -1556,7 +1569,7 @@ export class OperationsService {
    * constancia — el kardex es un ledger de solo-append, nunca se borra ni se muta un
    * movimiento ya existente (mismo criterio que ya usan las devoluciones).
    */
-  private async reverseSaleOutbound(tx: Transaction, saleId: bigint) {
+  private async reverseSaleOutbound(tx: Transaction, saleId: bigint, fecha?: Date) {
     const sale = await tx.venta.findUniqueOrThrow({ where: { id: saleId } });
     const outbound = await tx.movimientoInventario.findFirst({
       where: {
@@ -1577,6 +1590,7 @@ export class OperationsService {
       );
     const reversal = await tx.movimientoInventario.create({
       data: {
+        ...(fecha ? { fecha } : {}),
         tipoMovimiento: 'ENTRADA',
         tipoOperacion: 'VENTA',
         almacenDestinoId: sale.almacenOrigenId,

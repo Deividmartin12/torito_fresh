@@ -2,10 +2,19 @@ import { api } from './api';
 
 export type PaymentType = 'CONTADO' | 'CREDITO' | 'MIXTO';
 
+/**
+ * Cómo se nombra un producto en los combos: "tipo · nombre" (CUBO · 100). El código interno
+ * (PRD-001) no se muestra: a quien vende o produce no le dice nada.
+ */
+export const etiquetaProducto = (producto: { nombre: string; tipo?: string | null }) =>
+  producto.tipo ? `${producto.tipo} · ${producto.nombre}` : producto.nombre;
+
 export type CatalogItem = {
   id: string;
   nombre: string;
   codigo?: string;
+  /** Tipo de producto (CUBO, BIDÓN...). Solo en `productos`. */
+  tipo?: string;
   documento?: string;
   precioVenta?: number;
   costoReferencia?: number;

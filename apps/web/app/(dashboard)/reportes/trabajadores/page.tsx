@@ -32,13 +32,15 @@ const tuvoMovimiento = (row: WorkerReportRow) =>
 
 export default function ReporteTrabajadoresPage() {
   const [rango, setRango] = useState<{ from: string; to: string } | null>(null);
+  const [etiquetaPeriodo, setEtiquetaPeriodo] = useState('');
   const [tab, setTab] = useState<TabId>('ventas');
   const [mostrarTodos, setMostrarTodos] = useState(false);
   // Solo dispara la recarga: la unidad viaja al API desde `api()`.
   const { clave: unidad, resumen: unidadResumen } = useUnidad();
 
-  const handlePeriod = useCallback((from: string, to: string) => {
+  const handlePeriod = useCallback((from: string, to: string, meta: { label: string }) => {
     setRango({ from, to });
+    setEtiquetaPeriodo(meta.label);
   }, []);
 
   // `enabled` espera a que PeriodFilter publique su rango, para no pedir dos veces al montar.
@@ -136,7 +138,11 @@ export default function ReporteTrabajadoresPage() {
     <div className="module-page report-page">
       <ReportHeader
         eyebrow="Reportes"
-        title="Reporte por trabajador"
+        title={
+          etiquetaPeriodo
+            ? `Reporte por trabajador · ${etiquetaPeriodo}`
+            : 'Reporte por trabajador'
+        }
         caption={unidadResumen ? `Alcance: ${unidadResumen}` : undefined}
       />
 

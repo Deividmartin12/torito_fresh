@@ -1,6 +1,11 @@
 import { toast } from 'sonner';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4070';
+// En producción usamos el mismo origen público y Nginx enruta `/api` al backend. En
+// desarrollo se mantiene el puerto directo para no exigir un proxy local.
+const API_URL = (
+  process.env.NEXT_PUBLIC_API_URL ??
+  (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:4070')
+).replace(/\/$/, '');
 
 /** Si el servidor no responde en este tiempo, cortamos y avisamos (en vez de esperar para siempre). */
 const TIEMPO_MAXIMO_MS = 15_000;

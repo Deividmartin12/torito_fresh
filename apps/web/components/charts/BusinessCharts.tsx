@@ -2,6 +2,7 @@ import { BarChart3, TrendingUp } from 'lucide-react';
 import { useId } from 'react';
 import { TopProductRow } from '../../lib/dashboard';
 import { moneda } from '../../lib/format';
+import { aparece, barraHorizontal, firma, retraso, trazoDibujado } from './animacion';
 import { AxisTick, tickEvery } from './AxisTick';
 
 /** Un punto de la tendencia: el valor y los textos de su marca de eje (ver `lib/chart-axis.ts`). */
@@ -75,6 +76,7 @@ export function SalesTrendChart({
         <div className="line-chart-wrap">
           <svg
             className="line-chart"
+            key={firma(rows.map((row) => [row.key, row.total, row.paid]))}
             viewBox={`0 0 ${width} ${height}`}
             role="img"
             aria-label="Grafico de tendencia de ventas y cobros"
@@ -108,13 +110,29 @@ export function SalesTrendChart({
                 </g>
               );
             })}
-            <polygon className="chart-area" points={areaPoints} fill={`url(#${gradientId})`} />
-            <polyline className="chart-line chart-line-total" points={totalPoints} />
+            <polygon
+              className={`chart-area ${aparece}`}
+              style={{ animationDelay: '600ms' }}
+              points={areaPoints}
+              fill={`url(#${gradientId})`}
+            />
+            <polyline
+              className={`chart-line chart-line-total ${trazoDibujado}`}
+              points={totalPoints}
+            />
             {showSecondary ? (
-              <polyline className="chart-line chart-line-paid" points={paidPoints} />
+              <polyline
+                className={`chart-line chart-line-paid ${trazoDibujado}`}
+                style={{ animationDelay: '200ms' }}
+                points={paidPoints}
+              />
             ) : null}
             {rows.map((row, index) => (
-              <g key={row.key}>
+              <g
+                key={row.key}
+                className={aparece}
+                style={retraso(rows.length > 1 ? (index / (rows.length - 1)) * 1000 : 0, 1, 1100)}
+              >
                 <circle
                   className="chart-dot chart-dot-total"
                   cx={x(index)}
@@ -195,7 +213,10 @@ export function ProductRankingChart({
         </div>
       </div>
       {rows.length ? (
-        <div className="ranking-chart">
+        <div
+          className="ranking-chart"
+          key={firma(rows.map((row) => [row.product?.id, row.cantidad]))}
+        >
           {rows.map((row, index) => (
             <div className="ranking-row" key={row.product?.id ?? `${row.product?.name}-${index}`}>
               <div className="ranking-meta">
@@ -208,7 +229,13 @@ export function ProductRankingChart({
                 className="ranking-track"
                 aria-label={`${row.product?.name}: ${row.cantidad} ${unitLabel}`}
               >
-                <span style={{ width: `${Math.max(3, (Number(row.cantidad) / max) * 100)}%` }} />
+                <span
+                  className={barraHorizontal}
+                  style={{
+                    width: `${Math.max(3, (Number(row.cantidad) / max) * 100)}%`,
+                    ...retraso(index, 70),
+                  }}
+                />
               </div>
               {compact ? null : <small>{moneda(row.total)}</small>}
             </div>

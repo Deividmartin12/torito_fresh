@@ -141,7 +141,9 @@ export function QuickSaleForm() {
     const texto = normalizarBusqueda(buscar);
     if (!texto) return catalogs.productos;
     return catalogs.productos.filter((producto) =>
-      normalizarBusqueda(`${producto.nombre} ${producto.codigo ?? ''}`).includes(texto),
+      normalizarBusqueda(
+        `${producto.tipo ?? ''} ${producto.nombre} ${producto.codigo ?? ''}`,
+      ).includes(texto),
     );
   }, [buscar, catalogs.productos]);
 

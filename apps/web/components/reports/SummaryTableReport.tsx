@@ -14,6 +14,7 @@ import {
   PeriodBreakdownItem,
 } from '../../lib/analytics';
 import { moneda } from '../../lib/format';
+import { aparece, retraso } from '../charts/animacion';
 import { PeriodFilter } from '../PeriodFilter';
 import { useUnidad } from '../UnidadProvider';
 import { Segmented } from '../Segmented';
@@ -104,8 +105,10 @@ function MatrixBlock({
         </tr>
       </thead>
       <tbody>
-        {rows.map((row) => (
-          <tr key={row.key}>
+        {rows.map((row, index) => (
+          // Las filas entran una tras otra. Solo opacidad: no mueve nada, así las filas de los
+          // bloques de al lado (la tabla está partida en columnas) siguen alineadas.
+          <tr key={row.key} className={aparece} style={retraso(index, 30, 600)}>
             {cols.map((col) => (
               <td key={col.key} className={col.className}>
                 {col.cell(row)}
@@ -131,6 +134,7 @@ export function SummaryTableReport() {
   const [analytics, setAnalytics] = useState<BusinessAnalytics | null>(null);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [etiquetaPeriodo, setEtiquetaPeriodo] = useState('');
   const [grouping, setGrouping] = useState<Grouping>('dia');
   const [loading, setLoading] = useState(true);
   // Solo dispara la recarga: la unidad viaja al API desde `api()`.
@@ -155,9 +159,10 @@ export function SummaryTableReport() {
       .finally(() => setLoading(false));
   }, [from, to, unidad]);
 
-  const changePeriod = useCallback((start: string, end: string) => {
+  const changePeriod = useCallback((start: string, end: string, meta: { label: string }) => {
     setFrom(start);
     setTo(end);
+    setEtiquetaPeriodo(meta.label);
   }, []);
 
   // Agrupaciones con sentido para el rango elegido; las demás se muestran deshabilitadas.
@@ -339,7 +344,7 @@ export function SummaryTableReport() {
     <div className="module-page report-page">
       <ReportHeader
         eyebrow="Reportes"
-        title="Resumen diario"
+        title={etiquetaPeriodo ? `Resumen diario · ${etiquetaPeriodo}` : 'Resumen diario'}
         caption={unidadResumen ? `Alcance: ${unidadResumen}` : undefined}
       />
 

@@ -9,3 +9,11 @@ coverage
 !.env.example
 *.log
 uploads
+.deploy
+backups
+*.pem
+*.key
+.DS_Store
+Thumbs.db
+.idea
+.vscode

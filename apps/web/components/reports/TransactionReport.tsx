@@ -27,6 +27,7 @@ export function TransactionReport({ kind }: { kind: ReportKind }) {
   const [previous, setPrevious] = useState<BusinessAnalytics | null>(null);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [etiquetaPeriodo, setEtiquetaPeriodo] = useState('');
   const [period, setPeriod] = useState<PeriodKind>('week');
   const [loading, setLoading] = useState(true);
   // Solo dispara la recarga: la unidad viaja al API desde `api()`.
@@ -82,11 +83,15 @@ export function TransactionReport({ kind }: { kind: ReportKind }) {
     cantidad: row.cantidad,
     total: row.revenue,
   }));
-  const changePeriod = useCallback((start: string, end: string, meta: { period: PeriodKind }) => {
-    setFrom(start);
-    setTo(end);
-    setPeriod(meta.period);
-  }, []);
+  const changePeriod = useCallback(
+    (start: string, end: string, meta: { period: PeriodKind; label: string }) => {
+      setFrom(start);
+      setTo(end);
+      setPeriod(meta.period);
+      setEtiquetaPeriodo(meta.label);
+    },
+    [],
+  );
 
   function exportReport() {
     if (!analytics) return;
@@ -125,7 +130,9 @@ export function TransactionReport({ kind }: { kind: ReportKind }) {
     <div className="module-page report-page">
       <ReportHeader
         eyebrow="Reportes"
-        title={sales ? 'Ventas y rentabilidad' : 'Gastos y ventas'}
+        title={`${sales ? 'Ventas y rentabilidad' : 'Gastos y ventas'}${
+          etiquetaPeriodo ? ` · ${etiquetaPeriodo}` : ''
+        }`}
         caption={unidadResumen ? `Alcance: ${unidadResumen}` : undefined}
       />
       <section className="report-metrics">
