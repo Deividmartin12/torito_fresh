@@ -41,6 +41,8 @@ CMD ["node", "apps/api/dist/main.js"]
 FROM dependencies AS migrate
 ENV NODE_ENV=production
 COPY --chown=node:node packages/database packages/database
+# El seed reutiliza el catálogo único de roles y permisos del API.
+COPY --chown=node:node apps/api/src/auth/permisos.ts apps/api/src/auth/permisos.ts
 RUN npx prisma generate --schema packages/database/prisma/schema.prisma
 USER node
 
