@@ -2,13 +2,11 @@
 
 ARG NODE_VERSION=22
 
-FROM node:22-bookworm-slim AS base
-
+FROM node:${NODE_VERSION}-bookworm-slim AS base
 WORKDIR /app
-
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+  && apt-get install -y --no-install-recommends ca-certificates openssl \
+  && rm -rf /var/lib/apt/lists/*
 
 FROM base AS dependencies
 COPY package.json package-lock.json ./
@@ -27,7 +25,9 @@ COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/package.json
 COPY apps/web/package.json apps/web/package.json
 RUN --mount=type=cache,target=/root/.npm \
-    npm ci --omit=dev --workspace @torito/api --include-workspace-root=false
+  npm ci --omit=dev --workspace @torito/api --include-workspace-root=false \
+  && npm cache clean --force
+
 FROM base AS api
 ENV NODE_ENV=production \
     PORT=4070
@@ -41,6 +41,7 @@ CMD ["node", "apps/api/dist/main.js"]
 FROM dependencies AS migrate
 ENV NODE_ENV=production
 COPY --chown=node:node packages/database packages/database
+# El seed reutiliza el catálogo único de roles y permisos del API.
 COPY --chown=node:node apps/api/src/auth/permisos.ts apps/api/src/auth/permisos.ts
 RUN npx prisma generate --schema packages/database/prisma/schema.prisma
 USER node
