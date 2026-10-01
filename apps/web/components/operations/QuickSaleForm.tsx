@@ -1,5 +1,6 @@
 'use client';
 
+import { useQueryClient } from '@tanstack/react-query';
 import { CalendarClock, Check, History, Minus, Plus, Search, Zap } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -21,6 +22,7 @@ import {
   getOperationalPaymentMethods,
 } from '../../lib/operations';
 import { puede } from '../../lib/permissions';
+import { paymentMethodOptionLabel } from '../../lib/payment-methods';
 import { usePermisos } from '../../lib/useCurrentUser';
 import { ClienteFormModal } from '../ClienteFormModal';
 import { SearchableSelect } from '../SearchableSelect';
@@ -45,11 +47,13 @@ function enDias(dias: number) {
  * corregir una venta ya registrada.
  */
 export function QuickSaleForm() {
+  const queryClient = useQueryClient();
   const [catalogs, setCatalogs] = useState<OperationCatalogs>(emptyCatalogs);
   const [metodos, setMetodos] = useState<OperationalPaymentMethod[]>([]);
   const [cargando, setCargando] = useState(true);
   const [clienteId, setClienteId] = useState('');
   const [clienteModal, setClienteModal] = useState(false);
+  const [clienteDniInicial, setClienteDniInicial] = useState<string | null>(null);
   const [ultima, setUltima] = useState<LastSale | null>(null);
   // Cantidad por producto. Un producto fuera del mapa (o en cero) simplemente no se vende.
   const [cantidades, setCantidades] = useState<Record<string, number>>({});
@@ -63,7 +67,9 @@ export function QuickSaleForm() {
   const [vaciosTocados, setVaciosTocados] = useState(false);
   const [guardando, setGuardando] = useState(false);
   // Quien tiene el permiso de excepción no queda trabado por el límite de crédito.
-  const puedeExcepcion = puede(usePermisos(), 'creditos.excepcion');
+  const permisos = usePermisos();
+  const puedeExcepcion = puede(permisos, 'creditos.excepcion');
+  const puedeCrearCliente = puede(permisos, 'clientes.crear');
   const [boleta, setBoleta] = useState<Sale | null>(null);
 
   const cargar = useCallback(async () => {
@@ -199,6 +205,18 @@ export function QuickSaleForm() {
       ],
     }));
     setClienteId(nuevo.id);
+    setClienteDniInicial(null);
+    setClienteModal(false);
+  }
+
+  function abrirClienteDesdeBusqueda(query: string) {
+    const documento = query.trim();
+    setClienteDniInicial(/^\d{8}$/.test(documento) ? documento : null);
+    setClienteModal(true);
+  }
+
+  function cerrarClienteModal() {
+    setClienteDniInicial(null);
     setClienteModal(false);
   }
 
@@ -227,6 +245,7 @@ export function QuickSaleForm() {
         fechaVencimiento: fiado ? enDias(plazo) : undefined,
         vaciosDevueltos: vacios,
       });
+      await queryClient.invalidateQueries({ queryKey: ['sales'] });
       toast.success(`Venta ${venta.codigo} registrada por ${moneda(venta.total)}`, {
         action: { label: 'Ver boleta', onClick: () => setBoleta(venta) },
       });
@@ -275,11 +294,13 @@ export function QuickSaleForm() {
           options={catalogs.clientes.map((item) => ({
             value: item.id,
             label: item.nombre,
+            searchText: item.documento,
             hint: item.documento,
           }))}
           placeholder="Buscar cliente por nombre o documento"
-          actionLabel="+ Agregar cliente"
-          onAction={() => setClienteModal(true)}
+          actionLabel={puedeCrearCliente ? '+ Agregar cliente' : undefined}
+          onAction={puedeCrearCliente ? abrirClienteDesdeBusqueda : undefined}
+          actionOnNoResultsEnter
         />
         {resumen ? (
           <p className={resumen.alerta ? 'quick-client-debt alerta' : 'quick-client-debt'}>
@@ -409,7 +430,7 @@ export function QuickSaleForm() {
               }}
             >
               {!fiado && metodoPagoId === metodo.id ? <Check size={15} /> : null}
-              {metodo.nombre}
+              {paymentMethodOptionLabel(metodo)}
             </button>
           ))}
           <button
@@ -472,7 +493,15 @@ export function QuickSaleForm() {
       </div>
 
       {clienteModal ? (
-        <ClienteFormModal onClose={() => setClienteModal(false)} onSaved={clienteCreado} />
+        <ClienteFormModal
+          initialDocument={
+            clienteDniInicial
+              ? { type: 'DNI', number: clienteDniInicial, autoLookup: true }
+              : undefined
+          }
+          onClose={cerrarClienteModal}
+          onSaved={clienteCreado}
+        />
       ) : null}
       {boleta ? <SaleReceipt sale={boleta} onClose={() => setBoleta(null)} /> : null}
     </div>

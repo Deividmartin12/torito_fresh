@@ -19,11 +19,11 @@ export class CreateClientDto {
 
   @IsOptional()
   @IsIn(TIPOS_DOCUMENTO, { message: 'Selecciona un tipo de documento válido' })
-  documentType?: string;
+  documentType?: string | null;
 
   @IsOptional()
   @EsDocumento()
-  document?: string;
+  document?: string | null;
 
   @EsCelular()
   phone: string;
@@ -58,11 +58,11 @@ export class UpdateClientDto {
 
   @IsOptional()
   @IsIn(TIPOS_DOCUMENTO, { message: 'Selecciona un tipo de documento válido' })
-  documentType?: string;
+  documentType?: string | null;
 
   @IsOptional()
   @EsDocumento()
-  document?: string;
+  document?: string | null;
 
   @EsCelular({ opcional: true })
   phone?: string;

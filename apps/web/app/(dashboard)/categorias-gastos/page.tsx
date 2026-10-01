@@ -14,12 +14,17 @@ import {
   ExpenseCategory,
   getExpenseCategories,
 } from '../../../lib/expenses';
+import { puede } from '../../../lib/permissions';
+import { usePermisos } from '../../../lib/useCurrentUser';
 
 export default function ExpenseCategoriesPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<ExpenseCategory | null>(null);
+  const permisos = usePermisos();
+  const puedeCrear = puede(permisos, 'gastos.categorias.crear');
+  const puedeEditar = puede(permisos, 'gastos.categorias.editar');
 
   // Misma clave que usa /gastos: crear o borrar una categoría acá también la actualiza allá,
   // sin depender de quién visite qué pantalla primero.
@@ -99,7 +104,7 @@ export default function ExpenseCategoriesPage() {
           <Badge tone="green">
             <Lock size={12} /> Protegida
           </Badge>
-        ) : (
+        ) : puedeEditar ? (
           <div className="flex flex-wrap gap-[7px]">
             <IconButton onClick={() => openForm(item)} title="Editar categoría">
               <Pencil size={16} />
@@ -108,6 +113,8 @@ export default function ExpenseCategoriesPage() {
               <Trash2 size={16} />
             </IconButton>
           </div>
+        ) : (
+          <span className="text-xs text-muted">Solo lectura</span>
         ),
     },
   ];
@@ -119,7 +126,7 @@ export default function ExpenseCategoriesPage() {
           <h1>Categorías de gasto</h1>
           <span>{categories.length} categorías registradas</span>
         </div>
-        <AddButton label="Agregar categoría" onClick={() => openForm()} />
+        {puedeCrear ? <AddButton label="Agregar categoría" onClick={() => openForm()} /> : null}
       </div>
       <div className="module-tools">
         <label className="pill-search">

@@ -22,9 +22,9 @@ export type Cliente = {
 export type ClientePayload = {
   name: string;
   phone: string;
-  address: string;
-  documentType?: string;
-  document?: string;
+  address?: string;
+  documentType?: string | null;
+  document?: string | null;
   /**
    * Tope de crédito. Mandar null lo deja sin límite; 0 significa que no se le vende a
    * crédito. No mandarlo (undefined) deja el que ya tenía.

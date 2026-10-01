@@ -233,7 +233,11 @@ export function CountSheet() {
         </label>
       </div>
 
-      <PeriodFilter defaultPeriod="day" onChange={cambiarPeriodo} />
+      <PeriodFilter
+        defaultPeriod="day"
+        allowedPeriods={['day']}
+        onChange={cambiarPeriodo}
+      />
 
       <Segmented
         options={[

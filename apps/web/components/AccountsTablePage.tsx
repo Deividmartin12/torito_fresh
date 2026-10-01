@@ -622,7 +622,9 @@ export function AccountsTablePage({ tipo }: { tipo: 'cobrar' | 'pagar' }) {
               >
                 Cancelar
               </Button>
-              <Button disabled={savingDate}>{savingDate ? 'Guardando...' : 'Guardar fecha'}</Button>
+              <Button type="submit" disabled={savingDate}>
+                {savingDate ? 'Guardando...' : 'Guardar fecha'}
+              </Button>
             </div>
           </form>
         </Modal>

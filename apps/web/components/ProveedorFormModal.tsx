@@ -243,7 +243,7 @@ export function ProveedorFormModal({ editando, onClose, onSaved }: Props) {
           <Button variant="secondary" type="button" onClick={onClose} disabled={saving}>
             Cancelar
           </Button>
-          <Button disabled={saving}>
+          <Button type="submit" disabled={saving}>
             {saving ? 'Guardando...' : editando ? 'Guardar cambios' : 'Registrar proveedor'}
           </Button>
         </div>

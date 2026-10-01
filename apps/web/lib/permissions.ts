@@ -21,25 +21,30 @@
 const PERMISO_POR_RUTA: Record<string, string> = {
   '/dashboard': 'dashboard.ver',
   '/gastos': 'gastos.ver',
-  '/categorias-gastos': 'gastos.categorias.editar',
+  // Consultar el catálogo forma parte de ver gastos. Crear, renombrar y eliminar siguen
+  // protegidos por sus permisos específicos dentro de la pantalla y en el API.
+  '/categorias-gastos': 'gastos.ver',
   '/proveedores': 'proveedores.ver',
   '/produccion': 'produccion.gestionar',
   '/lotes': 'lotes.ver',
   '/clientes': 'clientes.ver',
   '/ventas': 'ventas.ver',
-  // Más específica que `/ventas`: entrar a registrar pide poder registrar, no solo mirar.
+  // Más específicas que `/ventas`: entrar a registrar pide poder registrar, no solo mirar.
+  '/ventas/nueva': 'ventas.registrar',
   '/ventas/rapida': 'ventas.registrar',
   '/recargas': 'recargas.ver',
   '/devoluciones': 'devoluciones.ver',
   '/envases': 'envases.ver',
   '/bidones-rotos': 'bidonesRotos.ver',
   '/productos': 'productos.ver',
+  '/tipos-producto': 'productos.ver',
   '/almacenes': 'almacenes.ver',
   '/movimientos': 'kardex.ver',
   '/conteo-inventario': 'stock.ajustar',
   '/cobranzas': 'cobranzas.registrar',
   '/cuentas-cobrar': 'cobranzas.registrar',
   '/metodos-pago': 'metodosPago.administrar',
+  '/categorias-metodos-pago': 'metodosPago.administrar',
   '/carga-diaria': 'cargaDiaria.registrar',
   '/reportes/resumen': 'reportes.ver',
   '/reportes/ventas': 'reportes.ver',

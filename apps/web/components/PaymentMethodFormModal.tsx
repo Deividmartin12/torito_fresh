@@ -1,5 +1,6 @@
 'use client';
 
+import { useQueryClient } from '@tanstack/react-query';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
@@ -10,8 +11,11 @@ import {
   getPaymentMethodCategories,
   PaymentMethod,
   PaymentMethodCategory,
+  sortPaymentMethods,
   updatePaymentMethod,
 } from '../lib/payment-methods';
+import { puede } from '../lib/permissions';
+import { useSesion } from '../lib/useCurrentUser';
 import { soloTextoNombre } from '../lib/validacion';
 import { PaymentMethodCategoryFormModal } from './PaymentMethodCategoryFormModal';
 import { SearchableSelect } from './SearchableSelect';
@@ -30,9 +34,9 @@ import { Modal, ModalHeader } from './ui/Modal';
 type Props = {
   editando?: PaymentMethod | null;
   /**
-   * `inline` = alta rápida desde los combos de venta/cobro: solo categoría y referencia, el
-   * método queda a nombre del propio operador. Sin `inline` es la administración completa
-   * (categoría con alta, referencia, etiqueta libre, dueño y estado).
+   * `inline` = alta desde los combos de venta/cobro. Usa los mismos campos y reglas del CRUD,
+   * pero el dueño queda fijado al operador actual. Sin `inline`, un administrador también
+   * puede elegir el dueño y editar el estado.
    */
   inline?: boolean;
   trabajadores?: { id: string; nombre: string }[];
@@ -52,6 +56,7 @@ export function PaymentMethodFormModal({
   onClose,
   onSaved,
 }: Props) {
+  const queryClient = useQueryClient();
   const [categorias, setCategorias] = useState<PaymentMethodCategory[]>([]);
   const [cargandoCategorias, setCargandoCategorias] = useState(true);
   const [categoriaModal, setCategoriaModal] = useState(false);
@@ -61,17 +66,21 @@ export function PaymentMethodFormModal({
   const [trabajadorId, setTrabajadorId] = useState(editando?.trabajadorId ?? '');
   const [estado, setEstado] = useState(editando?.estado ?? true);
   const [saving, setSaving] = useState(false);
+  const sesion = useSesion();
+  const puedeAdministrar = puede(sesion?.permisos, 'metodosPago.administrar');
 
   useEffect(() => {
     (inline ? getOwnPaymentMethodCategories() : getPaymentMethodCategories())
-      .then((rows) => setCategorias(rows.filter((row) => row.estado)))
+      .then((rows) =>
+        setCategorias(rows.filter((row) => row.estado || row.id === editando?.categoriaId)),
+      )
       .catch((cause) =>
         toast.error(
           cause instanceof Error ? cause.message : 'No se pudieron cargar las categorías',
         ),
       )
       .finally(() => setCargandoCategorias(false));
-  }, [inline]);
+  }, [editando?.categoriaId, inline]);
 
   const categoria = useMemo(
     () => categorias.find((item) => item.id === categoriaId) ?? null,
@@ -96,19 +105,33 @@ export function PaymentMethodFormModal({
         saved = await createOwnPaymentMethod({
           categoriaId,
           referencia: referencia.trim() || undefined,
+          nombre: nombreLibre.trim() || undefined,
         });
       } else {
         const payload = {
           categoriaId,
-          referencia: referencia.trim() || undefined,
-          nombre: nombreLibre.trim() || undefined,
-          trabajadorId: trabajadorId || undefined,
+          // En edición también se mandan los vacíos: así borrar una etiqueta, referencia o
+          // dueño realmente limpia el dato anterior en vez de dejarlo sin cambios.
+          referencia: referencia.trim(),
+          nombre: nombreLibre.trim(),
+          trabajadorId,
           estado,
         };
         saved = editando
           ? await updatePaymentMethod(editando.id, payload)
           : await createPaymentMethod(payload);
       }
+      // El CRUD y las altas desde Ventas comparten la misma entidad y la misma caché. Si el
+      // catálogo administrativo ya estaba cargado, queda actualizado de inmediato.
+      queryClient.setQueryData<PaymentMethod[]>(['payment-methods'], (current) =>
+        current
+          ? sortPaymentMethods(
+              current.some((item) => item.id === saved.id)
+                ? current.map((item) => (item.id === saved.id ? saved : item))
+                : [...current, saved],
+            )
+          : current,
+      );
       toast.success(editando ? 'Método de pago actualizado.' : 'Método de pago registrado.');
       onSaved(saved);
     } catch (cause) {
@@ -145,8 +168,8 @@ export function PaymentMethodFormModal({
             placeholder={cargandoCategorias ? 'Cargando categorías...' : 'Seleccionar categoría'}
             disabled={cargandoCategorias}
             required
-            actionLabel={inline ? undefined : '+ Agregar categoría'}
-            onAction={inline ? undefined : () => setCategoriaModal(true)}
+            actionLabel={!inline || puedeAdministrar ? '+ Agregar categoría' : undefined}
+            onAction={!inline || puedeAdministrar ? () => setCategoriaModal(true) : undefined}
           />
         </label>
 
@@ -162,16 +185,21 @@ export function PaymentMethodFormModal({
           />
         </label>
 
-        {!inline ? (
+        <label className={fieldWideClass}>
+          <span className={fieldLabelClass}>Etiqueta (opcional)</span>
+          <input
+            className={controlClass}
+            value={nombreLibre}
+            maxLength={50}
+            onChange={(event) => setNombreLibre(soloTextoNombre(event.target.value))}
+            placeholder='Ej. "Yape del negocio"'
+          />
+        </label>
+
+        {inline ? (
           <label className={fieldWideClass}>
-            <span className={fieldLabelClass}>Etiqueta (opcional)</span>
-            <input
-              className={controlClass}
-              value={nombreLibre}
-              maxLength={50}
-              onChange={(event) => setNombreLibre(soloTextoNombre(event.target.value))}
-              placeholder='Ej. "Yape del negocio"'
-            />
+            <span className={fieldLabelClass}>Dueño</span>
+            <input className={controlClass} value={sesion?.name ?? 'Usuario actual'} readOnly />
           </label>
         ) : null}
 
@@ -203,7 +231,7 @@ export function PaymentMethodFormModal({
           <Button variant="secondary" type="button" onClick={onClose} disabled={saving}>
             Cancelar
           </Button>
-          <Button disabled={saving || cargandoCategorias}>
+          <Button type="submit" disabled={saving || cargandoCategorias}>
             {saving ? 'Guardando...' : editando ? 'Guardar cambios' : 'Registrar método'}
           </Button>
         </div>

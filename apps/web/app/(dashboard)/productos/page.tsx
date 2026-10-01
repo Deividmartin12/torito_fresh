@@ -110,6 +110,7 @@ export default function ProductosPage() {
   }
   async function guardar(event: FormEvent) {
     event.preventDefault();
+    if (guardando) return;
     const form = event.currentTarget as HTMLFormElement;
     const values = new FormData(form);
     if (!tipoNombre.trim()) {
@@ -295,6 +296,7 @@ export default function ProductosPage() {
           <ModalHeader
             title={editando ? 'Editar producto' : 'Agregar producto'}
             onClose={() => setModal(false)}
+            closeDisabled={guardando}
           />
           <form className={modalFormClass} onSubmit={guardar}>
             {editando ? (
@@ -386,10 +388,15 @@ export default function ProductosPage() {
               <span className="text-[13px] font-medium">Es retornable</span>
             </label>
             <div className={modalActionsClass}>
-              <Button variant="secondary" type="button" onClick={() => setModal(false)}>
+              <Button
+                variant="secondary"
+                type="button"
+                onClick={() => setModal(false)}
+                disabled={guardando}
+              >
                 Cancelar
               </Button>
-              <Button disabled={guardando}>
+              <Button type="submit" disabled={guardando}>
                 {guardando ? 'Guardando...' : editando ? 'Guardar cambios' : 'Registrar producto'}
               </Button>
             </div>

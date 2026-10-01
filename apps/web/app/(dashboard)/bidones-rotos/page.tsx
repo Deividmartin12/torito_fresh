@@ -301,7 +301,9 @@ export default function BidonesRotosPage() {
               <Button variant="secondary" type="button" onClick={closeForm} disabled={saving}>
                 Cancelar
               </Button>
-              <Button disabled={saving}>{saving ? 'Registrando...' : 'Registrar rotura'}</Button>
+              <Button type="submit" disabled={saving}>
+                {saving ? 'Registrando...' : 'Registrar rotura'}
+              </Button>
             </div>
           </form>
         </Modal>

@@ -113,26 +113,39 @@ const shortcuts: { value: Period; label: string }[] = [
 export function PeriodFilter({
   onChange,
   defaultPeriod = 'week',
+  allowedPeriods = shortcuts.map((shortcut) => shortcut.value),
 }: {
   onChange: (from: string, to: string, meta: { period: PeriodKind; label: string }) => void;
   /** Período seleccionado al montar el componente. */
   defaultPeriod?: FixedPeriod;
+  /** Períodos que tienen sentido en esta pantalla. Por defecto se muestran todos. */
+  allowedPeriods?: PeriodKind[];
 }) {
   const today = localDate();
   const root = useRef<HTMLDivElement>(null);
   const rail = useRef<HTMLDivElement>(null);
-  const [period, setPeriod] = useState<Period>(defaultPeriod);
+  const initialPeriod = allowedPeriods.includes(defaultPeriod)
+    ? defaultPeriod
+    : ((allowedPeriods.find((item): item is FixedPeriod => item !== 'custom') ??
+        'day') as FixedPeriod);
+  const availableShortcuts = shortcuts.filter((shortcut) =>
+    allowedPeriods.includes(shortcut.value),
+  );
+  const [period, setPeriod] = useState<Period>(initialPeriod);
+  // `period` es lo que se está eligiendo en el control; `appliedPeriod` es lo que ya se
+  // publicó. Al entrar a Personalizado no se recargan datos hasta tocar Aplicar.
+  const [appliedPeriod, setAppliedPeriod] = useState<Period>(initialPeriod);
   const [anchor, setAnchor] = useState(today);
-  const [from, setFrom] = useState(() => range(defaultPeriod, today).from);
-  const [to, setTo] = useState(() => range(defaultPeriod, today).to);
+  const [from, setFrom] = useState(() => range(initialPeriod, today).from);
+  const [to, setTo] = useState(() => range(initialPeriod, today).to);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [draft, setDraft] = useState(() => range(defaultPeriod, today));
-  const label = periodLabel(period, from, to);
+  const [draft, setDraft] = useState(() => range(initialPeriod, today));
+  const label = periodLabel(appliedPeriod, from, to);
   const fixed = period === 'custom' ? null : period;
 
   useEffect(() => {
-    onChange(from, to, { period, label });
-  }, [from, label, onChange, period, to]);
+    onChange(from, to, { period: appliedPeriod, label });
+  }, [appliedPeriod, from, label, onChange, to]);
 
   // En móvil el riel se desplaza en horizontal, así que el segmento activo se trae a la vista.
   useEffect(() => {
@@ -161,15 +174,20 @@ export function PeriodFilter({
   function applyAnchor(nextAnchor: string, nextPeriod: FixedPeriod) {
     const selected = range(nextPeriod, nextAnchor);
     setAnchor(nextAnchor);
+    setAppliedPeriod(nextPeriod);
     setFrom(selected.from);
     setTo(selected.to);
   }
 
   function select(next: Period) {
     setPeriod(next);
-    setPickerOpen(false);
-    if (next === 'custom') setDraft({ from, to });
-    else applyAnchor(anchor, next);
+    if (next === 'custom') {
+      setDraft({ from, to: to > today ? today : to });
+      setPickerOpen(true);
+    } else {
+      setPickerOpen(false);
+      applyAnchor(anchor, next);
+    }
   }
 
   function jump(nextAnchor: string) {
@@ -178,9 +196,13 @@ export function PeriodFilter({
     setPickerOpen(false);
   }
 
-  const customReady = Boolean(draft.from && draft.to && draft.from <= draft.to);
+  const customReady = Boolean(
+    draft.from && draft.to && draft.from <= draft.to && draft.to <= today,
+  );
   function applyCustom() {
     if (!customReady) return;
+    setAnchor(draft.from);
+    setAppliedPeriod('custom');
     setFrom(draft.from);
     setTo(draft.to);
     setPickerOpen(false);
@@ -199,15 +221,19 @@ export function PeriodFilter({
     <div className="period-filter" ref={root} aria-label="Filtro de período">
       {/* El riel se desplaza en horizontal en pantallas angostas: si se lo comprime, los
           segmentos dejan de medir lo mismo y la pastilla deslizante queda descuadrada. */}
-      <div className="period-filter-rail" ref={rail}>
-        <Segmented
-          ariaLabel="Período"
-          value={period}
-          onChange={(next) => select(next as Period)}
-          options={shortcuts}
-        />
-      </div>
-      <span className="period-filter-sep" aria-hidden />
+      {availableShortcuts.length > 1 ? (
+        <>
+          <div className="period-filter-rail" ref={rail}>
+            <Segmented
+              ariaLabel="Período"
+              value={period}
+              onChange={(next) => select(next as Period)}
+              options={availableShortcuts}
+            />
+          </div>
+          <span className="period-filter-sep" aria-hidden />
+        </>
+      ) : null}
       <div className="period-nav">
         {fixed ? (
           <button
@@ -279,7 +305,7 @@ export function PeriodFilter({
             ) : (
               <>
                 <label className="period-popover-field">
-                  <span>Desde</span>
+                  <span>Fecha de inicio</span>
                   <input
                     type="date"
                     max={draft.to || today}
@@ -290,7 +316,7 @@ export function PeriodFilter({
                   />
                 </label>
                 <label className="period-popover-field">
-                  <span>Hasta</span>
+                  <span>Fecha de fin</span>
                   <input
                     type="date"
                     min={draft.from || undefined}

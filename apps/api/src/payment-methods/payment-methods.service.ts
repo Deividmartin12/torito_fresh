@@ -36,6 +36,25 @@ export class PaymentMethodsService {
     return rows.map((row) => this.view(row));
   }
 
+  /**
+   * La lista operativa usa exactamente la misma vista que el CRUD, pero solo devuelve lo que
+   * el trabajador puede elegir al cobrar: métodos activos, de categorías activas, globales o
+   * propios. Así el nombre, la categoría, la referencia y el dueño nunca se arman distinto en
+   * Ventas.
+   */
+  async availableForWorker(trabajadorId: bigint) {
+    const rows = await this.prisma.metodoPago.findMany({
+      where: {
+        estado: true,
+        categoria: { estado: true },
+        OR: [{ trabajadorId: null }, { trabajadorId }],
+      },
+      orderBy: [{ categoria: { nombre: 'asc' } }, { referencia: 'asc' }],
+      include: CON_RELACIONES,
+    });
+    return rows.map((row) => this.view(row));
+  }
+
   async create(dto: CreatePaymentMethodDto) {
     const categoria = await this.categoriaActiva(dto.categoriaId);
     const referencia = this.limpiar(dto.referencia);
@@ -64,7 +83,7 @@ export class PaymentMethodsService {
     const current = await this.find(id);
 
     const categoria =
-      dto.categoriaId !== undefined
+      dto.categoriaId !== undefined && dto.categoriaId !== current.categoriaId?.toString()
         ? await this.categoriaActiva(dto.categoriaId)
         : current.categoria;
     const referencia =

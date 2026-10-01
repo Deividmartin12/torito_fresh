@@ -268,7 +268,7 @@ export const CATALOGO_PERMISOS: GrupoPermisos[] = [
         etiqueta: 'Administrar productos',
         descripcion: 'Crear, editar y eliminar productos, insumos y tipos de producto.',
         implica: ['productos.ver'],
-        // POST|PATCH|DELETE /operations/products, POST /operations/product-types
+        // POST|PATCH|DELETE /operations/products y /operations/product-types
       },
       {
         clave: 'almacenes.ver',

@@ -200,7 +200,7 @@ export default function AlmacenesPage() {
               <Button variant="secondary" type="button" onClick={() => setModal(false)}>
                 Cancelar
               </Button>
-              <Button disabled={guardando}>
+              <Button type="submit" disabled={guardando}>
                 {guardando ? 'Registrando...' : editando ? 'Guardar cambios' : 'Registrar almacén'}
               </Button>
             </div>

@@ -116,7 +116,7 @@ export class ExpensesService {
       data: {
         unidadNegocioId,
         fecha: date,
-        concepto: dto.concepto.trim(),
+        concepto: dto.concepto?.trim() || null,
         categoriaId: categoria.id,
         monto: dto.monto,
         comprobante: dto.comprobante?.trim() || null,
@@ -210,7 +210,7 @@ export class ExpensesService {
         throw new BadRequestException('La fecha del gasto no puede estar en el futuro');
       data.fecha = date;
     }
-    if (dto.concepto !== undefined) data.concepto = dto.concepto.trim();
+    if (dto.concepto !== undefined) data.concepto = dto.concepto?.trim() || null;
     let categoriaNueva: CategoriaRow | undefined;
     if (dto.categoriaId !== undefined) {
       categoriaNueva = await this.findCategory(

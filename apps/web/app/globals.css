@@ -3483,12 +3483,11 @@ a.entity-row:hover {
   align-items: flex-end !important;
 }
 
-/* Resumen diario: los dos filtros (rango y agrupación) presentados como pasos rotulados,
-   uno junto al otro en una sola fila y sin una tarjeta exterior. */
+/* Resumen diario: el filtro de rango se presenta sin una tarjeta exterior. */
 .summary-filters {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 16px;
   margin: 16px 0 14px;
 }
@@ -3497,6 +3496,31 @@ a.entity-row:hover {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.summary-filter-step:first-child {
+  min-width: 0;
+  flex: 1;
+}
+
+.summary-filter-step:first-child .period-filter {
+  min-width: 0;
+  flex: 1;
+  flex-wrap: nowrap;
+}
+
+.summary-filter-step:first-child .period-filter-rail {
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.summary-filter-step:first-child .period-filter-rail::-webkit-scrollbar {
+  display: none;
+}
+
+.summary-filter-step:last-child {
+  flex: none;
 }
 
 .summary-filter-step + .summary-filter-step {
@@ -3933,44 +3957,44 @@ a.entity-row:hover {
   margin-left: auto;
 }
 
-/* Resumen diario en matriz: bloques fijos (período, total de ventas, total de gastos,
-   producción) y, entre ellos, dos tiras desplazables independientes con las categorías de
-   ventas y de gastos. Cada bloque es una tablita alineada por alto de fila. */
+/* Tabla del resumen diario. Conserva desplazamiento horizontal en pantallas estrechas para
+   que las cuatro columnas mantengan alineación y márgenes legibles. */
 .summary-grid {
-  display: flex;
-  align-items: flex-start;
   overflow-x: auto;
   border: 1px solid var(--border);
   border-radius: var(--ui-radius);
   background: var(--surface);
 }
 
-.summary-grid > * + * {
-  border-left: 1px solid var(--border);
+.summary-grid-simple .summary-daily-table {
+  min-width: 600px;
+  table-layout: fixed;
 }
 
-/* Todos los bloques crecen para llenar el ancho: contraídos, las 4 columnas de total se
-   reparten la tabla; al desplegar, la tira de categorías se lleva la mayor parte. */
-.summary-grid .sg-fixed {
-  flex: 1 1 0;
-  background: var(--surface-soft);
+.summary-grid-simple .summary-daily-table th:first-child,
+.summary-grid-simple .summary-daily-table td:first-child {
+  width: 34%;
 }
 
-/* La columna de período queda fija: es la única forma de saber qué fila se está
-   leyendo cuando la matriz se desplaza. Acá el scroll horizontal es a propósito:
-   la matriz ES el valor de la pantalla, convertirla en tarjetas la destruiría. */
-.summary-grid > .sg-fixed:first-child {
-  position: sticky;
-  left: 0;
-  z-index: 2;
-  flex: none;
-  border-right: 1px solid var(--border);
+.summary-grid-simple .summary-daily-table th:not(:first-child),
+.summary-grid-simple .summary-daily-table td:not(:first-child) {
+  width: 22%;
 }
 
-.summary-grid .sg-scroll {
-  flex: 4 1 0;
-  min-width: 140px;
-  overflow-x: auto;
+.summary-grid-simple .summary-daily-table.is-sales-expanded {
+  table-layout: auto;
+}
+
+.summary-grid-simple .summary-daily-table.is-sales-expanded th:first-child,
+.summary-grid-simple .summary-daily-table.is-sales-expanded td:first-child {
+  width: auto;
+  min-width: 180px;
+}
+
+.summary-grid-simple .summary-daily-table.is-sales-expanded th:not(:first-child),
+.summary-grid-simple .summary-daily-table.is-sales-expanded td:not(:first-child) {
+  width: auto;
+  min-width: 130px;
 }
 
 .summary-grid table {
@@ -3989,6 +4013,10 @@ a.entity-row:hover {
 }
 
 @media (max-width: 700px) {
+  .summary-grid-simple .summary-daily-table {
+    min-width: 540px;
+  }
+
   .summary-grid th,
   .summary-grid td {
     height: 40px;
@@ -4021,28 +4049,35 @@ a.entity-row:hover {
   text-align: left;
 }
 
-/* Cabecera de total: botón que despliega/oculta las categorías. */
-.summary-grid .sg-toggle {
+.summary-sales-toggle {
   display: inline-flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 5px;
   cursor: pointer;
-  color: var(--text);
+  border: 0;
+  background: transparent;
+  color: inherit;
   font: inherit;
   letter-spacing: inherit;
   text-transform: inherit;
 }
 
-.summary-grid .sg-toggle svg {
-  color: var(--text-muted);
-  transition: transform 0.15s ease;
+.summary-sales-toggle svg {
+  flex: none;
+  transition: transform 0.18s ease;
 }
 
-.summary-grid .sg-toggle svg.rotated {
+.summary-sales-toggle svg.rotated {
   transform: rotate(180deg);
 }
 
-.summary-grid td.soft {
+.summary-sales-toggle:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.summary-grid td.summary-sales-category-column {
   color: var(--text-muted);
 }
 
@@ -8718,6 +8753,15 @@ input[type='radio'] {
   }
 
   /* Al envolver, el separador vertical quedaba flotando a la izquierda. */
+  .summary-filters {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .summary-filter-step:first-child .period-filter {
+    flex-wrap: wrap;
+  }
+
   .summary-filter-step {
     align-items: stretch;
     flex-direction: column;

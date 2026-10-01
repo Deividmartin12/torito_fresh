@@ -55,13 +55,7 @@ export type CreateTrabajadorPayload = TrabajadorPayload;
 /** En la edición todo es opcional y además se puede dar de alta o de baja al trabajador. */
 export type TrabajadorUpdatePayload = Partial<TrabajadorPayload> & { estado?: boolean };
 
-export const CARGOS_TRABAJADOR = [
-  'Administrador',
-  'Almacenero',
-  'Vendedor',
-  'Repartidor',
-  'Socio',
-] as const;
+export const CARGOS_TRABAJADOR = ['Administrador', 'Almacenero', 'Vendedor', 'Socio'] as const;
 
 export const nombreTrabajador = (item: Pick<Trabajador, 'nombres' | 'apellidos'>) =>
   `${item.nombres} ${item.apellidos}`.trim();

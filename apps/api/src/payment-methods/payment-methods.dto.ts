@@ -86,6 +86,7 @@ export class UpdatePaymentMethodCategoryDto {
   @IsString()
   @Matches(/\S/, { message: 'El nombre de la categoría es obligatorio' })
   @MaxLength(50)
+  @Matches(RE_ETIQUETA_PAGO, { message: MSG_ETIQUETA })
   nombre?: string;
 
   @IsOptional()

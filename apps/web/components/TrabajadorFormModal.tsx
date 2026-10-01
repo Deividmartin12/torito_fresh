@@ -89,7 +89,6 @@ const ROL_SUGERIDO: Record<string, string> = {
   Administrador: 'ADMIN',
   Almacenero: 'WAREHOUSE',
   Vendedor: 'SELLER',
-  Repartidor: 'DELIVERY',
   Socio: 'SOCIO',
 };
 
@@ -482,7 +481,7 @@ export function TrabajadorFormModal({ editando, onClose, onSaved }: Props) {
             <Button variant="secondary" type="button" onClick={onClose} disabled={saving}>
               Cancelar
             </Button>
-            <Button disabled={saving}>
+            <Button type="submit" disabled={saving}>
               {saving ? 'Guardando...' : editando ? 'Guardar cambios' : 'Registrar trabajador'}
             </Button>
           </div>

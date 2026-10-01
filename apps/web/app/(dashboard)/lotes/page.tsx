@@ -256,7 +256,9 @@ export default function LotesPage() {
               >
                 Cancelar
               </Button>
-              <Button disabled={guardando}>{guardando ? 'Guardando...' : 'Guardar cambios'}</Button>
+              <Button type="submit" disabled={guardando}>
+                {guardando ? 'Guardando...' : 'Guardar cambios'}
+              </Button>
             </div>
           </form>
         </Modal>

@@ -10,7 +10,11 @@ import {
   OperationalPaymentMethod,
   registerOperationalPayment,
 } from '../../lib/operations';
-import { PaymentMethod } from '../../lib/payment-methods';
+import {
+  paymentMethodOptionLabel,
+  PaymentMethod,
+  sortPaymentMethods,
+} from '../../lib/payment-methods';
 import { PaymentMethodFormModal } from '../PaymentMethodFormModal';
 import { SearchableSelect } from '../SearchableSelect';
 import { Button } from '../ui/Button';
@@ -115,9 +119,9 @@ export function RegisterCollectionModal({
 
   function handleMetodoCreado(method: PaymentMethod) {
     setMetodoList((current) =>
-      current.some((item) => item.id === method.id)
-        ? current
-        : [...current, { id: method.id, nombre: method.nombre }],
+      sortPaymentMethods(
+        current.some((item) => item.id === method.id) ? current : [...current, method],
+      ),
     );
     setMetodoId(method.id);
     setMetodoModal(false);
@@ -169,7 +173,10 @@ export function RegisterCollectionModal({
           <SearchableSelect
             value={metodoId}
             onChange={setMetodoId}
-            options={metodoList.map((item) => ({ value: item.id, label: item.nombre }))}
+            options={metodoList.map((item) => ({
+              value: item.id,
+              label: paymentMethodOptionLabel(item),
+            }))}
             placeholder="Seleccionar método"
             actionLabel="+ Agregar método de pago"
             onAction={() => setMetodoModal(true)}
@@ -233,7 +240,7 @@ export function RegisterCollectionModal({
           <Button variant="secondary" type="button" onClick={onClose} disabled={saving}>
             Cancelar
           </Button>
-          <Button disabled={saving}>
+          <Button type="submit" disabled={saving}>
             {saving ? 'Registrando...' : `Registrar ${cobrar ? 'cobro' : 'pago'}`}
           </Button>
         </div>

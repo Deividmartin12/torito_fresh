@@ -12,6 +12,7 @@ import {
   Wallet,
   X,
 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -41,7 +42,11 @@ import { PaymentMethodFormModal } from '../PaymentMethodFormModal';
 import { SearchableSelect } from '../SearchableSelect';
 import { Button, buttonClass } from '../ui/Button';
 import { fieldErrorClass } from '../ui/Field';
-import { PaymentMethod } from '../../lib/payment-methods';
+import {
+  paymentMethodOptionLabel,
+  PaymentMethod,
+  sortPaymentMethods,
+} from '../../lib/payment-methods';
 import { evaluarCredito, resumenCredito } from '../../lib/credito';
 import { puede } from '../../lib/permissions';
 import { usePermisos } from '../../lib/useCurrentUser';
@@ -136,12 +141,15 @@ export function NumericField({
 export function OperationForm({ saleId }: { saleId?: string } = {}) {
   const editing = Boolean(saleId);
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [catalogs, setCatalogs] = useState(emptyCatalogs);
   const [stock, setStock] = useState<StockRow[]>([]);
   const [entityId, setEntityId] = useState('');
   const [clienteModal, setClienteModal] = useState(false);
+  const [clienteDniInicial, setClienteDniInicial] = useState<string | null>(null);
   const [almacenModal, setAlmacenModal] = useState(false);
   const permisos = usePermisos();
+  const puedeCrearCliente = puede(permisos, 'clientes.crear');
   // Dar de alta un almacén no lo permite el API a todos los roles: al resto se le oculta la
   // acción inline en vez de dejar que reciba un error recién al guardar.
   const puedeCrearAlmacen = puede(permisos, 'almacenes.crear');
@@ -297,6 +305,18 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
     }));
     setEntityId(cliente.id);
     setFieldErrors((current) => ({ ...current, entity: undefined }));
+    setClienteDniInicial(null);
+    setClienteModal(false);
+  }
+
+  function abrirClienteDesdeBusqueda(query: string) {
+    const documento = query.trim();
+    setClienteDniInicial(/^\d{8}$/.test(documento) ? documento : null);
+    setClienteModal(true);
+  }
+
+  function cerrarClienteModal() {
+    setClienteDniInicial(null);
     setClienteModal(false);
   }
 
@@ -316,9 +336,9 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
   // Método de pago creado desde una fila de cobro: lo sumamos a la lista y lo elegimos en esa fila.
   function handleMetodoCreado(method: PaymentMethod) {
     setPaymentMethods((current) =>
-      current.some((item) => item.id === method.id)
-        ? current
-        : [...current, { id: method.id, nombre: method.nombre }],
+      sortPaymentMethods(
+        current.some((item) => item.id === method.id) ? current : [...current, method],
+      ),
     );
     if (metodoModalRow !== null) updatePago(metodoModalRow, { metodoPagoId: method.id });
     setMetodoModalRow(null);
@@ -486,6 +506,7 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
       };
       if (editing && saleId) await updateSale(saleId, payload);
       else await createSale(payload);
+      await queryClient.invalidateQueries({ queryKey: ['sales'] });
       toast.success(editing ? 'Venta actualizada' : 'Venta registrada');
       router.push('/ventas');
       router.refresh();
@@ -670,11 +691,13 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
                 options={catalogs.clientes.map((item) => ({
                   value: item.id,
                   label: item.documento ? `${item.nombre} · ${item.documento}` : item.nombre,
+                  searchText: item.documento,
                 }))}
                 placeholder="Buscar cliente"
                 required
-                actionLabel="+ Agregar cliente"
-                onAction={() => setClienteModal(true)}
+                actionLabel={puedeCrearCliente ? '+ Agregar cliente' : undefined}
+                onAction={puedeCrearCliente ? abrirClienteDesdeBusqueda : undefined}
+                actionOnNoResultsEnter
               />
               {fieldErrors.entity ? (
                 <small className={fieldErrorClass}>{fieldErrors.entity}</small>
@@ -830,7 +853,7 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
                       onChange={(value) => updatePago(index, { metodoPagoId: value })}
                       options={paymentMethods.map((method) => ({
                         value: method.id,
-                        label: method.nombre,
+                        label: paymentMethodOptionLabel(method),
                       }))}
                       placeholder="Seleccionar método"
                       actionLabel="+ Agregar método de pago"
@@ -1079,7 +1102,15 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
       ) : null}
 
       {clienteModal ? (
-        <ClienteFormModal onClose={() => setClienteModal(false)} onSaved={handleClienteCreado} />
+        <ClienteFormModal
+          initialDocument={
+            clienteDniInicial
+              ? { type: 'DNI', number: clienteDniInicial, autoLookup: true }
+              : undefined
+          }
+          onClose={cerrarClienteModal}
+          onSaved={handleClienteCreado}
+        />
       ) : null}
 
       {almacenModal ? (

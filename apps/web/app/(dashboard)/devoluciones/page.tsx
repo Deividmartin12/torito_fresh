@@ -491,7 +491,9 @@ export default function DevolucionesPage() {
               <Button variant="secondary" type="button" onClick={() => setModal(false)}>
                 Cancelar
               </Button>
-              <Button disabled={saving}>{saving ? 'Procesando...' : 'Confirmar devolución'}</Button>
+              <Button type="submit" disabled={saving}>
+                {saving ? 'Procesando...' : 'Confirmar devolución'}
+              </Button>
             </div>
           </form>
         </Modal>

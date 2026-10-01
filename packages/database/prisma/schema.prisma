@@ -297,7 +297,7 @@ model Gasto {
   id              BigInt         @id @default(autoincrement())
   unidadNegocioId BigInt         @map("unidad_negocio_id")
   fecha           DateTime       @default(now()) @db.Date
-  concepto        String         @db.VarChar(200)
+  concepto        String?        @db.VarChar(200)
   // La categoría es una fila de `categoria_gasto`, no un texto suelto: el catálogo es la
   // única fuente del nombre, así que renombrarla se refleja en todos sus gastos.
   categoriaId     BigInt         @map("categoria_id")

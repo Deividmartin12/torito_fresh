@@ -42,6 +42,24 @@ export type PaymentMethodCategoryPayload = {
   estado?: boolean;
 };
 
+/** Orden único para el CRUD y para las listas que se actualizan después de un alta inline. */
+export function sortPaymentMethods(methods: PaymentMethod[]) {
+  return [...methods].sort(
+    (a, b) =>
+      (a.categoria ?? '').localeCompare(b.categoria ?? '', 'es') ||
+      (a.referencia ?? '').localeCompare(b.referencia ?? '', 'es') ||
+      a.nombre.localeCompare(b.nombre, 'es'),
+  );
+}
+
+/**
+ * En un combo pueden coexistir un método global y uno propio con el mismo nombre. El CRUD
+ * los distingue con su columna Dueño; los combos llevan esa misma información en la etiqueta.
+ */
+export function paymentMethodOptionLabel(method: PaymentMethod) {
+  return `${method.nombre} · ${method.trabajador ?? 'Todos'}`;
+}
+
 export function getPaymentMethods() {
   return api<PaymentMethod[]>('/payment-methods');
 }
@@ -63,6 +81,18 @@ export function createPaymentMethodCategory(payload: PaymentMethodCategoryPayloa
     method: 'POST',
     body: JSON.stringify(payload),
   });
+}
+export function updatePaymentMethodCategory(
+  id: string,
+  payload: Partial<PaymentMethodCategoryPayload>,
+) {
+  return api<PaymentMethodCategory>(`/payment-methods/categories/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+export function deletePaymentMethodCategory(id: string) {
+  return api<{ id: string }>(`/payment-methods/categories/${id}`, { method: 'DELETE' });
 }
 
 /**

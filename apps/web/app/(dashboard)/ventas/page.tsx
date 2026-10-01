@@ -2,7 +2,6 @@
 
 import {
   Ban,
-  Boxes,
   Check,
   Eye,
   HandCoins,
@@ -80,7 +79,11 @@ export default function VentasPage() {
   // Anular es su propio permiso: no es corregir, es deshacer y sacar plata de la caja.
   const anulable = puede(permisos, 'ventas.anular');
 
-  const ventasQuery = useQuery({ queryKey: ['sales', unidad], queryFn: () => getSales() });
+  const ventasQuery = useQuery({
+    queryKey: ['sales', unidad, rango?.from, rango?.to],
+    queryFn: () => getSales(rango!.from, rango!.to),
+    enabled: Boolean(rango),
+  });
   const ventas = ventasQuery.data ?? [];
   const loading = ventasQuery.isPending;
   const load = ventasQuery.refetch;
@@ -118,20 +121,18 @@ export default function VentasPage() {
     setEtiquetaPeriodo(meta.label);
   }, []);
 
-  // Se cargan todas las ventas (más nuevas primero, orden del servidor); aquí solo se
-  // refina por período, tipo de pago y texto, y DataTable pagina en el cliente.
+  // El período se aplica en el servidor (incluido `to`); aquí solo se refina por tipo de
+  // pago y texto, y DataTable pagina el rango ya acotado.
   const filtradas = useMemo(
     () =>
       ventas.filter(
         (item) =>
           (pago === 'Todos' || item.pago === pago) &&
-          (!rango ||
-            (item.fecha.slice(0, 10) >= rango.from && item.fecha.slice(0, 10) <= rango.to)) &&
           `${item.codigo} ${item.cliente} ${item.almacen}`
             .toLowerCase()
             .includes(buscar.toLowerCase()),
       ),
-    [buscar, pago, rango, ventas],
+    [buscar, pago, ventas],
   );
   // Las anuladas quedan fuera de los indicadores: su `estado` sigue siendo CONFIRMADA (lo que
   // las anula es su devolución total), así que sin este filtro el contador diría "15
@@ -270,12 +271,14 @@ export default function VentasPage() {
               <Zap size={18} /> Venta rápida
             </Link>
           ) : null}
-          <Link
-            className={buttonClass('secondary', 'min-h-[44px] shrink-0 px-[19px]')}
-            href="/ventas/nueva"
-          >
-            <Plus size={18} /> Nueva venta
-          </Link>
+          {puede(permisos, 'ventas.registrar') ? (
+            <Link
+              className={buttonClass('secondary', 'min-h-[44px] shrink-0 px-[19px]')}
+              href="/ventas/nueva"
+            >
+              <Plus size={18} /> Nueva venta
+            </Link>
+          ) : null}
         </div>
       </div>
       <div className="stat-grid">
@@ -305,13 +308,6 @@ export default function VentasPage() {
             href="/cobranzas"
           />
         ) : null}
-        <StatCard
-          icon={<Boxes size={19} />}
-          label="Con kardex"
-          value={confirmed.filter((item) => item.kardexId).length}
-          detail="Ventas que movieron stock"
-          tone="violet"
-        />
       </div>
 
       <PeriodFilter defaultPeriod="month" onChange={handlePeriod} />
@@ -348,10 +344,16 @@ export default function VentasPage() {
         <div className="empty-state">
           <ShoppingCart size={34} />
           <h2>Aún no hay ventas</h2>
-          <p>Registra la primera venta para comenzar a controlar tus ventas e inventario.</p>
-          <Link className={buttonClass('primary')} href="/ventas/nueva">
-            <Plus size={17} /> Registrar venta
-          </Link>
+          <p>
+            {puede(permisos, 'ventas.registrar')
+              ? 'Registra la primera venta para comenzar a controlar tus ventas e inventario.'
+              : 'No hay ventas registradas en este período.'}
+          </p>
+          {puede(permisos, 'ventas.registrar') ? (
+            <Link className={buttonClass('primary')} href="/ventas/nueva">
+              <Plus size={17} /> Registrar venta
+            </Link>
+          ) : null}
         </div>
       ) : (
         <DataTable

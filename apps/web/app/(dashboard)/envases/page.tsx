@@ -141,7 +141,7 @@ export default function ContainersPage() {
           />
         </label>
         <div>
-          <Button className="w-full">
+          <Button type="submit" className="w-full">
             <Droplets size={17} /> Registrar movimiento
           </Button>
         </div>

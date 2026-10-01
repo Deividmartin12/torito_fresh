@@ -96,7 +96,9 @@ export function AlmacenFormModal({ onClose, onSaved }: Props) {
           <Button variant="secondary" type="button" onClick={onClose} disabled={saving}>
             Cancelar
           </Button>
-          <Button disabled={saving}>{saving ? 'Registrando...' : 'Registrar almacén'}</Button>
+          <Button type="submit" disabled={saving}>
+            {saving ? 'Registrando...' : 'Registrar almacén'}
+          </Button>
         </div>
       </form>
     </Modal>,

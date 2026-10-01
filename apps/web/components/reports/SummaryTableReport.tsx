@@ -1,7 +1,7 @@
 'use client';
 
 import { ChevronDown, Download } from 'lucide-react';
-import { ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
   AnalyticsPeriod,
@@ -11,124 +11,30 @@ import {
   getBusinessAnalytics,
   groupPeriodsByWeek,
   groupPeriodsByYear,
-  PeriodBreakdownItem,
 } from '../../lib/analytics';
 import { moneda } from '../../lib/format';
 import { aparece, retraso } from '../charts/animacion';
 import { PeriodFilter } from '../PeriodFilter';
-import { useUnidad } from '../UnidadProvider';
 import { Segmented } from '../Segmented';
+import { useUnidad } from '../UnidadProvider';
 import { ReportHeader } from './ReportNav';
 
 type Grouping = 'dia' | 'semana' | 'mes' | 'anio';
 
-// Para cada agrupación: etiqueta del segmento, qué representa una fila y el sustantivo
-// singular/plural que usa el resumen que va encima de la tabla.
-const groupings: Record<Grouping, { label: string; each: string; noun: [string, string] }> = {
-  dia: { label: 'Día', each: 'un día', noun: ['día', 'días'] },
-  semana: { label: 'Semana', each: 'una semana (lunes a domingo)', noun: ['semana', 'semanas'] },
-  mes: { label: 'Mes', each: 'un mes', noun: ['mes', 'meses'] },
-  anio: { label: 'Año', each: 'un año', noun: ['año', 'años'] },
-};
-const groupingOrder: Grouping[] = ['dia', 'semana', 'mes', 'anio'];
-
-// Días mínimos que debe cubrir el rango para que una agrupación deje más de una fila. Por
-// debajo de eso la opción se deshabilita: agruparía todo el período en un solo renglón.
-const minSpanDays: Record<Grouping, number> = { dia: 1, semana: 14, mes: 60, anio: 730 };
-const disabledHint: Record<Grouping, string> = {
-  dia: '',
-  semana: 'Disponible con un rango de 2 semanas o más',
-  mes: 'Disponible con un rango de 2 meses o más',
-  anio: 'Disponible con un rango de 2 años o más',
-};
+const groupingOptions: { value: Grouping; label: string; noun: [string, string] }[] = [
+  { value: 'dia', label: 'Día', noun: ['día', 'días'] },
+  { value: 'semana', label: 'Semana', noun: ['semana', 'semanas'] },
+  { value: 'mes', label: 'Mes', noun: ['mes', 'meses'] },
+  { value: 'anio', label: 'Año', noun: ['año', 'años'] },
+];
 
 const localDate = () =>
   new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
 const csvCell = (value: string | number) => `"${String(value).replaceAll('"', '""')}"`;
-
-function spanInDays(from: string, to: string) {
-  const start = new Date(`${from}T00:00:00`).getTime();
-  const end = new Date(`${to}T00:00:00`).getTime();
-  if (Number.isNaN(start) || Number.isNaN(end) || end < start) return 1;
-  return Math.round((end - start) / 86_400_000) + 1;
-}
-
-// Todas las categorías de un lado del reporte (formas de cobro o categorías de gasto),
-// ordenadas por monto acumulado en el rango, de mayor a menor.
-function breakdownColumns(
-  rows: AnalyticsPeriod[],
-  pick: (row: AnalyticsPeriod) => PeriodBreakdownItem[],
-): string[] {
-  const totals = new Map<string, number>();
-  for (const row of rows)
-    for (const item of pick(row)) totals.set(item.name, (totals.get(item.name) ?? 0) + item.amount);
-  return [...totals.entries()].sort((a, b) => b[1] - a[1]).map(([name]) => name);
-}
-
-// Monto por nombre de columna para una fila.
-function amountsByColumn(items: PeriodBreakdownItem[]): Map<string, number> {
-  const out = new Map<string, number>();
-  for (const item of items) out.set(item.name, (out.get(item.name) ?? 0) + item.amount);
-  return out;
-}
-
-// Celda de monto: vacía (—) cuando es cero, para que la matriz se lea de un vistazo.
-const celda = (value: number | undefined) => (value ? moneda(value) : '—');
-
-// Descriptor de columna para los bloques de la matriz: encabezado, celda por fila y pie.
-type Col = {
-  key: string;
-  header: ReactNode;
-  cell: (row: AnalyticsPeriod) => ReactNode;
-  foot: ReactNode;
-  className?: string;
+const displayDate = (value: string) => {
+  const [year, month, day] = value.split('-');
+  return day && month && year ? `${day}/${month}/${year}` : value;
 };
-
-function MatrixBlock({
-  cols,
-  rows,
-  className,
-}: {
-  cols: Col[];
-  rows: AnalyticsPeriod[];
-  className?: string;
-}) {
-  return (
-    <table className={`sg-block ${className ?? ''}`}>
-      <thead>
-        <tr>
-          {cols.map((col) => (
-            <th key={col.key} className={col.className}>
-              {col.header}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row, index) => (
-          // Las filas entran una tras otra. Solo opacidad: no mueve nada, así las filas de los
-          // bloques de al lado (la tabla está partida en columnas) siguen alineadas.
-          <tr key={row.key} className={aparece} style={retraso(index, 30, 600)}>
-            {cols.map((col) => (
-              <td key={col.key} className={col.className}>
-                {col.cell(row)}
-              </td>
-            ))}
-          </tr>
-        ))}
-      </tbody>
-      <tfoot>
-        <tr>
-          {cols.map((col) => (
-            <td key={col.key} className={col.className}>
-              {col.foot}
-            </td>
-          ))}
-        </tr>
-      </tfoot>
-    </table>
-  );
-}
 
 export function SummaryTableReport() {
   const [analytics, setAnalytics] = useState<BusinessAnalytics | null>(null);
@@ -136,15 +42,10 @@ export function SummaryTableReport() {
   const [to, setTo] = useState('');
   const [etiquetaPeriodo, setEtiquetaPeriodo] = useState('');
   const [grouping, setGrouping] = useState<Grouping>('dia');
+  const [salesExpanded, setSalesExpanded] = useState(false);
   const [loading, setLoading] = useState(true);
   // Solo dispara la recarga: la unidad viaja al API desde `api()`.
   const { clave: unidad, resumen: unidadResumen } = useUnidad();
-  // El puesto que solo registra ventas y gastos no produce: la columna sobra.
-  const costoEstimado = Boolean(analytics?.costoEstimado);
-  // Al inicio solo se ven los totales. Cada cabecera de total despliega sus propias
-  // categorías, de forma independiente.
-  const [verVentas, setVerVentas] = useState(false);
-  const [verGastos, setVerGastos] = useState(false);
 
   useEffect(() => {
     // Espera a que PeriodFilter publique su rango antes del primer pedido, para no mostrar
@@ -165,207 +66,93 @@ export function SummaryTableReport() {
     setEtiquetaPeriodo(meta.label);
   }, []);
 
-  // Agrupaciones con sentido para el rango elegido; las demás se muestran deshabilitadas.
-  const enabledGroupings = useMemo(() => {
-    const span = spanInDays(from, to);
-    return new Set(groupingOrder.filter((option) => span >= minSpanDays[option]));
-  }, [from, to]);
-
-  // Si el rango se achica y la agrupación elegida deja de tener sentido, se cae a "Día".
-  const activeGrouping: Grouping = enabledGroupings.has(grouping) ? grouping : 'dia';
-
   const rows: AnalyticsPeriod[] = useMemo(() => {
     if (!analytics) return [];
-    switch (activeGrouping) {
-      case 'dia':
-        return fillDailySeries(analytics.daily, from, to);
-      case 'semana':
-        return groupPeriodsByWeek(fillDailySeries(analytics.daily, from, to));
-      case 'mes':
-        return fillMonthlySeries(analytics.monthly, from, to);
-      case 'anio':
-        return groupPeriodsByYear(analytics.monthly);
-    }
-  }, [analytics, activeGrouping, from, to]);
+    const daily = fillDailySeries(analytics.daily, from, to);
+    if (grouping === 'dia') return daily;
+    if (grouping === 'semana') return groupPeriodsByWeek(daily);
+    const monthly = fillMonthlySeries(analytics.monthly, from, to);
+    return grouping === 'mes' ? monthly : groupPeriodsByYear(monthly);
+  }, [analytics, from, grouping, to]);
 
-  // Una columna por forma de cobro (ventas) y una por categoría (gastos).
-  const ventaCols = useMemo(() => breakdownColumns(rows, (row) => row.salesByPayment), [rows]);
-  const gastoCols = useMemo(() => breakdownColumns(rows, (row) => row.expensesByCategory), [rows]);
-
-  // Totales del período: el general y el de cada columna de desglose.
-  const totales = useMemo(() => {
-    const ventas = new Map<string, number>();
-    const gastos = new Map<string, number>();
-    let sales = 0;
-    let expenses = 0;
-    let production = 0;
-    for (const row of rows) {
-      sales += row.sales;
-      expenses += row.expenses;
-      production += row.production;
-      for (const [col, value] of amountsByColumn(row.salesByPayment))
-        ventas.set(col, (ventas.get(col) ?? 0) + value);
-      for (const [col, value] of amountsByColumn(row.expensesByCategory))
-        gastos.set(col, (gastos.get(col) ?? 0) + value);
-    }
-    return { sales, expenses, production, ventas, gastos };
-  }, [rows]);
-
-  // Cabecera de una columna de total: al hacer clic despliega/oculta sus categorías.
-  const totalHeader = (label: string, open: boolean, toggle: () => void) => (
-    <button
-      type="button"
-      className="sg-toggle"
-      onClick={toggle}
-      aria-expanded={open}
-      title={open ? 'Ocultar categorías' : 'Ver categorías'}
-    >
-      {label}
-      <ChevronDown size={13} className={open ? 'rotated' : ''} />
-    </button>
+  const totals = useMemo(
+    () =>
+      rows.reduce(
+        (acc, row) => ({
+          sales: acc.sales + row.sales,
+          expenses: acc.expenses + row.expenses,
+          production: acc.production + row.production,
+          salesByCategory: row.salesByPayment.reduce(
+            (categories, item) =>
+              categories.set(item.name, (categories.get(item.name) ?? 0) + item.amount),
+            acc.salesByCategory,
+          ),
+        }),
+        { sales: 0, expenses: 0, production: 0, salesByCategory: new Map<string, number>() },
+      ),
+    [rows],
   );
 
-  // Bloque fijo: período.
-  const periodoCols: Col[] = [
-    {
-      key: 'periodo',
-      header: 'Período',
-      className: 'sg-periodo',
-      cell: (row) => row.label,
-      foot: 'Total',
-    },
-  ];
-  // Bloque fijo: total de ventas.
-  const ventasTotalCols: Col[] = [
-    {
-      key: 'ventas-total',
-      header: totalHeader('Ventas · Total', verVentas, () => setVerVentas((v) => !v)),
-      className: 'num strong',
-      cell: (row) => celda(row.sales),
-      foot: celda(totales.sales),
-    },
-  ];
-  // Bloque fijo: total de gastos.
-  const gastosTotalCols: Col[] = [
-    {
-      key: 'gastos-total',
-      header: totalHeader('Gastos · Total', verGastos, () => setVerGastos((v) => !v)),
-      className: 'num strong',
-      cell: (row) => celda(row.expenses),
-      foot: celda(totales.expenses),
-    },
-  ];
-  // Bloque derecho fijo: producción. En un puesto que solo registra ventas y gastos no existe,
-  // así que la columna se va entera en vez de mostrar "0 un." en cada fila.
-  const produccionCols: Col[] = costoEstimado
-    ? []
-    : [
-        {
-          key: 'produccion',
-          header: 'Producción',
-          className: 'num',
-          cell: (row) => `${row.production.toFixed(0)} un.`,
-          foot: `${totales.production.toFixed(0)} un.`,
-        },
-      ];
-  // Columnas desplazables: una por cada forma de cobro / categoría de gasto.
-  const buildSubCols = (
-    names: string[],
-    pick: (row: AnalyticsPeriod) => PeriodBreakdownItem[],
-    totalsByName: Map<string, number>,
-    vacio: string,
-  ): Col[] =>
-    names.length
-      ? names.map((name) => ({
-          key: name,
-          header: name,
-          className: 'num soft',
-          cell: (row) => celda(amountsByColumn(pick(row)).get(name)),
-          foot: celda(totalsByName.get(name)),
-        }))
-      : [{ key: '__none', header: vacio, className: 'num soft', cell: () => '—', foot: '—' }];
-  const ventaSubCols = buildSubCols(
-    ventaCols,
-    (row) => row.salesByPayment,
-    totales.ventas,
-    'Sin ventas',
+  const salesCategories = useMemo(
+    () =>
+      [...totals.salesByCategory.entries()]
+        .sort((left, right) => right[1] - left[1])
+        .map(([name]) => name),
+    [totals.salesByCategory],
   );
-  const gastoSubCols = buildSubCols(
-    gastoCols,
-    (row) => row.expensesByCategory,
-    totales.gastos,
-    'Sin gastos',
+
+  const rowLabel = useCallback(
+    (row: AnalyticsPeriod) => (grouping === 'dia' ? displayDate(row.key) : row.label),
+    [grouping],
   );
 
   function exportReport() {
     if (!rows.length) return;
+
     const csvRows: (string | number)[][] = [
       [
-        'Periodo',
+        grouping === 'dia' ? 'Fecha' : 'Período',
         'Ventas (S/)',
-        ...ventaCols,
         'Gastos (S/)',
-        ...gastoCols,
-        ...(costoEstimado ? [] : ['Producción']),
+        'Bidones producidos',
       ],
-    ];
-    for (const row of rows) {
-      const ventas = amountsByColumn(row.salesByPayment);
-      const gastos = amountsByColumn(row.expensesByCategory);
-      csvRows.push([
-        row.label,
+      ...rows.map((row) => [
+        rowLabel(row),
         row.sales.toFixed(2),
-        ...ventaCols.map((col) => (ventas.get(col) ?? 0).toFixed(2)),
         row.expenses.toFixed(2),
-        ...gastoCols.map((col) => (gastos.get(col) ?? 0).toFixed(2)),
-        ...(costoEstimado ? [] : [row.production.toFixed(2)]),
-      ]);
-    }
-    csvRows.push([
-      'Total',
-      totales.sales.toFixed(2),
-      ...ventaCols.map((col) => (totales.ventas.get(col) ?? 0).toFixed(2)),
-      totales.expenses.toFixed(2),
-      ...gastoCols.map((col) => (totales.gastos.get(col) ?? 0).toFixed(2)),
-      ...(costoEstimado ? [] : [totales.production.toFixed(2)]),
-    ]);
+        row.production.toFixed(0),
+      ]),
+      ['Total', totals.sales.toFixed(2), totals.expenses.toFixed(2), totals.production.toFixed(0)],
+    ];
     const csv = `﻿${csvRows.map((row) => row.map(csvCell).join(';')).join('\n')}`;
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
     const link = document.createElement('a');
     link.href = url;
-    link.download = `reporte-resumen-${activeGrouping}-${from || 'inicio'}-${to || localDate()}.csv`;
+    link.download = `reporte-resumen-${grouping}-${from || 'inicio'}-${to || localDate()}.csv`;
     link.click();
     URL.revokeObjectURL(url);
   }
-
-  const countNoun = groupings[activeGrouping].noun[rows.length === 1 ? 0 : 1];
 
   return (
     <div className="module-page report-page">
       <ReportHeader
         eyebrow="Reportes"
-        title={etiquetaPeriodo ? `Resumen diario · ${etiquetaPeriodo}` : 'Resumen diario'}
+        title={etiquetaPeriodo ? `Reporte diario · ${etiquetaPeriodo}` : 'Reporte diario'}
         caption={unidadResumen ? `Alcance: ${unidadResumen}` : undefined}
       />
 
       <div className="summary-filters">
         <div className="summary-filter-step">
-          <span className="summary-filter-label">Ver por</span>
+          <span className="summary-filter-label">Período</span>
           <PeriodFilter onChange={changePeriod} />
         </div>
-
         <div className="summary-filter-step">
-          <span className="summary-filter-label">Agrupado por</span>
+          <span className="summary-filter-label">Agrupar por</span>
           <Segmented
-            ariaLabel="Agrupar las filas por"
-            value={activeGrouping}
-            onChange={(next) => setGrouping(next as Grouping)}
-            options={groupingOrder.map((option) => ({
-              value: option,
-              label: groupings[option].label,
-              disabled: !enabledGroupings.has(option),
-              title: enabledGroupings.has(option) ? undefined : disabledHint[option],
-            }))}
+            ariaLabel="Agrupar filas del resumen"
+            value={grouping}
+            onChange={(value) => setGrouping(value as Grouping)}
+            options={groupingOptions.map(({ value, label }) => ({ value, label }))}
           />
         </div>
       </div>
@@ -373,7 +160,13 @@ export function SummaryTableReport() {
       {from && to ? (
         <div className="summary-readout">
           <span className="summary-readout-count">
-            {loading ? 'Calculando…' : `${rows.length} ${countNoun}`}
+            {loading
+              ? 'Calculando…'
+              : `${rows.length} ${
+                  groupingOptions.find((item) => item.value === grouping)?.noun[
+                    rows.length === 1 ? 0 : 1
+                  ]
+                }`}
           </span>
           <button
             type="button"
@@ -388,24 +181,87 @@ export function SummaryTableReport() {
 
       {loading ? (
         <div className="table-loading">
-          <span className="loading-spinner" /> Calculando el resumen...
+          <span className="loading-spinner" /> Calculando el reporte...
         </div>
       ) : rows.length ? (
-        <div className="summary-grid">
-          <MatrixBlock cols={periodoCols} rows={rows} className="sg-fixed" />
-          <MatrixBlock cols={ventasTotalCols} rows={rows} className="sg-fixed" />
-          {verVentas ? (
-            <div className="sg-scroll">
-              <MatrixBlock cols={ventaSubCols} rows={rows} />
-            </div>
-          ) : null}
-          <MatrixBlock cols={gastosTotalCols} rows={rows} className="sg-fixed" />
-          {verGastos ? (
-            <div className="sg-scroll">
-              <MatrixBlock cols={gastoSubCols} rows={rows} />
-            </div>
-          ) : null}
-          <MatrixBlock cols={produccionCols} rows={rows} className="sg-fixed sg-right" />
+        <div className="summary-grid summary-grid-simple">
+          <table
+            className={`summary-daily-table ${salesExpanded ? 'is-sales-expanded' : ''}`}
+            style={
+              salesExpanded ? { minWidth: `${600 + salesCategories.length * 140}px` } : undefined
+            }
+          >
+            <thead>
+              <tr>
+                <th className="sg-periodo">{grouping === 'dia' ? 'Fecha' : 'Período'}</th>
+                <th className="num">
+                  <button
+                    type="button"
+                    className="summary-sales-toggle"
+                    onClick={() => setSalesExpanded((current) => !current)}
+                    aria-expanded={salesExpanded}
+                    disabled={!salesCategories.length}
+                    title={
+                      !salesCategories.length
+                        ? 'No hay categorías de venta en el período'
+                        : salesExpanded
+                          ? 'Ocultar ventas por categoría de cobro'
+                          : 'Mostrar ventas por categoría de cobro'
+                    }
+                  >
+                    Ventas
+                    <ChevronDown size={14} className={salesExpanded ? 'rotated' : ''} />
+                  </button>
+                </th>
+                {salesExpanded
+                  ? salesCategories.map((category) => (
+                      <th className="num summary-sales-category-column" key={category}>
+                        {category}
+                      </th>
+                    ))
+                  : null}
+                <th className="num">Gastos</th>
+                <th className="num">Bidones producidos</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, index) => (
+                <tr key={row.key} className={aparece} style={retraso(index, 15)}>
+                  <td className="sg-periodo">{rowLabel(row)}</td>
+                  <td className="num strong">{moneda(row.sales)}</td>
+                  {salesExpanded
+                    ? salesCategories.map((category) => {
+                        const amount = row.salesByPayment.find(
+                          (item) => item.name === category,
+                        )?.amount;
+                        return (
+                          <td className="num soft summary-sales-category-column" key={category}>
+                            {amount ? moneda(amount) : '—'}
+                          </td>
+                        );
+                      })
+                    : null}
+                  <td className="num strong">{moneda(row.expenses)}</td>
+                  <td className="num">{row.production.toFixed(0)} un.</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td className="sg-periodo">Total</td>
+                <td className="num strong">{moneda(totals.sales)}</td>
+                {salesExpanded
+                  ? salesCategories.map((category) => (
+                      <td className="num strong summary-sales-category-column" key={category}>
+                        {moneda(totals.salesByCategory.get(category) ?? 0)}
+                      </td>
+                    ))
+                  : null}
+                <td className="num strong">{moneda(totals.expenses)}</td>
+                <td className="num">{totals.production.toFixed(0)} un.</td>
+              </tr>
+            </tfoot>
+          </table>
         </div>
       ) : (
         <div className="table-empty">No hay datos para el rango seleccionado.</div>

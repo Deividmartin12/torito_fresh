@@ -14,7 +14,7 @@ export const esPagoTrabajador = (categoria: string) =>
 export type Expense = {
   id: string;
   fecha: string;
-  concepto: string;
+  concepto: string | null;
   /** Id de la categoría en el catálogo (`categoria_gasto`): es lo que se guarda. */
   categoriaId: string;
   /** Nombre de esa categoría, tal como lo devuelve el API para mostrarlo. */
@@ -33,7 +33,8 @@ export type Expense = {
   metodoPago: string | null;
 };
 
-export type CreateExpensePayload = Pick<Expense, 'fecha' | 'concepto' | 'categoriaId' | 'monto'> & {
+export type CreateExpensePayload = Pick<Expense, 'fecha' | 'categoriaId' | 'monto'> & {
+  concepto?: string;
   comprobante?: string;
   observaciones?: string;
   proveedorId?: string;

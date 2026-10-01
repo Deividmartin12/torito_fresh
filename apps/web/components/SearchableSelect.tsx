@@ -7,6 +7,8 @@ import { normalizarBusqueda } from '../lib/format';
 export type SearchableOption = {
   value: string;
   label: string;
+  /** Texto que participa de la búsqueda sin mostrarse en la opción (p. ej. el DNI). */
+  searchText?: string;
   /** Dato extra que se muestra a la derecha de la opción (p. ej. "Disponible: 12").
    *  No entra en la búsqueda ni se ve en el campo una vez elegida la opción. */
   hint?: string;
@@ -22,7 +24,10 @@ type Props = {
   required?: boolean;
   /** Opción de acción fija al final del desplegable (p. ej. "+ Agregar cliente"). */
   actionLabel?: string;
-  onAction?: () => void;
+  /** Recibe lo que la persona dejó escrito antes de cerrar el desplegable. */
+  onAction?: (query: string) => void;
+  /** Con Enter y cero resultados ejecuta la acción, aunque no se haya bajado hasta su fila. */
+  actionOnNoResultsEnter?: boolean;
   /**
    * Opción fija que aparece siempre arriba de todo, incluso con el buscador vacío o sin
    * resultados (p. ej. "NO REGISTRADO" para una venta sin cliente). Nunca se filtra por el
@@ -53,6 +58,7 @@ export function SearchableSelect({
   required,
   actionLabel,
   onAction,
+  actionOnNoResultsEnter = false,
   fixedOption,
 }: Props) {
   const [open, setOpen] = useState(false);
@@ -78,10 +84,12 @@ export function SearchableSelect({
     fixedOption && value === fixedOption.value
       ? fixedOption
       : options.find((option) => option.value === value);
-  // La búsqueda ignora acentos y mayúsculas. Se matchea sólo `label` (el `hint` es un dato
-  // numérico de apoyo, no un criterio de búsqueda).
+  // La búsqueda ignora acentos y mayúsculas. `searchText` agrega claves ocultas (como el
+  // DNI); `hint` sigue siendo solo un dato visual de apoyo.
   const q = normalizarBusqueda(query);
-  const filtered = options.filter((option) => normalizarBusqueda(option.label).includes(q));
+  const filtered = options.filter((option) =>
+    normalizarBusqueda(`${option.label} ${option.searchText ?? ''}`).includes(q),
+  );
 
   const navRows: NavRow[] = [
     ...(fixedOption ? [{ kind: 'fixed' as const, option: fixedOption }] : []),
@@ -97,7 +105,7 @@ export function SearchableSelect({
   };
 
   const runAction = () => {
-    onAction?.();
+    onAction?.(query.trim());
     setQuery('');
     setOpen(false);
     setActiveIndex(-1);
@@ -129,6 +137,19 @@ export function SearchableSelect({
     if (event.key === 'Enter' && open && activeIndex >= 0 && navRows[activeIndex]) {
       event.preventDefault();
       activateRow(navRows[activeIndex]);
+      return;
+    }
+
+    if (
+      event.key === 'Enter' &&
+      open &&
+      actionOnNoResultsEnter &&
+      filtered.length === 0 &&
+      hasAction &&
+      query.trim()
+    ) {
+      event.preventDefault();
+      runAction();
     }
   };
 

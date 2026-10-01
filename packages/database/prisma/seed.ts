@@ -26,7 +26,8 @@ async function main() {
       role: 'DELIVERY',
       password: '01',
       doc: '00000011',
-      cargo: 'Repartidor',
+      // DELIVERY sigue siendo su rol de acceso; el cargo laboral común es Vendedor.
+      cargo: 'Vendedor',
     },
     {
       username: '02',
@@ -35,7 +36,7 @@ async function main() {
       role: 'DELIVERY',
       password: '02',
       doc: '00000012',
-      cargo: 'Repartidor',
+      cargo: 'Vendedor',
     },
   ];
 

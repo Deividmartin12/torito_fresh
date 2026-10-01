@@ -13,6 +13,7 @@ import {
   X,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import Link from 'next/link';
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { CategoriaGastoFormModal } from '../../../components/CategoriaGastoFormModal';
@@ -24,7 +25,7 @@ import { SearchableSelect } from '../../../components/SearchableSelect';
 import { TrabajadorFormModal } from '../../../components/TrabajadorFormModal';
 import { useUnidad } from '../../../components/UnidadProvider';
 import { Badge } from '../../../components/ui/Badge';
-import { Button } from '../../../components/ui/Button';
+import { Button, buttonClass } from '../../../components/ui/Button';
 import {
   controlClass,
   fieldErrorClass,
@@ -51,6 +52,7 @@ import {
   getExpenses,
   updateExpense,
 } from '../../../lib/expenses';
+import { paymentMethodOptionLabel } from '../../../lib/payment-methods';
 import { getOperationalPaymentMethods, OperationalPaymentMethod } from '../../../lib/operations';
 import { Proveedor } from '../../../lib/proveedores';
 import { puede } from '../../../lib/permissions';
@@ -59,7 +61,9 @@ import { usePermisos } from '../../../lib/useCurrentUser';
 
 const localDate = () =>
   new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
-const emptyForm = (): CreateExpensePayload => ({
+type ExpenseForm = CreateExpensePayload & { concepto: string };
+
+const emptyForm = (): ExpenseForm => ({
   fecha: localDate(),
   concepto: '',
   categoriaId: '',
@@ -73,7 +77,7 @@ const emptyForm = (): CreateExpensePayload => ({
 
 export default function GastosPage() {
   const queryClient = useQueryClient();
-  const [form, setForm] = useState<CreateExpensePayload>(emptyForm);
+  const [form, setForm] = useState<ExpenseForm>(emptyForm);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('Todas');
   const [rango, setRango] = useState<{ from: string; to: string } | null>(null);
@@ -87,7 +91,6 @@ export default function GastosPage() {
   const [trabajadorModal, setTrabajadorModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const montoInputRef = useRef<HTMLInputElement>(null);
-  const conceptoInputRef = useRef<HTMLInputElement>(null);
   const permisos = usePermisos();
   const { clave: unidad, resumen: unidadResumen } = useUnidad();
   const puedeCrearTrabajador = puede(permisos, 'trabajadores.administrar');
@@ -97,8 +100,9 @@ export default function GastosPage() {
   // demás, así que no hace falta `cargarParcial` acá (una que falle no apaga el formulario
   // entero, que era justo el problema que ese helper resolvía a mano).
   const expensesQuery = useQuery({
-    queryKey: ['expenses', unidad],
-    queryFn: () => getExpenses(),
+    queryKey: ['expenses', unidad, rango?.from, rango?.to],
+    queryFn: () => getExpenses(rango!.from, rango!.to),
+    enabled: Boolean(rango),
   });
   const expenses = expensesQuery.data ?? [];
   const loading = expensesQuery.isPending;
@@ -176,20 +180,17 @@ export default function GastosPage() {
     setEtiquetaPeriodo(meta.label);
   }, []);
 
-  // Se cargan todos los gastos (más nuevos primero, orden del servidor); aquí solo se
-  // refina por período, categoría y texto.
+  // El período se aplica en el servidor; aquí solo se refina por categoría y texto.
   const visible = useMemo(
     () =>
       expenses.filter(
         (item) =>
           (category === 'Todas' || item.categoria === category) &&
-          (!rango ||
-            (item.fecha.slice(0, 10) >= rango.from && item.fecha.slice(0, 10) <= rango.to)) &&
-          `${item.concepto} ${item.categoria} ${item.comprobante ?? ''}`
+          `${item.concepto ?? ''} ${item.categoria} ${item.comprobante ?? ''}`
             .toLowerCase()
             .includes(search.toLowerCase()),
       ),
-    [category, expenses, rango, search],
+    [category, expenses, search],
   );
   const total = visible.reduce((sum, item) => sum + item.monto, 0);
 
@@ -199,7 +200,7 @@ export default function GastosPage() {
       expense
         ? {
             fecha: expense.fecha.slice(0, 10),
-            concepto: expense.concepto,
+            concepto: expense.concepto ?? '',
             categoriaId: expense.categoriaId,
             monto: expense.monto,
             comprobante: expense.comprobante ?? '',
@@ -222,11 +223,6 @@ export default function GastosPage() {
     event.preventDefault();
     if (!form.fecha) {
       toast.error('Selecciona la fecha del gasto.');
-      return;
-    }
-    if (!form.concepto.trim()) {
-      toast.error('Ingresa el concepto del gasto.');
-      conceptoInputRef.current?.focus();
       return;
     }
     if (!Number.isFinite(form.monto) || form.monto < 0.01) {
@@ -256,14 +252,11 @@ export default function GastosPage() {
         // el gasto si llega en cualquier otra.
         beneficiarioId: esPago ? form.beneficiarioId : undefined,
       };
-      const saved = editing
-        ? await updateExpense(editing.id, payload)
-        : await createExpense(payload);
-      queryClient.setQueryData<Expense[]>(['expenses', unidad], (current) =>
-        editing
-          ? current?.map((item) => (item.id === saved.id ? saved : item))
-          : [saved, ...(current ?? [])],
-      );
+      if (editing) await updateExpense(editing.id, payload);
+      else await createExpense(payload);
+      // La fecha puede haber cambiado (o el alta quedar fuera del rango visible), así que se
+      // vuelve a pedir el período activo en vez de insertar la fila en una caché incorrecta.
+      await queryClient.invalidateQueries({ queryKey: ['expenses'] });
       toast.success(
         editing ? 'Gasto actualizado correctamente.' : 'Gasto registrado correctamente.',
       );
@@ -315,7 +308,9 @@ export default function GastosPage() {
       cardLabel: null,
       render: (item) => (
         <>
-          <strong className="block text-[13px] font-medium text-fg">{item.concepto}</strong>
+          <strong className="block text-[13px] font-medium text-fg">
+            {item.concepto || 'Sin concepto'}
+          </strong>
           {item.comprobante ? (
             <small className="mt-0.5 block text-[11px] text-muted">
               Comprobante {item.comprobante}
@@ -364,7 +359,7 @@ export default function GastosPage() {
               setDetail(item);
             }}
             title="Ver detalle"
-            aria-label={`Ver detalle de ${item.concepto}`}
+            aria-label={`Ver detalle de ${item.concepto || 'gasto sin concepto'}`}
           >
             <Eye size={16} />
           </IconButton>
@@ -374,7 +369,7 @@ export default function GastosPage() {
               openForm(item);
             }}
             title="Editar gasto"
-            aria-label={`Editar ${item.concepto}`}
+            aria-label={`Editar ${item.concepto || 'gasto sin concepto'}`}
           >
             <Pencil size={16} />
           </IconButton>
@@ -393,13 +388,21 @@ export default function GastosPage() {
             <span className="report-scope-caption">Alcance: {unidadResumen}</span>
           ) : null}
         </div>
-        <Button
-          className="min-h-[44px] shrink-0 px-[19px]"
-          type="button"
-          onClick={() => openForm()}
-        >
-          <Plus size={18} /> Registrar gasto
-        </Button>
+        <div className="flex flex-wrap justify-end gap-2">
+          <Link
+            href="/categorias-gastos"
+            className={buttonClass('secondary', 'min-h-[44px] shrink-0 px-[17px]')}
+          >
+            <Tags size={17} /> Ver categorías
+          </Link>
+          <Button
+            className="min-h-[44px] shrink-0 px-[19px]"
+            type="button"
+            onClick={() => openForm()}
+          >
+            <Plus size={18} /> Registrar gasto
+          </Button>
+        </div>
       </div>
       <div className="stat-grid">
         <StatCard
@@ -535,7 +538,7 @@ export default function GastosPage() {
         <Modal onClose={() => setDetail(null)}>
           <ModalHeader
             eyebrow="Detalle del gasto"
-            title={detail.concepto}
+            title={detail.concepto || 'Gasto sin concepto'}
             subtitle={fechaCorta(detail.fecha)}
             onClose={() => setDetail(null)}
             closeLabel="Cerrar detalle"
@@ -630,7 +633,10 @@ export default function GastosPage() {
                 <SearchableSelect
                   value={form.metodoPagoId ?? ''}
                   onChange={(value) => setForm((current) => ({ ...current, metodoPagoId: value }))}
-                  options={metodos.map((item) => ({ value: item.id, label: item.nombre }))}
+                  options={metodos.map((item) => ({
+                    value: item.id,
+                    label: paymentMethodOptionLabel(item),
+                  }))}
                   placeholder="Con qué se pagó"
                 />
               </label>
@@ -698,9 +704,8 @@ export default function GastosPage() {
                 </label>
               ) : null}
               <label className={fieldWideClass}>
-                <span className={fieldLabelClass}>Concepto</span>
+                <span className={fieldLabelClass}>Concepto (opcional)</span>
                 <input
-                  ref={conceptoInputRef}
                   className={controlClass}
                   maxLength={200}
                   value={form.concepto}
@@ -708,7 +713,6 @@ export default function GastosPage() {
                     setForm((current) => ({ ...current, concepto: event.target.value }))
                   }
                   placeholder="Ej. Pago de electricidad"
-                  required
                 />
               </label>
               <details className={`production-advanced ${fieldWideClass}`}>

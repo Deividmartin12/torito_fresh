@@ -93,13 +93,12 @@ export class ClientsService {
   async update(id: string, dto: UpdateClientDto, actor: AuthUser, unidad?: string) {
     await this.get(id, actor, unidad);
     const row = await this.actualizar(id, {
-      ...(dto.documentType ? { tipoDocumento: dto.documentType } : {}),
-      ...(dto.document ? { numeroDocumento: dto.document } : {}),
+      ...(dto.documentType === undefined ? {} : { tipoDocumento: dto.documentType }),
+      ...(dto.document === undefined ? {} : { numeroDocumento: dto.document }),
       ...(dto.name ? { nombreLegal: dto.name } : {}),
       ...(dto.phone ? { telefono: dto.phone } : {}),
-      ...(dto.address ? { direccion: dto.address } : {}),
-      // `undefined` es "no lo mandaron" y `null` es "sacale el límite": los otros campos usan
-      // el truthy de arriba, pero acá no sirve porque 0 y null son valores con significado.
+      ...(dto.address === undefined ? {} : { direccion: dto.address?.trim() || null }),
+      // `undefined` conserva el valor anterior; `null` elimina el límite y 0 impide fiar.
       ...(dto.creditLimit === undefined ? {} : { limiteCredito: dto.creditLimit }),
       ...(dto.active === undefined ? {} : { estado: dto.active }),
     });

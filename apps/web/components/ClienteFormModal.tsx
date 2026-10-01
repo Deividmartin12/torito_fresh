@@ -1,9 +1,9 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
-import { Cliente, createCliente, updateCliente } from '../lib/clients';
+import { Cliente, ClientePayload, createCliente, updateCliente } from '../lib/clients';
 import { consultarDni, consultarRuc } from '../lib/consulta-documento';
 import { Button } from './ui/Button';
 import {
@@ -27,22 +27,23 @@ import {
 
 type Props = {
   editando?: Cliente | null;
+  initialDocument?: { type: 'DNI'; number: string; autoLookup?: boolean };
   onClose: () => void;
   onSaved: (cliente: Cliente) => void;
 };
 
-type CampoConError = 'name' | 'phone' | 'document';
+type CampoConError = 'name' | 'phone' | 'document' | 'creditLimit';
 type FormErrors = Partial<Record<CampoConError, string>>;
 
 /**
  * Alta / edición de cliente. La usan la pantalla de Clientes y el formulario de venta.
  * Solo nombre y celular son obligatorios; documento y dirección son opcionales.
  */
-export function ClienteFormModal({ editando, onClose, onSaved }: Props) {
+export function ClienteFormModal({ editando, initialDocument, onClose, onSaved }: Props) {
   const [form, setForm] = useState({
     name: editando?.name ?? '',
-    documentType: editando?.documentType ?? '',
-    document: editando?.document ?? '',
+    documentType: editando?.documentType ?? initialDocument?.type ?? '',
+    document: editando?.document ?? initialDocument?.number ?? '',
     phone: editando?.phone ?? '',
     address: editando?.address ?? '',
     // Texto y no número a propósito: el campo vacío significa "sin límite" y el 0 significa
@@ -55,16 +56,28 @@ export function ClienteFormModal({ editando, onClose, onSaved }: Props) {
   const [errores, setErrores] = useState<FormErrors>({});
   const [saving, setSaving] = useState(false);
   const [buscando, setBuscando] = useState(false);
+  const autoLookupDone = useRef(false);
 
   // El botón "Buscar" aplica solo a DNI (8 dígitos) y RUC (11 dígitos).
   const largoDocumento = form.documentType === 'DNI' ? 8 : form.documentType === 'RUC' ? 11 : 0;
   const puedeBuscar = largoDocumento > 0 && form.document.trim().length === largoDocumento;
 
+  // Si el alta nació de una búsqueda DNI sin resultados, el formulario ya abre con el
+  // documento puesto y consulta RENIEC una sola vez. Si falla, todos los campos quedan
+  // editables para continuar manualmente.
+  useEffect(() => {
+    if (editando || !initialDocument?.autoLookup || !puedeBuscar || autoLookupDone.current) return;
+    autoLookupDone.current = true;
+    void buscarDocumento();
+    // Los valores iniciales no cambian durante la vida del modal.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editando, initialDocument?.autoLookup, puedeBuscar]);
+
   /** Limpia el número de documento según el tipo (DNI/RUC solo dígitos; CE alfanumérico). */
   function limpiarDocumento(valor: string, tipo: string) {
     if (tipo === 'DNI') return soloDigitos(valor, 8);
     if (tipo === 'RUC') return soloDigitos(valor, 11);
-    if (tipo === 'CE') return soloAlfanumerico(valor, 15);
+    if (tipo === 'CE' || tipo === 'PAS') return soloAlfanumerico(valor, 15);
     return valor.slice(0, 20);
   }
 
@@ -78,8 +91,18 @@ export function ClienteFormModal({ editando, onClose, onSaved }: Props) {
     next.name = validarNombreLibre(form.name, 'el nombre');
     next.phone = validarCelular(form.phone, { requerido: true });
     next.document = validarDocumento(form.documentType, form.document);
+    if (form.document.trim() && !form.documentType) {
+      next.document = 'Selecciona el tipo de documento.';
+    }
+    if (
+      form.creditLimit.trim() &&
+      (!/^\d+(\.\d{1,2})?$/.test(form.creditLimit.trim()) ||
+        !Number.isFinite(Number(form.creditLimit)))
+    ) {
+      next.creditLimit = 'Ingresa un límite válido, con un máximo de 2 decimales.';
+    }
     setErrores(next);
-    return !next.name && !next.phone && !next.document;
+    return !Object.values(next).some(Boolean);
   }
 
   async function buscarDocumento() {
@@ -108,15 +131,19 @@ export function ClienteFormModal({ editando, onClose, onSaved }: Props) {
 
   async function guardar(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    // Los eventos del portal siguen el árbol de React: no enviar también la venta
+    // cuando este modal se abre dentro de OperationForm.
+    event.stopPropagation();
+    if (saving || buscando) return;
     if (!validar()) return;
     setSaving(true);
     try {
-      const payload = {
+      const payload: ClientePayload = {
         name: form.name.trim(),
         phone: form.phone.trim(),
-        address: form.address.trim() || undefined,
-        documentType: form.documentType || undefined,
-        document: form.document.trim() || undefined,
+        address: form.address.trim(),
+        documentType: form.documentType || null,
+        document: form.document.trim() || null,
         // Vacío manda null (sin límite), no undefined: undefined dejaría el límite anterior y
         // entonces no se podría sacar nunca una vez puesto.
         creditLimit: form.creditLimit.trim() === '' ? null : Number(form.creditLimit),
@@ -148,6 +175,7 @@ export function ClienteFormModal({ editando, onClose, onSaved }: Props) {
           <input
             className={controlClass}
             value={form.name}
+            disabled={buscando}
             onChange={(event) => actualizar('name', soloTextoNombre(event.target.value))}
             maxLength={150}
             required
@@ -171,12 +199,13 @@ export function ClienteFormModal({ editando, onClose, onSaved }: Props) {
           <select
             className={controlClass}
             value={form.documentType}
+            disabled={buscando}
             onChange={(event) => {
               const tipo = event.target.value;
               setForm((current) => ({
                 ...current,
                 documentType: tipo,
-                document: limpiarDocumento(current.document, tipo),
+                document: tipo ? limpiarDocumento(current.document, tipo) : '',
               }));
               setErrores((current) => ({ ...current, document: undefined }));
             }}
@@ -185,6 +214,7 @@ export function ClienteFormModal({ editando, onClose, onSaved }: Props) {
             <option value="DNI">DNI</option>
             <option value="RUC">RUC</option>
             <option value="CE">CE</option>
+            <option value="PAS">Pasaporte</option>
           </select>
         </label>
         <label>
@@ -193,10 +223,11 @@ export function ClienteFormModal({ editando, onClose, onSaved }: Props) {
             <input
               className={`${controlClass} min-w-0 flex-1`}
               value={form.document}
+              disabled={buscando || !form.documentType}
               onChange={(event) =>
                 actualizar('document', limpiarDocumento(event.target.value, form.documentType))
               }
-              inputMode={form.documentType === 'CE' || !form.documentType ? 'text' : 'numeric'}
+              inputMode={largoDocumento ? 'numeric' : 'text'}
             />
             {form.documentType === 'DNI' || form.documentType === 'RUC' ? (
               <Button
@@ -204,7 +235,7 @@ export function ClienteFormModal({ editando, onClose, onSaved }: Props) {
                 className="flex-none"
                 type="button"
                 onClick={() => void buscarDocumento()}
-                disabled={!puedeBuscar || buscando}
+                disabled={!puedeBuscar || buscando || saving}
               >
                 {buscando ? 'Buscando...' : 'Buscar'}
               </Button>
@@ -218,21 +249,19 @@ export function ClienteFormModal({ editando, onClose, onSaved }: Props) {
             className={controlClass}
             inputMode="decimal"
             value={form.creditLimit}
-            onChange={(event) =>
-              actualizar('creditLimit', event.target.value.replace(/[^0-9.]/g, ''))
-            }
+            onChange={(event) => actualizar('creditLimit', event.target.value)}
             placeholder="Sin límite"
           />
-          <small className="auto-note">
-            Vacío = se le fía sin tope. 0 = no se le vende a crédito. Igual no se le fía si tiene
-            cuentas vencidas.
-          </small>
+          {errores.creditLimit ? (
+            <small className={fieldErrorClass}>{errores.creditLimit}</small>
+          ) : null}
         </label>
         <label className={fieldWideClass}>
           <span className={fieldLabelClass}>Dirección (opcional)</span>
           <input
             className={controlClass}
             value={form.address}
+            disabled={buscando}
             onChange={(event) => actualizar('address', event.target.value)}
             maxLength={250}
           />
@@ -241,7 +270,7 @@ export function ClienteFormModal({ editando, onClose, onSaved }: Props) {
           <Button variant="secondary" type="button" onClick={onClose} disabled={saving}>
             Cancelar
           </Button>
-          <Button disabled={saving}>
+          <Button type="submit" disabled={saving || buscando}>
             {saving ? 'Guardando...' : editando ? 'Guardar cambios' : 'Registrar cliente'}
           </Button>
         </div>

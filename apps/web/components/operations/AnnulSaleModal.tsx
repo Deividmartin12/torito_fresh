@@ -4,6 +4,7 @@ import { Ban, TriangleAlert } from 'lucide-react';
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { moneda } from '../../lib/format';
+import { paymentMethodOptionLabel } from '../../lib/payment-methods';
 import { OperationalPaymentMethod, OperationalReturn, Sale, annulSale } from '../../lib/operations';
 import { SearchableSelect } from '../SearchableSelect';
 import { Button } from '../ui/Button';
@@ -127,7 +128,10 @@ export function AnnulSaleModal({ venta, metodos, onClose, onDone }: Props) {
             <SearchableSelect
               value={metodoId}
               onChange={setMetodoId}
-              options={metodos.map((metodo) => ({ value: metodo.id, label: metodo.nombre }))}
+              options={metodos.map((metodo) => ({
+                value: metodo.id,
+                label: paymentMethodOptionLabel(metodo),
+              }))}
               placeholder="Buscar método"
             />
             <small className="auto-note">

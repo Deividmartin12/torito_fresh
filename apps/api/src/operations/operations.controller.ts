@@ -79,6 +79,16 @@ export class OperationsController {
   createProductType(@Body() dto: CreateProductTypeDto) {
     return this.operations.createProductType(dto);
   }
+  @Permisos('productos.editar')
+  @Patch('product-types/:id')
+  updateProductType(@Param('id') id: string, @Body() dto: CreateProductTypeDto) {
+    return this.operations.updateProductType(id, dto);
+  }
+  @Permisos('productos.editar')
+  @Delete('product-types/:id')
+  deleteProductType(@Param('id') id: string) {
+    return this.operations.deleteProductType(id);
+  }
   @Permisos('almacenes.ver')
   @Get('warehouses')
   warehouses(@CurrentUser() user: AuthUser, @UnidadQuery() unidad?: string) {

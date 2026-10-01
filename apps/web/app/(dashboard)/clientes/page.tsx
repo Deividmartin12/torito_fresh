@@ -21,7 +21,9 @@ export default function ClientesPage() {
   const [buscar, setBuscar] = useState('');
   const [modal, setModal] = useState(false);
   const [editando, setEditando] = useState<Cliente | null>(null);
-  const editable = puede(usePermisos(), 'clientes.editar');
+  const permisos = usePermisos();
+  const editable = puede(permisos, 'clientes.editar');
+  const puedeCrear = puede(permisos, 'clientes.crear');
   const query = useQuery({ queryKey: ['clients'], queryFn: () => api<Cliente[]>('/clients') });
   const clientes = query.data ?? [];
   const loading = query.isPending;
@@ -174,7 +176,7 @@ export default function ClientesPage() {
           <h1>Clientes</h1>
           <span>{clientes.length} clientes</span>
         </div>
-        <AddButton label="Agregar cliente" onClick={() => abrir()} />
+        {puedeCrear ? <AddButton label="Agregar cliente" onClick={() => abrir()} /> : null}
       </div>
       <div className="module-tools">
         <label className="pill-search">

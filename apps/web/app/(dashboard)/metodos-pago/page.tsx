@@ -10,7 +10,7 @@ import { AddButton } from '../../../components/ui/AddButton';
 import { Badge } from '../../../components/ui/Badge';
 import { IconButton } from '../../../components/ui/IconButton';
 import { api } from '../../../lib/api';
-import { getPaymentMethods, PaymentMethod } from '../../../lib/payment-methods';
+import { getPaymentMethods, PaymentMethod, sortPaymentMethods } from '../../../lib/payment-methods';
 
 type TrabajadorOption = { id: string; nombre: string };
 
@@ -77,9 +77,11 @@ export default function MetodosPagoPage() {
   }
   function handleSaved(saved: PaymentMethod) {
     queryClient.setQueryData<PaymentMethod[]>(['payment-methods'], (current) =>
-      current?.some((item) => item.id === saved.id)
-        ? current.map((item) => (item.id === saved.id ? saved : item))
-        : [...(current ?? []), saved].sort((a, b) => a.nombre.localeCompare(b.nombre)),
+      sortPaymentMethods(
+        current?.some((item) => item.id === saved.id)
+          ? current.map((item) => (item.id === saved.id ? saved : item))
+          : [...(current ?? []), saved],
+      ),
     );
     close();
   }

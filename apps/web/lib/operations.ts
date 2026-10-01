@@ -1,4 +1,5 @@
 import { api } from './api';
+import type { PaymentMethod } from './payment-methods';
 
 export type PaymentType = 'CONTADO' | 'CREDITO' | 'MIXTO';
 
@@ -152,7 +153,8 @@ export type OperationalAccount = {
   pagos: AccountPayment[];
 };
 
-export type OperationalPaymentMethod = { id: string; nombre: string };
+/** Misma entidad del CRUD; la ruta operativa solo filtra cuáles puede usar el trabajador. */
+export type OperationalPaymentMethod = PaymentMethod;
 
 export type OperationalPaymentPayload = {
   cuentaId: number;

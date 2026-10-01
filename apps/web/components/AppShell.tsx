@@ -25,6 +25,7 @@ import {
   ShieldCheck,
   ShoppingCart,
   Store,
+  Tags as TagsIcon,
   Truck,
   UserRoundCog,
   Users,
@@ -91,7 +92,7 @@ function IdentidadUsuario({
   const surface =
     variant === 'menu'
       ? 'mb-1 rounded-ui border border-line bg-surface-soft'
-      : 'border-t border-line bg-surface';
+      : 'border-t border-line bg-surface rounded-br-[18px] overflow-hidden';
 
   return (
     <div
@@ -154,6 +155,7 @@ const groups = [
     icon: ReceiptText,
     links: [
       { href: '/clientes', label: 'Clientes', icon: Users },
+      { href: '/ventas/nueva', label: 'Venta normal', icon: ShoppingCart },
       { href: '/ventas/rapida', label: 'Venta rápida', icon: Zap },
       { href: '/ventas', label: 'Ventas', icon: ReceiptText },
       { href: '/recargas', label: 'Frecuencia de recarga', icon: CalendarClock },
@@ -173,6 +175,7 @@ const groups = [
     icon: Boxes,
     links: [
       { href: '/productos', label: 'Productos e insumos', icon: Package },
+      { href: '/tipos-producto', label: 'Tipos de producto', icon: TagsIcon },
       { href: '/almacenes', label: 'Almacenes', icon: Store },
       { href: '/conteo-inventario', label: 'Conteo y cuadre', icon: ClipboardCheck },
       { href: '/movimientos', label: 'Kardex', icon: ArrowLeftRight },
@@ -184,6 +187,11 @@ const groups = [
     links: [
       { href: '/cobranzas', label: 'Cobranzas', icon: WalletCards },
       { href: '/metodos-pago', label: 'Métodos de pago', icon: CreditCard },
+      {
+        href: '/categorias-metodos-pago',
+        label: 'Categorías de métodos de pago',
+        icon: TagsIcon,
+      },
       { href: '/carga-diaria', label: 'Carga diaria', icon: ClipboardList },
     ],
   },

@@ -12,7 +12,7 @@ import {
 import { RE_DOCUMENTO, RE_USERNAME } from '../common/validacion';
 import { EsCelular, EsEmailOpcional, EsNombrePersona } from '../common/validators';
 
-const CARGOS = ['Administrador', 'Almacenero', 'Vendedor', 'Repartidor', 'Socio'] as const;
+const CARGOS = ['Administrador', 'Almacenero', 'Vendedor', 'Socio'] as const;
 const TIPOS_DOCUMENTO = ['DNI', 'CE', 'PAS'] as const;
 
 /**

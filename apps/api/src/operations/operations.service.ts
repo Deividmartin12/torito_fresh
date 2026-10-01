@@ -307,6 +307,64 @@ export class OperationsService {
     return { id: row.id.toString(), nombre: row.nombre };
   }
 
+  private productTypeId(id: string): bigint {
+    if (!/^\d+$/.test(id) || BigInt(id) < 1n) {
+      throw new NotFoundException('Tipo de producto no encontrado');
+    }
+    return BigInt(id);
+  }
+
+  private productTypeError(error: unknown): never {
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      if (error.code === 'P2025') throw new NotFoundException('Tipo de producto no encontrado');
+      if (error.code === 'P2002') {
+        throw new BadRequestException('Ya existe un tipo de producto con ese nombre');
+      }
+      if (error.code === 'P2003') {
+        throw new BadRequestException(
+          'No se puede eliminar este tipo porque tiene productos asociados. Cambia primero el tipo de esos productos.',
+        );
+      }
+    }
+    throw error;
+  }
+
+  async updateProductType(id: string, dto: CreateProductTypeDto) {
+    const typeId = this.productTypeId(id);
+    try {
+      const row = await this.prisma.tipoProducto.update({
+        where: { id: typeId },
+        data: { nombre: dto.nombre.trim() },
+      });
+      return { id: row.id.toString(), nombre: row.nombre };
+    } catch (error) {
+      this.productTypeError(error);
+    }
+  }
+
+  async deleteProductType(id: string) {
+    const typeId = this.productTypeId(id);
+    const usado = await this.prisma.producto.count({ where: { tipoProductoId: typeId } });
+    const mensajeEnUso =
+      'No se puede eliminar este tipo porque tiene productos asociados. Cambia primero el tipo de esos productos.';
+    if (usado) throw new BadRequestException(mensajeEnUso);
+    try {
+      // La FK también protege frente a un producto creado mientras se elimina el tipo.
+      await this.prisma.tipoProducto.delete({ where: { id: typeId } });
+      return { id };
+    } catch (error) {
+      // PostgreSQL RESTRICT puede llegar como error desconocido en Prisma 5.
+      if (
+        error instanceof Prisma.PrismaClientUnknownRequestError &&
+        error.message.includes('23001') &&
+        error.message.includes('producto_tipo_producto_id_fkey')
+      ) {
+        throw new BadRequestException(mensajeEnUso);
+      }
+      this.productTypeError(error);
+    }
+  }
+
   async createProduct(dto: CreateOperationalProductDto) {
     const codigo = await nextSequentialCode('PRD', async () => {
       const ultimo = await this.prisma.producto.findFirst({
@@ -561,24 +619,7 @@ export class OperationsService {
    */
   async paymentMethods(actor: AuthUser, trabajadorId?: string) {
     const efectivo = await resolverTrabajadorAutor(this.prisma, actor, trabajadorId);
-    const rows = await this.prisma.metodoPago.findMany({
-      where: {
-        estado: true,
-        categoria: { estado: true },
-        OR: [{ trabajadorId: null }, { trabajadorId: efectivo }],
-      },
-      include: { categoria: true },
-      orderBy: [{ categoria: { nombre: 'asc' } }, { referencia: 'asc' }],
-    });
-    return rows.map((row) => ({
-      id: row.id.toString(),
-      // Se mantiene el campo `nombre` con la etiqueta ya armada para no cambiar la forma
-      // que consumen el formulario de venta y el modal de cobro.
-      nombre: etiquetaMetodoPago(row),
-      categoria: row.categoria?.nombre ?? null,
-      referencia: row.referencia,
-      propio: row.trabajadorId !== null,
-    }));
+    return this.paymentMethodsService.availableForWorker(efectivo);
   }
 
   /** Categorías activas para el combo "+ Agregar método de pago" de venta y cobro. */

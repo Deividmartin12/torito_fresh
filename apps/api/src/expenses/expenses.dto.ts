@@ -13,10 +13,10 @@ export class CreateExpenseDto {
   @IsDateString()
   fecha: string;
 
+  @IsOptional()
   @IsString()
-  @Matches(/\S/, { message: 'El concepto del gasto es obligatorio' })
   @MaxLength(200)
-  concepto: string;
+  concepto?: string;
 
   // Id de la fila de `categoria_gasto`. El gasto ya no guarda el nombre: se elige una
   // categoría del catálogo o no hay gasto.
