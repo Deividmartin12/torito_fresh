@@ -1,22 +1,29 @@
 import { api } from './api';
 
-export type CargaCategoria = { id: string; nombre: string };
+export type CargaMetodo = { id: string; nombre: string; categoriaId: string };
 
 export type CargaProducto = { id: string; nombre: string; precio: number; retornable: boolean };
 
 /** Lo que ya se cargó para un día. Solo vienen los días que tienen algo. */
 export type CargaDiaRegistrado = {
   fecha: string;
-  produccion: { cantidad: number; codigo: string | null } | null;
-  ventas: { categoriaId: string; monto: number; cantidad: number; codigo: string | null }[];
-  gasto: { monto: number } | null;
+  produccion: { cantidad: number; partes: number[] | null; codigo: string | null } | null;
+  ventas: {
+    metodoPagoId: string;
+    categoriaId: string;
+    monto: number;
+    cantidad: number;
+    codigo: string | null;
+  }[];
+  gasto: { monto: number; partes: number[] | null } | null;
 };
 
 export type CargaResumen = {
   /** Hoy en Lima (YYYY-MM-DD): no se cargan días posteriores. */
   hoy: string;
   controlaInventario: boolean;
-  categorias: CargaCategoria[];
+  metodos: CargaMetodo[];
+  historicos: CargaMetodo[];
   productos: CargaProducto[];
   productoPorDefectoId: string | null;
   dias: CargaDiaRegistrado[];
@@ -25,8 +32,10 @@ export type CargaResumen = {
 export type CargaDiaPayload = {
   fecha: string;
   produccion?: number;
-  ventas?: { categoriaId: number; monto: number }[];
+  producciones?: number[];
+  ventas?: { metodoPagoId: number; monto: number }[];
   gasto?: number;
+  gastos?: number[];
 };
 
 export type CargaResultado = { fecha: string; ok: boolean; error?: string };

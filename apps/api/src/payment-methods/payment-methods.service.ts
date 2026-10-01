@@ -69,7 +69,6 @@ export class PaymentMethodsService {
     const row = await this.prisma.metodoPago.create({
       data: {
         categoriaId: categoria.id,
-        nombre: this.limpiar(dto.nombre),
         referencia,
         trabajadorId,
         estado: dto.estado ?? true,
@@ -103,7 +102,6 @@ export class PaymentMethodsService {
       where: { id: current.id },
       data: {
         ...(dto.categoriaId !== undefined ? { categoriaId: categoria!.id } : {}),
-        ...(dto.nombre !== undefined ? { nombre: this.limpiar(dto.nombre) } : {}),
         ...(dto.referencia !== undefined ? { referencia } : {}),
         ...(dto.trabajadorId !== undefined ? { trabajadorId } : {}),
         ...(dto.estado !== undefined ? { estado: dto.estado } : {}),
@@ -281,7 +279,6 @@ export class PaymentMethodsService {
       id: row.id.toString(),
       // `nombre` lleva la etiqueta ya armada, que es lo que se muestra en toda la app.
       nombre: etiquetaMetodoPago(row),
-      nombreLibre: row.nombre,
       categoriaId: row.categoriaId?.toString() ?? null,
       categoria: row.categoria?.nombre ?? null,
       icono: row.categoria?.icono ?? null,

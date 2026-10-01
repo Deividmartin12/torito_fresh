@@ -1,6 +1,7 @@
 import { BadRequestException, HttpException, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { AuthUser } from '../common/auth-user';
+import { AuthUser, tienePermiso } from '../common/auth-user';
+import { etiquetaMetodoPago } from '../common/payment-method-label';
 import { CATEGORIA_GASTOS_DEL_DIA } from '../common/expense-categories';
 import { limaTodayKey } from '../common/receivables';
 import { TRANSACCION_DE_STOCK, Transaction } from '../common/stock';
@@ -33,7 +34,7 @@ const ordenCategoria = (nombre: string) => {
  * se vendieron S/ A en efectivo y S/ B por Yape, y se gastó S/ C".
  *
  * Cada total se convierte en el registro real que le corresponde —una orden de producción,
- * una venta por categoría de pago, un gasto—, fechado ese día. Así los números aparecen solos
+ * una venta por método de pago, un gasto—, fechado ese día. Así los números aparecen solos
  * en Ventas, Producción, Gastos, el kardex, el panel y los reportes, sin que ninguna pantalla
  * tenga que saber que existió esta carga. La tabla `registro_diario` solo recuerda qué se
  * cargó por acá, para no duplicar un día.
@@ -59,12 +60,23 @@ export class CargaDiariaService {
       actor,
       unidadSolicitada: unidad,
     });
-    const [controlaInventario, categorias, productos, registros] = await Promise.all([
+    const trabajadorId = await exigirTrabajadorId(this.prisma, actor.userId);
+    const [controlaInventario, metodos, productos, registros] = await Promise.all([
       unidadControlaInventario(this.prisma, unidadNegocioId),
-      this.prisma.categoriaMetodoPago.findMany({
-        where: { estado: true },
+      this.prisma.metodoPago.findMany({
+        where: {
+          estado: true,
+          categoria: { estado: true },
+          OR: [
+            { trabajadorId: null },
+            { trabajadorId },
+            ...(tienePermiso(actor, 'operaciones.atribuir')
+              ? [{ trabajador: { estado: true, unidadNegocioId } }]
+              : []),
+          ],
+        },
         orderBy: { id: 'asc' },
-        select: { id: true, nombre: true },
+        include: { categoria: true },
       }),
       this.prisma.producto.findMany({
         where: { estado: true },
@@ -98,9 +110,15 @@ export class CargaDiariaService {
       string,
       {
         fecha: string;
-        produccion: { cantidad: number; codigo: string | null } | null;
-        ventas: { categoriaId: string; monto: number; cantidad: number; codigo: string | null }[];
-        gasto: { monto: number } | null;
+        produccion: { cantidad: number; partes: number[] | null; codigo: string | null } | null;
+        ventas: {
+          metodoPagoId: string;
+          categoriaId: string;
+          monto: number;
+          cantidad: number;
+          codigo: string | null;
+        }[];
+        gasto: { monto: number; partes: number[] | null } | null;
       }
     >();
     for (const row of registros) {
@@ -109,16 +127,25 @@ export class CargaDiariaService {
       if (row.concepto === 'PRODUCCION')
         dia.produccion = {
           cantidad: row.cantidad,
+          partes: Array.isArray(row.partes) ? row.partes.map(Number) : null,
           codigo: row.ordenProduccionId ? (codigoOrden.get(row.ordenProduccionId) ?? null) : null,
         };
       else if (row.concepto === 'VENTA')
         dia.ventas.push({
+          metodoPagoId:
+            row.metodoPagoId === 0n
+              ? `anterior:${row.categoriaMetodoPagoId}`
+              : row.metodoPagoId.toString(),
           categoriaId: row.categoriaMetodoPagoId.toString(),
           monto: Number(row.monto),
           cantidad: row.cantidad,
           codigo: row.ventaId ? codigoVenta(row.ventaId) : null,
         });
-      else if (row.concepto === 'GASTO') dia.gasto = { monto: Number(row.monto) };
+      else if (row.concepto === 'GASTO')
+        dia.gasto = {
+          monto: Number(row.monto),
+          partes: Array.isArray(row.partes) ? row.partes.map(Number) : null,
+        };
       porDia.set(fecha, dia);
     }
 
@@ -126,9 +153,18 @@ export class CargaDiariaService {
       hoy: limaTodayKey(),
       controlaInventario,
       // Efectivo y Yape primero, que son los que llegan todos los días; el resto después.
-      categorias: [...categorias]
-        .sort((a, b) => ordenCategoria(a.nombre) - ordenCategoria(b.nombre))
-        .map((row) => ({ id: row.id.toString(), nombre: row.nombre })),
+      metodos: [...metodos]
+        .sort(
+          (a, b) =>
+            ordenCategoria(a.categoria?.nombre ?? '') - ordenCategoria(b.categoria?.nombre ?? '') ||
+            etiquetaMetodoPago(a).localeCompare(etiquetaMetodoPago(b), 'es', { numeric: true }),
+        )
+        .map((row) => ({
+          id: row.id.toString(),
+          nombre: etiquetaMetodoPago(row),
+          categoriaId: row.categoriaId?.toString() ?? '0',
+        })),
+      historicos: await this.metodosHistoricos(registros, metodos),
       productos: terminados.map((row) => ({
         id: row.id.toString(),
         nombre: row.nombre,
@@ -202,27 +238,37 @@ export class CargaDiariaService {
     if (fecha > limaTodayKey())
       throw new BadRequestException('No se pueden cargar días que todavía no pasaron');
 
+    if (
+      (dia.producciones && dia.produccion !== undefined) ||
+      (dia.gastos && dia.gasto !== undefined)
+    )
+      throw new BadRequestException('Envía las dos partes o el total, no ambos');
+    dia = {
+      ...dia,
+      produccion: dia.producciones ? dia.producciones.reduce((a, b) => a + b, 0) : dia.produccion,
+      gasto: dia.gastos ? dia.gastos.reduce((a, b) => a + Math.round(b * 100), 0) / 100 : dia.gasto,
+    };
+    if ((dia.produccion ?? 0) > 1_000_000 || (dia.gasto ?? 0) > 9_999_999)
+      throw new BadRequestException('El total de producción o gastos supera el máximo permitido');
     const ventas = (dia.ventas ?? []).filter((venta) => venta.monto > 0);
-    const categoriasRepetidas = new Set(ventas.map((venta) => venta.categoriaId));
-    if (categoriasRepetidas.size !== ventas.length)
+    const metodosUnicos = new Set(ventas.map((venta) => venta.metodoPagoId));
+    if (metodosUnicos.size !== ventas.length)
       throw new BadRequestException('Cada método de pago va una sola vez por día');
     if (!dia.produccion && !ventas.length && !dia.gasto)
       throw new BadRequestException('El día no tiene nada para registrar');
 
     const yaCargados = await tx.registroDiario.findMany({
       where: { unidadNegocioId: ctx.unidadNegocioId, fecha: diaUtc(fecha) },
-      select: { concepto: true, categoriaMetodoPagoId: true, cantidad: true },
+      select: { concepto: true, categoriaMetodoPagoId: true, metodoPagoId: true, cantidad: true },
     });
-    const cargado = (concepto: Concepto, categoriaId = 0n) =>
-      yaCargados.some(
-        (row) => row.concepto === concepto && row.categoriaMetodoPagoId === categoriaId,
-      );
+    const cargado = (concepto: Concepto, metodoId = 0n) =>
+      yaCargados.some((row) => row.concepto === concepto && row.metodoPagoId === metodoId);
     if (dia.produccion && cargado('PRODUCCION'))
       throw new BadRequestException('La producción de este día ya estaba cargada');
     if (dia.gasto && cargado('GASTO'))
       throw new BadRequestException('El gasto de este día ya estaba cargado');
     for (const venta of ventas)
-      if (cargado('VENTA', BigInt(venta.categoriaId)))
+      if (cargado('VENTA', BigInt(venta.metodoPagoId)))
         throw new BadRequestException('Las ventas de este día ya estaban cargadas');
 
     const trabajadorId = await exigirTrabajadorId(tx, ctx.actor.userId);
@@ -253,6 +299,7 @@ export class CargaDiariaService {
           ...bitacora,
           concepto: 'PRODUCCION',
           cantidad: dia.produccion,
+          ...(dia.producciones ? { partes: dia.producciones } : {}),
           ordenProduccionId: ordenId,
         },
       });
@@ -283,8 +330,33 @@ export class CargaDiariaService {
         );
       const clienteId = await this.clienteDelDia(tx, ctx.unidadNegocioId);
       for (const [indice, venta] of ventas.entries()) {
-        const categoriaId = BigInt(venta.categoriaId);
-        const metodoPagoId = await this.metodoGlobal(tx, categoriaId);
+        const metodoPagoId = BigInt(venta.metodoPagoId);
+        const metodo = await tx.metodoPago.findFirst({
+          where: { id: metodoPagoId, estado: true, categoria: { estado: true } },
+          include: { trabajador: true },
+        });
+        if (!metodo || !metodo.categoriaId)
+          throw new BadRequestException('El método de pago no está disponible');
+        if (
+          metodo.trabajadorId !== null &&
+          metodo.trabajadorId !== trabajadorId &&
+          (!tienePermiso(ctx.actor, 'operaciones.atribuir') ||
+            !metodo.trabajador?.estado ||
+            metodo.trabajador.unidadNegocioId !== ctx.unidadNegocioId)
+        )
+          throw new BadRequestException('El método de pago pertenece a otro trabajador');
+        const categoriaId = metodo.categoriaId;
+        if (
+          yaCargados.some(
+            (row) =>
+              row.concepto === 'VENTA' &&
+              row.metodoPagoId === 0n &&
+              row.categoriaMetodoPagoId === categoriaId,
+          )
+        )
+          throw new BadRequestException(
+            'Esta categoría tiene una carga anterior sin método identificado; revisa esa venta antes de volver a cargarla',
+          );
         const items = lineasPorMonto(
           venta.monto,
           cantidades?.[indice] ?? cantidadPorPrecio(venta.monto, ctx.producto.precio),
@@ -295,6 +367,9 @@ export class CargaDiariaService {
           tx as Transaction,
           {
             clienteId: Number(clienteId),
+            ...(metodo.trabajadorId !== null && metodo.trabajadorId !== trabajadorId
+              ? { trabajadorId: Number(metodo.trabajadorId) }
+              : {}),
             tipoPago: 'CONTADO',
             pagosIniciales: [{ metodoPagoId: Number(metodoPagoId), monto: venta.monto }],
             items,
@@ -310,6 +385,7 @@ export class CargaDiariaService {
             ...bitacora,
             concepto: 'VENTA',
             categoriaMetodoPagoId: categoriaId,
+            metodoPagoId,
             monto: venta.monto,
             cantidad,
             ventaId,
@@ -333,7 +409,13 @@ export class CargaDiariaService {
         },
       });
       await tx.registroDiario.create({
-        data: { ...bitacora, concepto: 'GASTO', monto: dia.gasto, gastoId: gasto.id },
+        data: {
+          ...bitacora,
+          concepto: 'GASTO',
+          monto: dia.gasto,
+          ...(dia.gastos ? { partes: dia.gastos } : {}),
+          gastoId: gasto.id,
+        },
       });
     }
   }
@@ -412,28 +494,52 @@ export class CargaDiariaService {
     return creado.id;
   }
 
-  /**
-   * El método de pago con el que se registra lo cobrado en una categoría. Tiene que ser uno
-   * global (sin dueño): los de un trabajador solo los puede usar ese trabajador. Si la
-   * categoría no tiene ninguno, se crea.
-   */
-  private async metodoGlobal(tx: Prisma.TransactionClient, categoriaId: bigint) {
-    const categoria = await tx.categoriaMetodoPago.findFirst({
-      where: { id: categoriaId, estado: true },
-      select: { id: true },
+  private async metodosHistoricos(
+    registros: { concepto: string; metodoPagoId: bigint; categoriaMetodoPagoId: bigint }[],
+    disponibles: { id: bigint }[],
+  ) {
+    const ids = [
+      ...new Set(
+        registros
+          .filter(
+            (r) =>
+              r.concepto === 'VENTA' &&
+              r.metodoPagoId !== 0n &&
+              !disponibles.some((m) => m.id === r.metodoPagoId),
+          )
+          .map((r) => r.metodoPagoId),
+      ),
+    ];
+    const filas = await this.prisma.metodoPago.findMany({
+      where: { id: { in: ids } },
+      include: { categoria: true },
     });
-    if (!categoria) throw new BadRequestException('Uno de los métodos de pago no está disponible');
-    const existente = await tx.metodoPago.findFirst({
-      where: { categoriaId, trabajadorId: null, estado: true },
-      orderBy: { id: 'asc' },
-      select: { id: true },
+    const historicos = ids.map((id) => {
+      const metodo = filas.find((m) => m.id === id);
+      return {
+        id: id.toString(),
+        nombre: `${metodo ? etiquetaMetodoPago(metodo) : 'Método ' + id} (histórico)`,
+        categoriaId: registros.find((r) => r.metodoPagoId === id)!.categoriaMetodoPagoId.toString(),
+      };
     });
-    if (existente) return existente.id;
-    const creado = await tx.metodoPago.create({
-      data: { categoriaId },
-      select: { id: true },
+    const categorias = [
+      ...new Set(
+        registros
+          .filter((r) => r.concepto === 'VENTA' && r.metodoPagoId === 0n)
+          .map((r) => r.categoriaMetodoPagoId),
+      ),
+    ];
+    const nombres = await this.prisma.categoriaMetodoPago.findMany({
+      where: { id: { in: categorias } },
     });
-    return creado.id;
+    return [
+      ...historicos,
+      ...categorias.map((id) => ({
+        id: `anterior:${id}`,
+        nombre: `${nombres.find((c) => c.id === id)?.nombre ?? 'Categoría'} (carga anterior)`,
+        categoriaId: id.toString(),
+      })),
+    ];
   }
 
   private async categoriaGastosDelDia(tx: Prisma.TransactionClient) {

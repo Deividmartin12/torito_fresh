@@ -3,12 +3,11 @@ import { api } from './api';
 /**
  * Un método de pago es una categoría (YAPE) + una referencia (el número) + un dueño
  * opcional. `nombre` llega ya armado desde el servidor y es lo que se muestra en toda la app
- * (venta, cobro, reportes); `nombreLibre` es la etiqueta editable ("Yape del negocio").
+ * (venta, cobro, reportes) y se forma con categoría + referencia.
  */
 export type PaymentMethod = {
   id: string;
   nombre: string;
-  nombreLibre: string | null;
   categoriaId: string | null;
   categoria: string | null;
   icono: string | null;
@@ -29,7 +28,6 @@ export type PaymentMethodCategory = {
 
 export type PaymentMethodPayload = {
   categoriaId: string;
-  nombre?: string;
   referencia?: string;
   trabajadorId?: string;
   estado?: boolean;
@@ -100,11 +98,7 @@ export function deletePaymentMethodCategory(id: string) {
  * administración (solo ADMIN), este endpoint lo puede usar cualquier operador y siempre
  * registra el método a su propio nombre.
  */
-export function createOwnPaymentMethod(payload: {
-  categoriaId: string;
-  referencia?: string;
-  nombre?: string;
-}) {
+export function createOwnPaymentMethod(payload: { categoriaId: string; referencia?: string }) {
   return api<PaymentMethod>('/operations/payment-methods', {
     method: 'POST',
     body: JSON.stringify(payload),

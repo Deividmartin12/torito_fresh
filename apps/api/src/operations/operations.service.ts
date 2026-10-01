@@ -638,7 +638,6 @@ export class OperationsService {
     return this.paymentMethodsService.create({
       categoriaId: dto.categoriaId,
       referencia: dto.referencia,
-      nombre: dto.nombre,
       trabajadorId: trabajadorId.toString(),
     });
   }
@@ -659,7 +658,7 @@ export class OperationsService {
         venta: true,
         pagos: {
           orderBy: { fechaPago: 'desc' },
-          include: { metodoPago: true, trabajador: true },
+          include: { metodoPago: { include: { categoria: true } }, trabajador: true },
         },
       },
     });
@@ -2356,7 +2355,7 @@ export class OperationsService {
         venta: true,
         pagos: {
           orderBy: { fechaPago: 'desc' },
-          include: { metodoPago: true, trabajador: true },
+          include: { metodoPago: { include: { categoria: true } }, trabajador: true },
         },
       },
     });
@@ -2369,7 +2368,7 @@ export class OperationsService {
       id: row.id.toString(),
       fecha: row.fechaPago,
       monto: Number(row.monto),
-      metodo: row.metodoPago.nombre,
+      metodo: etiquetaMetodoPago(row.metodoPago),
       observaciones: row.observaciones,
       estado: row.estado,
       trabajador: `${row.trabajador.nombres} ${row.trabajador.apellidos}`.trim(),

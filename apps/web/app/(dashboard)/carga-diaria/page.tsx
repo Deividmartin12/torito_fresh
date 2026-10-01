@@ -20,9 +20,16 @@ import { moneda } from '../../../lib/format';
 const MAX_DIAS = 93;
 
 type Columna =
-  | { clave: 'produccion'; titulo: string; tipo: 'cantidad' }
-  | { clave: `venta:${string}`; titulo: string; tipo: 'monto'; categoriaId: string }
-  | { clave: 'gasto'; titulo: string; tipo: 'monto' };
+  | { clave: 'produccion1' | 'produccion2'; titulo: string; tipo: 'cantidad' }
+  | {
+      clave: `venta:${string}`;
+      titulo: string;
+      tipo: 'monto';
+      metodoPagoId: string;
+      categoriaId: string;
+      historico?: boolean;
+    }
+  | { clave: 'gasto1' | 'gasto2'; titulo: string; tipo: 'monto' };
 
 /** Lo tecleado y todavía no guardado: fecha → columna → texto. */
 type Borradores = Record<string, Record<string, string>>;
@@ -83,13 +90,30 @@ function filtrarTecleo(texto: string, entero: boolean) {
 /** Valor ya registrado de una columna para un día, si lo hay. */
 function registrado(dia: CargaDiaRegistrado | undefined, columna: Columna) {
   if (!dia) return null;
-  if (columna.clave === 'produccion')
-    return dia.produccion
-      ? { texto: String(dia.produccion.cantidad), detalle: dia.produccion.codigo ?? 'Producción' }
-      : null;
-  if (columna.clave === 'gasto')
-    return dia.gasto ? { texto: moneda(dia.gasto.monto), detalle: 'Gasto del día' } : null;
-  const venta = dia.ventas.find((item) => item.categoriaId === columna.categoriaId);
+  if (columna.clave === 'produccion1' || columna.clave === 'produccion2') {
+    const valor = dia.produccion;
+    if (!valor) return null;
+    const indice = columna.clave === 'produccion1' ? 0 : 1;
+    return {
+      texto: valor.partes
+        ? String(valor.partes[indice])
+        : indice === 0
+          ? String(valor.cantidad)
+          : '—',
+      detalle: valor.partes ? (valor.codigo ?? 'Producción') : 'Total anterior, sin desglose',
+    };
+  }
+  if (columna.clave === 'gasto1' || columna.clave === 'gasto2') {
+    const valor = dia.gasto;
+    if (!valor) return null;
+    const indice = columna.clave === 'gasto1' ? 0 : 1;
+    return {
+      texto: valor.partes ? moneda(valor.partes[indice]) : indice === 0 ? moneda(valor.monto) : '—',
+      detalle: valor.partes ? 'Gasto del día' : 'Total anterior, sin desglose',
+    };
+  }
+  if (!('metodoPagoId' in columna)) return null;
+  const venta = dia.ventas.find((item) => item.metodoPagoId === columna.metodoPagoId);
   return venta
     ? {
         texto: moneda(venta.monto),
@@ -145,19 +169,35 @@ export default function CargaDiariaPage() {
   const columnas = useMemo<Columna[]>(() => {
     if (!resumen) return [];
     return [
-      ...(resumen.controlaInventario
-        ? [{ clave: 'produccion', titulo: 'Producción', tipo: 'cantidad' } as const]
-        : []),
-      ...resumen.categorias.map(
-        (categoria) =>
+      ...resumen.metodos.map(
+        (metodo) =>
           ({
-            clave: `venta:${categoria.id}`,
-            titulo: `Ventas ${categoria.nombre.toLocaleLowerCase('es')}`,
+            clave: `venta:${metodo.id}`,
+            titulo: metodo.nombre,
             tipo: 'monto',
-            categoriaId: categoria.id,
+            metodoPagoId: metodo.id,
+            categoriaId: metodo.categoriaId,
           }) as const,
       ),
-      { clave: 'gasto', titulo: 'Gastos', tipo: 'monto' } as const,
+      ...resumen.historicos.map(
+        (metodo) =>
+          ({
+            clave: `venta:${metodo.id}`,
+            titulo: metodo.nombre,
+            tipo: 'monto',
+            metodoPagoId: metodo.id,
+            categoriaId: metodo.categoriaId,
+            historico: true,
+          }) as const,
+      ),
+      { clave: 'gasto1', titulo: 'Gastos 1', tipo: 'monto' } as const,
+      { clave: 'gasto2', titulo: 'Gastos 2', tipo: 'monto' } as const,
+      ...(resumen.controlaInventario
+        ? [
+            { clave: 'produccion1', titulo: 'Producción 1', tipo: 'cantidad' } as const,
+            { clave: 'produccion2', titulo: 'Producción 2', tipo: 'cantidad' } as const,
+          ]
+        : []),
     ];
   }, [resumen]);
 
@@ -168,7 +208,17 @@ export default function CargaDiariaPage() {
 
   const editable = useCallback(
     (fecha: string, columna: Columna) =>
-      fecha <= (resumen?.hoy ?? hoyLocal) && !registrado(registradosPorDia.get(fecha), columna),
+      fecha <= (resumen?.hoy ?? hoyLocal) &&
+      !('historico' in columna && columna.historico) &&
+      !registrado(registradosPorDia.get(fecha), columna) &&
+      !(
+        'categoriaId' in columna &&
+        registradosPorDia
+          .get(fecha)
+          ?.ventas.some(
+            (v) => v.metodoPagoId.startsWith('anterior:') && v.categoriaId === columna.categoriaId,
+          )
+      ),
     [registradosPorDia, resumen?.hoy, hoyLocal],
   );
 
@@ -204,7 +254,7 @@ export default function CargaDiariaPage() {
       const celda = document.querySelector<HTMLInputElement>(
         `[data-celda="${destino}-${col + paso[1]}"]`,
       );
-      if (celda) {
+      if (celda && !celda.disabled) {
         celda.focus();
         celda.select();
         return;
@@ -248,8 +298,8 @@ export default function CargaDiariaPage() {
     (suma, [, valores]) => {
       for (const [clave, valor] of Object.entries(valores)) {
         const numero = Number(valor) || 0;
-        if (clave === 'produccion') suma.produccion += numero;
-        else if (clave === 'gasto') suma.gastos += numero;
+        if (clave.startsWith('produccion')) suma.produccion += numero;
+        else if (clave.startsWith('gasto')) suma.gastos += numero;
         else suma.ventas += numero;
       }
       return suma;
@@ -258,6 +308,7 @@ export default function CargaDiariaPage() {
   );
 
   async function guardar() {
+    if (guardando) return;
     if (!productoId) {
       toast.error('Elige el producto que se produce y se vende.');
       return;
@@ -266,14 +317,18 @@ export default function CargaDiariaPage() {
       const ventas = Object.entries(valores)
         .filter(([clave, valor]) => clave.startsWith('venta:') && Number(valor) > 0)
         .map(([clave, valor]) => ({
-          categoriaId: Number(clave.slice('venta:'.length)),
+          metodoPagoId: Number(clave.slice('venta:'.length)),
           monto: Number(valor),
         }));
       return {
         fecha,
-        ...(Number(valores.produccion) > 0 ? { produccion: Number(valores.produccion) } : {}),
+        ...([valores.produccion1, valores.produccion2].some((v) => Number(v) > 0)
+          ? { producciones: [Number(valores.produccion1) || 0, Number(valores.produccion2) || 0] }
+          : {}),
         ...(ventas.length ? { ventas } : {}),
-        ...(Number(valores.gasto) > 0 ? { gasto: Number(valores.gasto) } : {}),
+        ...([valores.gasto1, valores.gasto2].some((v) => Number(v) > 0)
+          ? { gastos: [Number(valores.gasto1) || 0, Number(valores.gasto2) || 0] }
+          : {}),
       };
     });
     if (!payload.length) return;
@@ -320,8 +375,9 @@ export default function CargaDiariaPage() {
           <span className="operation-eyebrow">Caja y cuentas</span>
           <h1>Carga diaria</h1>
           <p>
-            Carga los totales de cada día —producción, ventas por método de pago y gastos— y se
-            registran como producción, ventas y gastos reales de esa fecha.
+            Carga las ventas por método de pago, gastos y producción de bidones de cada día. Se
+            suman Gastos 1 + Gastos 2 y Producción 1 + Producción 2 para registrar los totales de
+            esa fecha.
           </p>
         </div>
       </div>
@@ -450,9 +506,29 @@ export default function CargaDiariaPage() {
                           onPaste={(event) => pegar(event, fila, col)}
                           onFocus={(event) => event.target.select()}
                           aria-label={`${columna.titulo} del ${numero} (${dia})`}
-                          disabled={guardando}
+                          disabled={guardando || !editable(fecha, columna)}
                         />
                       )}
+                      {columna.clave === 'gasto2' ? (
+                        <small className="block pt-1 text-right text-xs text-muted">
+                          Total:{' '}
+                          {moneda(
+                            registradoDia?.gasto?.monto ??
+                              (Math.round((Number(borrador?.gasto1) || 0) * 100) +
+                                Math.round((Number(borrador?.gasto2) || 0) * 100)) /
+                                100,
+                          )}
+                        </small>
+                      ) : null}
+                      {columna.clave === 'produccion2' ? (
+                        <small className="block pt-1 text-right text-xs text-muted">
+                          Total:{' '}
+                          {registradoDia?.produccion?.cantidad ??
+                            (Number(borrador?.produccion1) || 0) +
+                              (Number(borrador?.produccion2) || 0)}{' '}
+                          bidones
+                        </small>
+                      ) : null}
                     </label>
                   );
                 })}

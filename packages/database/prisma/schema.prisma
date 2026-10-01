@@ -343,7 +343,7 @@ model CategoriaGasto {
 }
 
 // Bitácora de la carga diaria: qué se registró como total de un día (producción, venta por
-// categoría de pago, gasto) y qué registro real generó. Es la que dice que un día ya está
+// método de pago, gasto) y qué registro real generó. Es la que dice que un día ya está
 // cargado, para no duplicarlo. Las columnas de enlace no llevan FK a propósito: la venta, la
 // orden o el gasto viven su vida (se anulan, se editan) y esta fila solo recuerda el origen.
 model RegistroDiario {
@@ -355,6 +355,9 @@ model RegistroDiario {
   // Solo en las ventas; 0 en los demás conceptos para que el índice único funcione (los
   // NULL no colisionan en Postgres).
   categoriaMetodoPagoId BigInt   @default(0) @map("categoria_metodo_pago_id")
+  metodoPagoId          BigInt   @default(0) @map("metodo_pago_id")
+  // Dos importes de gasto o dos cantidades de producción; null en cargas anteriores.
+  partes                Json?
   monto                 Decimal  @default(0) @db.Decimal(12, 2)
   cantidad              Int      @default(0)
   ventaId               BigInt?  @map("venta_id")
@@ -363,7 +366,7 @@ model RegistroDiario {
   trabajadorId          BigInt   @map("trabajador_id")
   createdAt             DateTime @default(now()) @map("created_at")
 
-  @@unique([unidadNegocioId, fecha, concepto, categoriaMetodoPagoId], map: "registro_diario_dia_concepto_key")
+  @@unique([unidadNegocioId, fecha, concepto, categoriaMetodoPagoId, metodoPagoId], map: "registro_diario_dia_concepto_key")
   @@index([unidadNegocioId, fecha])
   @@map("registro_diario")
 }
@@ -551,9 +554,6 @@ model CategoriaMetodoPago {
 model MetodoPago {
   id           BigInt               @id @default(autoincrement())
   categoriaId  BigInt?              @map("categoria_id")
-  // Etiqueta libre opcional ("Yape del negocio"). Si va en null, el nombre visible se arma
-  // con categoría + referencia. Se conserva la columna para no perder los nombres actuales.
-  nombre       String?              @db.VarChar(50)
   referencia   String?              @db.VarChar(50)
   trabajadorId BigInt?              @map("trabajador_id")
   estado       Boolean              @default(true)

@@ -15,10 +15,7 @@ import {
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
-import { RE_ETIQUETA_PAGO } from '../common/validacion';
 import { EsNombreLibre } from '../common/validators';
-
-const MSG_ETIQUETA_PAGO = 'El nombre solo puede tener letras, números, espacios y . & / -';
 
 export const ESTADOS_LOTE = ['ACTIVO', 'VENCIDO', 'AGOTADO', 'BLOQUEADO'] as const;
 
@@ -270,13 +267,6 @@ export class CreateOwnPaymentMethodDto {
   @IsString()
   @MaxLength(50)
   referencia?: string;
-
-  @IsOptional()
-  @ValidateIf((_object, value) => value !== '' && value != null)
-  @IsString()
-  @MaxLength(50)
-  @Matches(RE_ETIQUETA_PAGO, { message: MSG_ETIQUETA_PAGO })
-  nombre?: string;
 
   // Solo lo usa un ADMIN para registrar a nombre de otro; el resto siempre queda a su nombre.
   @IsOptional()

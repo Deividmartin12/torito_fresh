@@ -16,7 +16,6 @@ import {
 } from '../lib/payment-methods';
 import { puede } from '../lib/permissions';
 import { useSesion } from '../lib/useCurrentUser';
-import { soloTextoNombre } from '../lib/validacion';
 import { PaymentMethodCategoryFormModal } from './PaymentMethodCategoryFormModal';
 import { SearchableSelect } from './SearchableSelect';
 import { Button } from './ui/Button';
@@ -62,7 +61,6 @@ export function PaymentMethodFormModal({
   const [categoriaModal, setCategoriaModal] = useState(false);
   const [categoriaId, setCategoriaId] = useState(editando?.categoriaId ?? '');
   const [referencia, setReferencia] = useState(editando?.referencia ?? '');
-  const [nombreLibre, setNombreLibre] = useState(editando?.nombreLibre ?? '');
   const [trabajadorId, setTrabajadorId] = useState(editando?.trabajadorId ?? '');
   const [estado, setEstado] = useState(editando?.estado ?? true);
   const [saving, setSaving] = useState(false);
@@ -105,15 +103,13 @@ export function PaymentMethodFormModal({
         saved = await createOwnPaymentMethod({
           categoriaId,
           referencia: referencia.trim() || undefined,
-          nombre: nombreLibre.trim() || undefined,
         });
       } else {
         const payload = {
           categoriaId,
-          // En edición también se mandan los vacíos: así borrar una etiqueta, referencia o
+          // En edición también se mandan los vacíos: así borrar una referencia o
           // dueño realmente limpia el dato anterior en vez de dejarlo sin cambios.
           referencia: referencia.trim(),
-          nombre: nombreLibre.trim(),
           trabajadorId,
           estado,
         };
@@ -182,17 +178,6 @@ export function PaymentMethodFormModal({
             onChange={(event) => setReferencia(event.target.value)}
             placeholder="Número de Yape/Plin o cuenta bancaria"
             required={exigeReferencia}
-          />
-        </label>
-
-        <label className={fieldWideClass}>
-          <span className={fieldLabelClass}>Etiqueta (opcional)</span>
-          <input
-            className={controlClass}
-            value={nombreLibre}
-            maxLength={50}
-            onChange={(event) => setNombreLibre(soloTextoNombre(event.target.value))}
-            placeholder='Ej. "Yape del negocio"'
           />
         </label>
 

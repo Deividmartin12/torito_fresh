@@ -14,12 +14,12 @@ import {
 
 const FECHA = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Lo vendido en un día con una categoría de pago (Efectivo, Yape...), en soles. */
+/** Lo vendido en un día con un método de pago concreto, en soles. */
 class VentaDelDiaDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  categoriaId: number;
+  metodoPagoId: number;
 
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })
@@ -42,6 +42,15 @@ class DiaDto {
 
   @IsOptional()
   @IsArray()
+  @ArrayMinSize(2)
+  @ArrayMaxSize(2)
+  @IsInt({ each: true })
+  @Min(0, { each: true })
+  @Max(1_000_000, { each: true })
+  producciones?: number[];
+
+  @IsOptional()
+  @IsArray()
   @ValidateNested({ each: true })
   @Type(() => VentaDelDiaDto)
   ventas?: VentaDelDiaDto[];
@@ -53,6 +62,15 @@ class DiaDto {
   @Min(0.01)
   @Max(9_999_999)
   gasto?: number;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(2)
+  @ArrayMaxSize(2)
+  @IsNumber({ maxDecimalPlaces: 2 }, { each: true })
+  @Min(0, { each: true })
+  @Max(9_999_999, { each: true })
+  gastos?: number[];
 }
 
 export class RegistrarCargaDiariaDto {

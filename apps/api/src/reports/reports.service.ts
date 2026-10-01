@@ -84,21 +84,17 @@ export class ReportsService {
         // forma de cobro. Se agrupa por categoría porque puede haber varios Yape (uno por
         // repartidor) que en el reporte deben sumar juntos.
         this.prisma.metodoPago.findMany({
-          select: { id: true, nombre: true, categoria: { select: { nombre: true } } },
+          select: { id: true, categoria: { select: { nombre: true } } },
         }),
         // Clientes dados de alta dentro del período. `Cliente` lleva su propia columna de
         // unidad, así que el filtro de alcance vale tal cual.
         this.prisma.cliente.count({ where: { ...deUnidad, createdAt: dateRange } }),
       ]);
 
-    // id del método -> nombre con el que se muestra en el reporte (su categoría, o su
-    // etiqueta libre si no tiene categoría).
+    // id del método -> categoría con la que se agrupa en el reporte.
     const paymentMethodLabel = new Map<string, string>();
     for (const method of paymentMethodRows) {
-      paymentMethodLabel.set(
-        method.id.toString(),
-        method.categoria?.nombre ?? method.nombre ?? 'Otro',
-      );
+      paymentMethodLabel.set(method.id.toString(), method.categoria?.nombre ?? 'Otro');
     }
 
     type Breakdown = Record<string, { amount: number; count: number }>;
@@ -508,7 +504,7 @@ export class ReportsService {
         },
       }),
       this.prisma.metodoPago.findMany({
-        select: { id: true, nombre: true, categoria: { select: { nombre: true } } },
+        select: { id: true, categoria: { select: { nombre: true } } },
       }),
       // Sin el filtro, la tabla listaría en cero a la gente de las otras unidades.
       this.prisma.trabajador.findMany({
@@ -538,7 +534,7 @@ export class ReportsService {
     // EFECTIVO) para que los varios Yape de los repartidores sumen en una sola columna.
     const paymentLabel = new Map<string, string>();
     for (const method of paymentMethodRows) {
-      paymentLabel.set(method.id.toString(), method.categoria?.nombre ?? method.nombre ?? 'Otro');
+      paymentLabel.set(method.id.toString(), method.categoria?.nombre ?? 'Otro');
     }
 
     type Breakdown = Record<string, { amount: number; count: number }>;

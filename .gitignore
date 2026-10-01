@@ -11,7 +11,7 @@ coverage
 uploads
 .deploy
 backups
-*.pem
+*.pemya 
 *.key
 .DS_Store
 Thumbs.db
