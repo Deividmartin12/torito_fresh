@@ -187,11 +187,12 @@ export class OperationsController {
     @Query('almacenId') almacenId?: string,
     @Query('tipoOperacion') tipoOperacion?: string,
     @Query('ref') ref?: string,
+    @Query('direccion') direccion?: string,
     @UnidadQuery() unidad?: string,
   ) {
     return this.operations.movements(
       user,
-      { from, to, productoId, almacenId, tipoOperacion, ref },
+      { from, to, productoId, almacenId, tipoOperacion, ref, direccion },
       unidad,
     );
   }

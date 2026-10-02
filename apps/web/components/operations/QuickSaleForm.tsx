@@ -15,10 +15,12 @@ import {
   OperationCatalogs,
   OperationalPaymentMethod,
   Sale,
+  StockRow,
   createSale,
   emptyCatalogs,
   getLastSale,
   getOperationCatalogs,
+  getOperationStock,
   getOperationalPaymentMethods,
 } from '../../lib/operations';
 import { puede } from '../../lib/permissions';
@@ -50,6 +52,7 @@ export function QuickSaleForm() {
   const queryClient = useQueryClient();
   const [catalogs, setCatalogs] = useState<OperationCatalogs>(emptyCatalogs);
   const [metodos, setMetodos] = useState<OperationalPaymentMethod[]>([]);
+  const [stock, setStock] = useState<StockRow[]>([]);
   const [cargando, setCargando] = useState(true);
   const [clienteId, setClienteId] = useState('');
   const [clienteModal, setClienteModal] = useState(false);
@@ -74,12 +77,14 @@ export function QuickSaleForm() {
 
   const cargar = useCallback(async () => {
     setCargando(true);
-    const [cat, pagos] = await cargarParcial([
+    const [cat, pagos, existencias] = await cargarParcial([
       getOperationCatalogs(),
       getOperationalPaymentMethods(),
+      getOperationStock(),
     ] as const);
     if (cat.valor) setCatalogs(cat.valor);
     if (pagos.valor) setMetodos(pagos.valor);
+    if (existencias.valor) setStock(existencias.valor);
     setCargando(false);
     const error = cat.error ?? pagos.error;
     if (error) {
@@ -247,11 +252,18 @@ export function QuickSaleForm() {
       });
       await queryClient.invalidateQueries({ queryKey: ['sales'] });
       toast.success(`Venta ${venta.codigo} registrada por ${moneda(venta.total)}`, {
+        description:
+          venta.cantidadPendienteStock > 0
+            ? `Pendiente de cuadrar producción: ${venta.cantidadPendienteStock} unidades.`
+            : undefined,
         action: { label: 'Ver boleta', onClick: () => setBoleta(venta) },
       });
       // Se limpia para la siguiente: en ruta se registran varias seguidas y volver a la lista
       // obligaría a entrar de nuevo cada vez.
       limpiar();
+      void getOperationStock()
+        .then(setStock)
+        .catch(() => {});
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : 'No se pudo registrar la venta');
     } finally {
@@ -347,6 +359,24 @@ export function QuickSaleForm() {
             />
           </label>
         ) : null}
+        {catalogs.unidadEscritura?.controlaInventario &&
+          lineas.map((linea) => {
+            const disponible = stock
+              .filter(
+                (s) =>
+                  s.vendible &&
+                  s.codigo === linea.producto.codigo &&
+                  s.almacen === catalogs.almacenes[0]?.nombre,
+              )
+              .reduce((sum, s) => sum + Math.max(s.cantidad - s.reservada, 0), 0);
+            const pendiente = Math.max(linea.cantidad - disponible, 0);
+            return pendiente > 0 ? (
+              <p className="stock-warning" key={linea.producto.id} role="status">
+                {linea.producto.nombre}: {pendiente} pendientes de cuadrar producción. Puedes
+                registrar la venta.
+              </p>
+            ) : null;
+          })}
         <div className="product-pad">
           {visibles.map((producto) => {
             const cantidad = cantidades[producto.id] ?? 0;

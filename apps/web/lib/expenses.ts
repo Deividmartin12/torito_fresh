@@ -31,6 +31,11 @@ export type Expense = {
   beneficiario: string | null;
   metodoPagoId: string | null;
   metodoPago: string | null;
+  /** CONFIRMADO o ANULADO. Anular no borra: el API excluye ANULADO de totales. */
+  estado: 'CONFIRMADO' | 'ANULADO';
+  motivoAnulacion: string | null;
+  anuladoPor: string | null;
+  anuladoAt: string | null;
 };
 
 export type CreateExpensePayload = Pick<Expense, 'fecha' | 'categoriaId' | 'monto'> & {
@@ -45,10 +50,11 @@ export type CreateExpensePayload = Pick<Expense, 'fecha' | 'categoriaId' | 'mont
 export type ExpenseCategory = { id: string; nombre: string; sistema: boolean };
 export type ExpenseProveedor = { id: string; razonSocial: string; estado: boolean };
 
-export function getExpenses(from?: string, to?: string) {
+export function getExpenses(from?: string, to?: string, incluirAnulados?: boolean) {
   const query = new URLSearchParams();
   if (from) query.set('from', from);
   if (to) query.set('to', to);
+  if (incluirAnulados) query.set('incluirAnulados', 'true');
   return api<Expense[]>(`/expenses${query.size ? `?${query}` : ''}`);
 }
 export function createExpense(payload: CreateExpensePayload) {
@@ -56,6 +62,12 @@ export function createExpense(payload: CreateExpensePayload) {
 }
 export function updateExpense(id: string, payload: CreateExpensePayload) {
   return api<Expense>(`/expenses/${id}`, { method: 'PATCH', body: JSON.stringify(payload) });
+}
+export function annulExpense(id: string, payload: { motivo: string; observaciones?: string }) {
+  return api<Expense>(`/expenses/${id}/anular`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
 }
 export function getExpenseCategories() {
   return api<ExpenseCategory[]>('/expenses/categories');

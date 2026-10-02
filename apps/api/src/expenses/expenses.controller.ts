@@ -6,6 +6,7 @@ import { AuthUser } from '../common/auth-user';
 import {
   CreateExpenseCategoryDto,
   CreateExpenseDto,
+  AnnulExpenseDto,
   UpdateExpenseCategoryDto,
   UpdateExpenseDto,
 } from './expenses.dto';
@@ -24,8 +25,17 @@ export class ExpensesController {
     @Query('trabajadorId') trabajadorId?: string,
     @Query('beneficiarioId') beneficiarioId?: string,
     @UnidadQuery() unidad?: string,
+    @Query('incluirAnulados') incluirAnulados?: string,
   ) {
-    return this.expenses.list(user, from, to, trabajadorId, beneficiarioId, unidad);
+    return this.expenses.list(
+      user,
+      from,
+      to,
+      trabajadorId,
+      beneficiarioId,
+      unidad,
+      incluirAnulados,
+    );
   }
 
   @Get('categories')
@@ -73,5 +83,16 @@ export class ExpensesController {
     @UnidadQuery() unidad?: string,
   ) {
     return this.expenses.update(id, dto, user, unidad);
+  }
+
+  @Permisos('gastos.anular')
+  @Post(':id/anular')
+  anular(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: AnnulExpenseDto,
+    @UnidadQuery() unidad?: string,
+  ) {
+    return this.expenses.annul(id, dto, user, unidad);
   }
 }

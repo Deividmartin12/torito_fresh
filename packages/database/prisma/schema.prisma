@@ -263,6 +263,8 @@ model Trabajador {
   movimientosInventario MovimientoInventario[]
   ordenesProduccion     OrdenProduccion[]
   gastos                Gasto[]                @relation("GastosRegistrados")
+  // Gastos que esta persona anuló (auditoría de la reversión).
+  gastosAnulados        Gasto[]                @relation("GastosAnulados")
   // Gastos de categoría "Pago a trabajador" cuyo beneficiario es este trabajador. Son los
   // pagos que RECIBIÓ, no los que registró: por eso son una relación aparte de `gastos`.
   pagosRecibidos        Gasto[]                @relation("GastosRecibidos")
@@ -311,6 +313,12 @@ model Gasto {
   beneficiarioId  BigInt?        @map("beneficiario_id")
   proveedorId     BigInt?        @map("proveedor_id")
   metodoPagoId    BigInt?        @map("metodo_pago_id")
+  // Reversión: nunca se borra el gasto. Anular lo marca ANULADO con motivo y autor,
+  // y las lecturas/reportes solo suman CONFIRMADO.
+  estado          String         @default("CONFIRMADO") @db.VarChar(20)
+  motivoAnulacion String?        @map("motivo_anulacion") @db.VarChar(300)
+  anuladoPorId    BigInt?        @map("anulado_por_id")
+  anuladoAt       DateTime?      @map("anulado_at")
   createdAt       DateTime       @default(now()) @map("created_at")
   updatedAt       DateTime       @updatedAt @map("updated_at")
   unidadNegocio   UnidadNegocio  @relation(fields: [unidadNegocioId], references: [id])
@@ -319,6 +327,7 @@ model Gasto {
   beneficiario    Trabajador?    @relation("GastosRecibidos", fields: [beneficiarioId], references: [id])
   proveedor       Proveedor?     @relation(fields: [proveedorId], references: [id])
   metodoPago      MetodoPago?    @relation(fields: [metodoPagoId], references: [id])
+  anuladoPor      Trabajador?    @relation("GastosAnulados", fields: [anuladoPorId], references: [id])
 
   @@index([fecha])
   @@index([unidadNegocioId, fecha])
@@ -326,6 +335,7 @@ model Gasto {
   @@index([proveedorId])
   @@index([trabajadorId, fecha])
   @@index([beneficiarioId, fecha])
+  @@index([estado])
   @@map("gasto")
 }
 
@@ -356,7 +366,8 @@ model RegistroDiario {
   // NULL no colisionan en Postgres).
   categoriaMetodoPagoId BigInt   @default(0) @map("categoria_metodo_pago_id")
   metodoPagoId          BigInt   @default(0) @map("metodo_pago_id")
-  // Dos importes de gasto o dos cantidades de producción; null en cargas anteriores.
+  // Gastos/producción: dos partes. Ventas: productoId para conservarlo al corregir a cero.
+  // Null en cargas anteriores.
   partes                Json?
   monto                 Decimal  @default(0) @db.Decimal(12, 2)
   cantidad              Int      @default(0)
@@ -724,6 +735,7 @@ model DetalleVenta {
   productoId         BigInt                   @map("producto_id")
   loteId             BigInt?                  @map("lote_id")
   cantidad           Decimal                  @db.Decimal(12, 3)
+  cantidadPendienteStock Decimal               @default(0) @map("cantidad_pendiente_stock") @db.Decimal(12, 3)
   precioUnitario     Decimal                  @map("precio_unitario") @db.Decimal(12, 2)
   descuento          Decimal                  @default(0) @db.Decimal(12, 2)
   subtotal           Decimal                  @db.Decimal(12, 2)

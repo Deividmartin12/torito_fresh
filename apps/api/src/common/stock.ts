@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { unidadControlaInventario } from './unit-context';
 
@@ -15,6 +15,25 @@ export type Transaction = Omit<
 export const TRANSACCION_DE_STOCK = {
   isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
 } as const;
+
+/** Reintenta solo transacciones abortadas por concurrencia: nunca un cobro confirmado. */
+export async function transaccionStock<T>(
+  prisma: PrismaClient,
+  ejecutar: (tx: Transaction) => Promise<T>,
+): Promise<T> {
+  for (let intento = 0; ; intento++) {
+    try {
+      return await prisma.$transaction(ejecutar, { ...TRANSACCION_DE_STOCK, timeout: 30000 });
+    } catch (error) {
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2034')
+        throw error;
+      if (intento >= 3)
+        throw new ConflictException(
+          'Otra operación está actualizando el inventario. Vuelve a guardar.',
+        );
+    }
+  }
+}
 
 /**
  * Etiquetas de `MovimientoInventario.tipoOperacion`.

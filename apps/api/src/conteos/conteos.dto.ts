@@ -26,6 +26,10 @@ export class LineaConteoDto {
   @IsString()
   productoId: string;
 
+  /**
+   * Sin uso: el cuadre es por producto y el ajuste cae en el lote más antiguo (PEPS).
+   * Se conserva opcional por compatibilidad y se ignora al guardar.
+   */
   @IsOptional()
   @IsString()
   loteId?: string;

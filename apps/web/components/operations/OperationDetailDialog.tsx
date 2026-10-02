@@ -122,6 +122,14 @@ export function OperationDetailDialog({
           </div>
         </div>
 
+        {sale.cantidadPendienteStock > 0 ? (
+          <p className="stock-warning" role="status">
+            <b>Pendiente de cuadrar producción: {sale.cantidadPendienteStock} unidades.</b> Se
+            cubrirán al registrar producción en este almacén. El costo es provisional hasta
+            entonces; el cobro ya está registrado.
+          </p>
+        ) : null}
+
         <div className="sale-detail-section">
           <span className="sale-detail-label">Productos</span>
           <div className="sale-detail-items">
@@ -133,6 +141,9 @@ export function OperationDetailDialog({
                     {item.cantidad} × {moneda(item.precio)}
                     {item.descuento > 0 ? ` · dcto ${moneda(item.descuento)}` : ''}
                     {item.cantidadDevuelta ? ` · devuelto ${item.cantidadDevuelta}` : ''}
+                    {item.cantidadPendienteStock > 0
+                      ? ` · ${item.cantidadPendienteStock} pendientes de cuadrar producción`
+                      : ''}
                   </small>
                 </span>
                 <strong>{moneda(item.subtotal)}</strong>

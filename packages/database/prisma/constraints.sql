@@ -171,6 +171,12 @@ BEGIN
 
   -- Una venta no puede recibir una cantidad negativa de vacíos: para devolver envases al
   -- cliente está el ajuste de la pantalla "Envases", no una venta en reversa.
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'gasto_estado_valido') THEN
+    ALTER TABLE "gasto" ADD CONSTRAINT "gasto_estado_valido"
+      CHECK ("estado" IN ('CONFIRMADO', 'ANULADO'));
+  END IF;
+
+  -- Una venta no puede recibir una cantidad negativa de vacíos: para devolver envases al
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'venta_vacios_recibidos_valido') THEN
     ALTER TABLE "venta" ADD CONSTRAINT "venta_vacios_recibidos_valido"
       CHECK ("vacios_recibidos" >= 0);

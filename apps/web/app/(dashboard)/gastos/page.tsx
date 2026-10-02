@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  Ban,
   Coins,
   Eye,
   Pencil,
@@ -20,6 +21,7 @@ import { CategoriaGastoFormModal } from '../../../components/CategoriaGastoFormM
 import { DataTable, DataTableColumn } from '../../../components/DataTable';
 import { StatCard } from '../../../components/dashboard/StatCard';
 import { PeriodFilter } from '../../../components/PeriodFilter';
+import { AnnulExpenseModal } from '../../../components/expenses/AnnulExpenseModal';
 import { ProveedorFormModal } from '../../../components/ProveedorFormModal';
 import { SearchableSelect } from '../../../components/SearchableSelect';
 import { TrabajadorFormModal } from '../../../components/TrabajadorFormModal';
@@ -85,6 +87,8 @@ export default function GastosPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Expense | null>(null);
   const [detail, setDetail] = useState<Expense | null>(null);
+  const [anulando, setAnulando] = useState<Expense | null>(null);
+  const [mostrarAnulados, setMostrarAnulados] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [categoriaModal, setCategoriaModal] = useState(false);
   const [proveedorModal, setProveedorModal] = useState(false);
@@ -95,13 +99,14 @@ export default function GastosPage() {
   const { clave: unidad, resumen: unidadResumen } = useUnidad();
   const puedeCrearTrabajador = puede(permisos, 'trabajadores.administrar');
   const puedeCrearCategoria = puede(permisos, 'gastos.categorias.crear');
+  const puedeAnular = puede(permisos, 'gastos.anular');
 
   // Cinco consultas independientes: con React Query cada una aísla su propio error de las
   // demás, así que no hace falta `cargarParcial` acá (una que falle no apaga el formulario
   // entero, que era justo el problema que ese helper resolvía a mano).
   const expensesQuery = useQuery({
-    queryKey: ['expenses', unidad, rango?.from, rango?.to],
-    queryFn: () => getExpenses(rango!.from, rango!.to),
+    queryKey: ['expenses', unidad, rango?.from, rango?.to, mostrarAnulados],
+    queryFn: () => getExpenses(rango!.from, rango!.to, mostrarAnulados),
     enabled: Boolean(rango),
   });
   const expenses = expensesQuery.data ?? [];
@@ -322,7 +327,12 @@ export default function GastosPage() {
     {
       key: 'categoria',
       header: 'Categoría',
-      render: (item) => <Badge tone="amber">{item.categoria}</Badge>,
+      render: (item) => (
+        <span className="flex flex-wrap items-center gap-1.5">
+          <Badge tone="amber">{item.categoria}</Badge>
+          {item.estado === 'ANULADO' ? <Badge tone="gray">Revertido</Badge> : null}
+        </span>
+      ),
     },
     {
       key: 'contraparte',
@@ -363,16 +373,30 @@ export default function GastosPage() {
           >
             <Eye size={16} />
           </IconButton>
-          <IconButton
-            onClick={(event) => {
-              event.stopPropagation();
-              openForm(item);
-            }}
-            title="Editar gasto"
-            aria-label={`Editar ${item.concepto || 'gasto sin concepto'}`}
-          >
-            <Pencil size={16} />
-          </IconButton>
+          {item.estado !== 'ANULADO' ? (
+            <IconButton
+              onClick={(event) => {
+                event.stopPropagation();
+                openForm(item);
+              }}
+              title="Editar gasto"
+              aria-label={`Editar ${item.concepto || 'gasto sin concepto'}`}
+            >
+              <Pencil size={16} />
+            </IconButton>
+          ) : null}
+          {puedeAnular && item.estado !== 'ANULADO' ? (
+            <IconButton
+              onClick={(event) => {
+                event.stopPropagation();
+                setAnulando(item);
+              }}
+              title="Revertir gasto"
+              aria-label={`Revertir ${item.concepto || 'gasto sin concepto'}`}
+            >
+              <Ban size={16} />
+            </IconButton>
+          ) : null}
         </div>
       ),
     },
@@ -448,6 +472,14 @@ export default function GastosPage() {
         <Button variant="secondary" type="button" onClick={() => setFiltersOpen(true)}>
           <SlidersHorizontal size={16} /> Filtros{category !== 'Todas' ? ` (${category})` : ''}
         </Button>
+        <label className="flex min-h-[44px] cursor-pointer items-center gap-2 text-[13px] text-muted">
+          <input
+            type="checkbox"
+            checked={mostrarAnulados}
+            onChange={(event) => setMostrarAnulados(event.target.checked)}
+          />
+          Ver revertidos
+        </label>
       </div>
       {loading ? (
         <div className="table-loading" role="status">
@@ -550,7 +582,17 @@ export default function GastosPage() {
                 <strong>{moneda(detail.monto)}</strong>
               </div>
               <Badge tone="amber">{detail.categoria}</Badge>
+              {detail.estado === 'ANULADO' ? <Badge tone="gray">Revertido</Badge> : null}
             </div>
+            {detail.estado === 'ANULADO' ? (
+              <div className="operation-review-note">
+                <small>Reversión</small>
+                <p>
+                  Revertido{detail.anuladoPor ? ` por ${detail.anuladoPor}` : ''}
+                  {detail.motivoAnulacion ? `: ${detail.motivoAnulacion}` : ''}
+                </p>
+              </div>
+            ) : null}
             <div className="detail-summary">
               <span>
                 Fecha<strong>{fechaCorta(detail.fecha)}</strong>
@@ -585,9 +627,23 @@ export default function GastosPage() {
             <Button variant="secondary" type="button" onClick={() => setDetail(null)}>
               Cerrar
             </Button>
-            <Button type="button" onClick={() => openForm(detail)}>
-              <Pencil size={16} /> Editar
-            </Button>
+            {detail.estado !== 'ANULADO' ? (
+              <Button type="button" onClick={() => openForm(detail)}>
+                <Pencil size={16} /> Editar
+              </Button>
+            ) : null}
+            {puedeAnular && detail.estado !== 'ANULADO' ? (
+              <Button
+                variant="danger"
+                type="button"
+                onClick={() => {
+                  setAnulando(detail);
+                  setDetail(null);
+                }}
+              >
+                <Ban size={16} /> Revertir
+              </Button>
+            ) : null}
           </div>
         </Modal>
       ) : null}
@@ -789,6 +845,16 @@ export default function GastosPage() {
             />
           ) : null}
         </>
+      ) : null}
+      {anulando ? (
+        <AnnulExpenseModal
+          gasto={anulando}
+          onClose={() => setAnulando(null)}
+          onDone={() => {
+            setAnulando(null);
+            void queryClient.invalidateQueries({ queryKey: ['expenses'] });
+          }}
+        />
       ) : null}
     </div>
   );

@@ -94,6 +94,7 @@ export type BusinessAnalytics = {
    * inventario".
    */
   costoEstimado?: boolean;
+  costoProvisional?: boolean;
   /**
    * Cuánto vendió y cuánto gastó cada unidad dentro del alcance. Con una sola unidad a la
    * vista trae un único renglón; con varias es lo que permite comparar puesto a puesto en vez

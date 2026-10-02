@@ -77,6 +77,7 @@ export type OperationDetailLine = {
   productoId: string;
   producto: string;
   cantidad: number;
+  cantidadPendienteStock: number;
   cantidadDevuelta: number;
   precio: number;
   descuento: number;
@@ -99,6 +100,7 @@ export type Sale = {
   igv: number;
   descuento: number;
   total: number;
+  cantidadPendienteStock: number;
   totalNeto: number;
   montoInicial: number;
   pagosIniciales: { metodoPagoId: string; metodo: string; monto: number }[];
@@ -375,6 +377,8 @@ export type MovementFilters = {
   almacenId?: string;
   tipoOperacion?: string;
   ref?: string;
+  /** 'ENTRADA' incluye producción; 'SALIDA' solo salidas. Ausente = todas. */
+  direccion?: string;
 };
 
 export function getMovements(filters: MovementFilters = {}) {
@@ -385,6 +389,7 @@ export function getMovements(filters: MovementFilters = {}) {
   if (filters.almacenId) query.set('almacenId', filters.almacenId);
   if (filters.tipoOperacion) query.set('tipoOperacion', filters.tipoOperacion);
   if (filters.ref) query.set('ref', filters.ref);
+  if (filters.direccion) query.set('direccion', filters.direccion);
   return api<Movement[]>(`/operations/movements${query.size ? `?${query}` : ''}`);
 }
 

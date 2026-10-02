@@ -3,6 +3,8 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsBoolean,
+  IsString,
   IsInt,
   IsNumber,
   IsOptional,
@@ -23,7 +25,7 @@ class VentaDelDiaDto {
 
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(0.01)
+  @Min(0)
   @Max(9_999_999)
   monto: number;
 }
@@ -31,6 +33,14 @@ class VentaDelDiaDto {
 class DiaDto {
   @Matches(FECHA, { message: 'La fecha debe tener el formato AAAA-MM-DD' })
   fecha: string;
+
+  @IsOptional()
+  @IsBoolean()
+  editar?: boolean;
+
+  @IsOptional()
+  @IsString()
+  revision?: string;
 
   /** Bidones producidos ese día. */
   @IsOptional()

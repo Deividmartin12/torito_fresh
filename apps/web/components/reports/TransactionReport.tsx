@@ -61,7 +61,11 @@ export function TransactionReport({ kind }: { kind: ReportKind }) {
   const priorSummary = previous?.summary;
   // En un puesto que no lleva inventario no hay kardex del que sacar el costo real: se estima
   // con el costo de referencia de cada producto. Llamarlo "costo de inventario" sería mentira.
-  const etiquetaCosto = analytics?.costoEstimado ? 'costo estimado' : 'costo de inventario';
+  const etiquetaCosto = analytics?.costoProvisional
+    ? 'costo provisional'
+    : analytics?.costoEstimado
+      ? 'costo estimado'
+      : 'costo de inventario';
   const porUnidad = analytics?.porUnidad ?? [];
   // undefined mientras el período comparativo no ha llegado, para que la tarjeta no
   // muestre una variación calculada con datos a medio cargar.
@@ -185,6 +189,12 @@ export function TransactionReport({ kind }: { kind: ReportKind }) {
         </p>
       ) : null}
       <PeriodFilter onChange={changePeriod} />
+      {analytics?.costoProvisional && sales ? (
+        <p className="report-note">
+          Costo y margen provisionales: las unidades pendientes de cuadrar producción usan el costo
+          de referencia. Se actualizarán con el costo real al registrar la producción.
+        </p>
+      ) : null}
       <div className="module-tools report-filters">
         <button
           type="button"

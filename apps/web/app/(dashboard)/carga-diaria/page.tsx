@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ClipboardList, Save } from 'lucide-react';
+import { ClipboardList, Pencil, Save } from 'lucide-react';
 import { ClipboardEvent, KeyboardEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { PeriodFilter } from '../../../components/PeriodFilter';
@@ -73,7 +73,7 @@ function normalizarNumero(texto: string, entero: boolean) {
     limpio = /,\d{3}$/.test(limpio) ? limpio.replace(/,/g, '') : limpio.replace(',', '.');
   }
   const numero = Number(limpio);
-  if (!Number.isFinite(numero) || numero <= 0) return '';
+  if (!Number.isFinite(numero) || numero < 0) return '';
   return entero ? String(Math.round(numero)) : String(Math.round(numero * 100) / 100);
 }
 
@@ -130,6 +130,9 @@ export default function CargaDiariaPage() {
   const [errores, setErrores] = useState<Record<string, string>>({});
   const [productoId, setProductoId] = useState('');
   const [guardando, setGuardando] = useState(false);
+  const [ediciones, setEdiciones] = useState<
+    Record<string, { registro: CargaDiaRegistrado; borrador?: Record<string, string> }>
+  >({});
 
   const cambiarPeriodo = useCallback((inicio: string, fin: string) => {
     setDesde(inicio);
@@ -210,7 +213,7 @@ export default function CargaDiariaPage() {
     (fecha: string, columna: Columna) =>
       fecha <= (resumen?.hoy ?? hoyLocal) &&
       !('historico' in columna && columna.historico) &&
-      !registrado(registradosPorDia.get(fecha), columna) &&
+      (Boolean(ediciones[fecha]) || !registrado(registradosPorDia.get(fecha), columna)) &&
       !(
         'categoriaId' in columna &&
         registradosPorDia
@@ -219,8 +222,45 @@ export default function CargaDiariaPage() {
             (v) => v.metodoPagoId.startsWith('anterior:') && v.categoriaId === columna.categoriaId,
           )
       ),
-    [registradosPorDia, resumen?.hoy, hoyLocal],
+    [registradosPorDia, resumen?.hoy, hoyLocal, ediciones],
   );
+
+  function editarDia(fecha: string) {
+    const registro = registradosPorDia.get(fecha);
+    if (!registro) return;
+    const valores: Record<string, string> = { ...borradores[fecha] };
+    if (registro.produccion) {
+      const partes = registro.produccion.partes ?? [registro.produccion.cantidad, 0];
+      valores.produccion1 = String(partes[0]);
+      valores.produccion2 = String(partes[1]);
+    }
+    if (registro.gasto) {
+      const partes = registro.gasto.partes ?? [registro.gasto.monto, 0];
+      valores.gasto1 = String(partes[0]);
+      valores.gasto2 = String(partes[1]);
+    }
+    for (const venta of registro.ventas)
+      valores[`venta:${venta.metodoPagoId}`] = String(venta.monto);
+    setEdiciones((actual) => ({ ...actual, [fecha]: { registro, borrador: borradores[fecha] } }));
+    setBorradores((actual) => ({ ...actual, [fecha]: valores }));
+    setErrores((actual) => ({ ...actual, [fecha]: '' }));
+  }
+
+  function cancelarEdicion(fecha: string) {
+    const previo = ediciones[fecha]?.borrador;
+    setBorradores((actual) => {
+      const siguiente = { ...actual };
+      if (previo) siguiente[fecha] = previo;
+      else delete siguiente[fecha];
+      return siguiente;
+    });
+    setEdiciones((actual) => {
+      const siguiente = { ...actual };
+      delete siguiente[fecha];
+      return siguiente;
+    });
+    setErrores((actual) => ({ ...actual, [fecha]: '' }));
+  }
 
   function escribir(fecha: string, clave: string, valor: string) {
     setBorradores((actual) => {
@@ -228,7 +268,7 @@ export default function CargaDiariaPage() {
       if (valor) dia[clave] = valor;
       else delete dia[clave];
       const siguiente = { ...actual };
-      if (Object.keys(dia).length) siguiente[fecha] = dia;
+      if (Object.keys(dia).length || ediciones[fecha]) siguiente[fecha] = dia;
       else delete siguiente[fecha];
       return siguiente;
     });
@@ -291,8 +331,9 @@ export default function CargaDiariaPage() {
     if (pegadas) toast.success(`Se pegaron ${pegadas} valores.`);
   }
 
-  const pendientes = Object.entries(borradores).filter(([, valores]) =>
-    Object.values(valores).some((valor) => Number(valor) > 0),
+  const pendientes = Object.entries(borradores).filter(
+    ([fecha, valores]) =>
+      ediciones[fecha] || Object.values(valores).some((valor) => Number(valor) > 0),
   );
   const totales = pendientes.reduce(
     (suma, [, valores]) => {
@@ -307,34 +348,58 @@ export default function CargaDiariaPage() {
     { produccion: 0, ventas: 0, gastos: 0 },
   );
 
-  async function guardar() {
+  async function guardar(soloFecha?: string) {
     if (guardando) return;
     if (!productoId) {
       toast.error('Elige el producto que se produce y se vende.');
       return;
     }
-    const payload: CargaDiaPayload[] = pendientes.map(([fecha, valores]) => {
-      const ventas = Object.entries(valores)
-        .filter(([clave, valor]) => clave.startsWith('venta:') && Number(valor) > 0)
-        .map(([clave, valor]) => ({
-          metodoPagoId: Number(clave.slice('venta:'.length)),
-          monto: Number(valor),
-        }));
-      return {
+    const seleccionados = pendientes.filter(([fecha]) => !soloFecha || fecha === soloFecha);
+    if (!seleccionados.length) return;
+    const grupos = new Map<string, CargaDiaPayload[]>();
+    for (const [fecha, valores] of seleccionados) {
+      const edicion = ediciones[fecha]?.registro;
+      const previo = edicion ?? registradosPorDia.get(fecha);
+      const ventas = columnas.flatMap((columna) => {
+        if (!('metodoPagoId' in columna) || columna.historico) return [];
+        const monto = Number(valores[columna.clave]) || 0;
+        const existente = edicion?.ventas.some((v) => v.metodoPagoId === columna.metodoPagoId);
+        return monto > 0 || existente
+          ? [{ metodoPagoId: Number(columna.metodoPagoId), monto }]
+          : [];
+      });
+      const payload: CargaDiaPayload = {
         fecha,
-        ...([valores.produccion1, valores.produccion2].some((v) => Number(v) > 0)
+        ...(edicion ? { editar: true, revision: edicion.revision } : {}),
+        ...(edicion?.produccion ||
+        [valores.produccion1, valores.produccion2].some((v) => Number(v) > 0)
           ? { producciones: [Number(valores.produccion1) || 0, Number(valores.produccion2) || 0] }
           : {}),
         ...(ventas.length ? { ventas } : {}),
-        ...([valores.gasto1, valores.gasto2].some((v) => Number(v) > 0)
+        ...(edicion?.gasto || [valores.gasto1, valores.gasto2].some((v) => Number(v) > 0)
           ? { gastos: [Number(valores.gasto1) || 0, Number(valores.gasto2) || 0] }
           : {}),
       };
-    });
-    if (!payload.length) return;
+      const productoDia = previo?.productoId ?? productoId;
+      grupos.set(productoDia, [...(grupos.get(productoDia) ?? []), payload]);
+    }
     setGuardando(true);
     try {
-      const { resultados } = await registrarCargaDiaria(productoId, payload);
+      const resultados: { fecha: string; ok: boolean; error?: string }[] = [];
+      for (const [productoDia, payload] of grupos) {
+        try {
+          const respuesta = await registrarCargaDiaria(productoDia, payload);
+          resultados.push(...respuesta.resultados);
+        } catch (cause) {
+          resultados.push(
+            ...payload.map((dia) => ({
+              fecha: dia.fecha,
+              ok: false,
+              error: cause instanceof Error ? cause.message : 'No se pudo guardar el día',
+            })),
+          );
+        }
+      }
       const ok = resultados.filter((item) => item.ok).map((item) => item.fecha);
       const fallidos = resultados.filter((item) => !item.ok);
       setBorradores((actual) => {
@@ -342,9 +407,19 @@ export default function CargaDiariaPage() {
         for (const fecha of ok) delete siguiente[fecha];
         return siguiente;
       });
-      setErrores(Object.fromEntries(fallidos.map((item) => [item.fecha, item.error ?? 'Error'])));
+      setEdiciones((actual) => {
+        const siguiente = { ...actual };
+        for (const fecha of ok) delete siguiente[fecha];
+        return siguiente;
+      });
+      setErrores((actual) => ({
+        ...actual,
+        ...Object.fromEntries(
+          resultados.map((item) => [item.fecha, item.ok ? '' : (item.error ?? 'Error')]),
+        ),
+      }));
       if (ok.length)
-        toast.success(ok.length === 1 ? 'Se registró 1 día.' : `Se registraron ${ok.length} días.`);
+        toast.success(ok.length === 1 ? 'Día guardado.' : `Se guardaron ${ok.length} días.`);
       if (fallidos.length)
         toast.error(
           fallidos.length === 1
@@ -353,7 +428,15 @@ export default function CargaDiariaPage() {
         );
       // Lo registrado aparece en ventas, gastos, producción y el panel: que se vuelvan a pedir.
       void queryClient.invalidateQueries({ queryKey: ['carga-diaria'] });
-      for (const clave of ['sales', 'expenses', 'business-dashboard', 'production'])
+      for (const clave of [
+        'sales',
+        'expenses',
+        'business-dashboard',
+        'production',
+        'stock',
+        'kardex',
+        'reports',
+      ])
         void queryClient.invalidateQueries({ queryKey: [clave] });
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : 'No se pudo registrar la carga');
@@ -364,12 +447,12 @@ export default function CargaDiariaPage() {
 
   // Fecha + columnas + estado. En el celular cada día es una tarjeta con sus campos en dos
   // columnas; desde tablet es una fila de la grilla.
-  const plantilla = `72px repeat(${columnas.length}, minmax(104px, 1fr)) minmax(96px, 0.8fr)`;
+  const plantilla = `72px repeat(${columnas.length}, minmax(104px, 1fr)) minmax(144px, 0.8fr)`;
   // Si las columnas no entran, la grilla se desplaza en horizontal en vez de apretarlas.
-  const anchoMinimo = 72 + columnas.length * 104 + 96 + (columnas.length + 1) * 8 + 24;
+  const anchoMinimo = 72 + columnas.length * 104 + 144 + (columnas.length + 1) * 8 + 24;
 
   return (
-    <div className="module-page operations-list-page pb-28">
+    <div className="module-page operations-list-page !pb-44">
       <div className="operation-list-head">
         <div>
           <span className="operation-eyebrow">Caja y cuentas</span>
@@ -377,7 +460,7 @@ export default function CargaDiariaPage() {
           <p>
             Carga las ventas por método de pago, gastos y producción de bidones de cada día. Se
             suman Gastos 1 + Gastos 2 y Producción 1 + Producción 2 para registrar los totales de
-            esa fecha.
+            esa fecha. Usa Editar para corregir un día ya guardado.
           </p>
         </div>
       </div>
@@ -453,6 +536,7 @@ export default function CargaDiariaPage() {
             const registradoDia = registradosPorDia.get(fecha);
             const borrador = borradores[fecha];
             const error = errores[fecha];
+            const editando = Boolean(ediciones[fecha]);
             const cargados = columnas.filter((columna) => registrado(registradoDia, columna));
             const { dia, numero } = etiquetaDia(fecha);
             const finDeSemana = dia.startsWith('Sá') || dia.startsWith('Do');
@@ -480,7 +564,7 @@ export default function CargaDiariaPage() {
                         {columna.titulo}
                         {entero ? '' : ' (S/)'}
                       </span>
-                      {hecho ? (
+                      {hecho && (!editando || ('historico' in columna && columna.historico)) ? (
                         <span
                           className="flex h-10 items-center justify-end truncate rounded-full bg-surface-soft px-3 text-[13px] tabular-nums text-fg"
                           title={hecho.detalle}
@@ -513,7 +597,7 @@ export default function CargaDiariaPage() {
                         <small className="block pt-1 text-right text-xs text-muted">
                           Total:{' '}
                           {moneda(
-                            registradoDia?.gasto?.monto ??
+                            (!editando ? registradoDia?.gasto?.monto : undefined) ??
                               (Math.round((Number(borrador?.gasto1) || 0) * 100) +
                                 Math.round((Number(borrador?.gasto2) || 0) * 100)) /
                                 100,
@@ -523,7 +607,7 @@ export default function CargaDiariaPage() {
                       {columna.clave === 'produccion2' ? (
                         <small className="block pt-1 text-right text-xs text-muted">
                           Total:{' '}
-                          {registradoDia?.produccion?.cantidad ??
+                          {(!editando ? registradoDia?.produccion?.cantidad : undefined) ??
                             (Number(borrador?.produccion1) || 0) +
                               (Number(borrador?.produccion2) || 0)}{' '}
                           bidones
@@ -533,11 +617,13 @@ export default function CargaDiariaPage() {
                   );
                 })}
 
-                <div className="col-span-2 flex justify-end tablet:col-span-1">
+                <div className="col-span-2 flex flex-col items-end gap-1.5 tablet:col-span-1">
                   {error ? (
                     <span className="text-right text-xs text-[#c52e49] dark:text-[#ff9db2]">
                       {error}
                     </span>
+                  ) : editando ? (
+                    <Badge tone="amber">Editando</Badge>
                   ) : cargados.length === columnas.length ? (
                     <Badge tone="green">Registrado</Badge>
                   ) : cargados.length ? (
@@ -547,6 +633,40 @@ export default function CargaDiariaPage() {
                   ) : (
                     <span className="text-xs text-muted">—</span>
                   )}
+                  {editando ? (
+                    <>
+                      <Button
+                        disabled={guardando}
+                        onClick={() => void guardar(fecha)}
+                        aria-label={`Guardar cambios del ${fecha}`}
+                      >
+                        <Save size={14} /> Guardar cambios
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        disabled={guardando}
+                        onClick={() => cancelarEdicion(fecha)}
+                        aria-label={`Cancelar edición del ${fecha}`}
+                      >
+                        Cancelar
+                      </Button>
+                    </>
+                  ) : registradoDia ? (
+                    <Button
+                      variant="secondary"
+                      disabled={guardando}
+                      onClick={() => editarDia(fecha)}
+                      aria-label={`Editar día ${fecha}`}
+                    >
+                      <Pencil size={14} /> Editar
+                    </Button>
+                  ) : null}
+                  {registradoDia?.produccion && !editando ? (
+                    <small className="text-right text-xs text-muted">
+                      {registradoDia.ventas.reduce((suma, venta) => suma + venta.cantidad, 0)}{' '}
+                      vendidos de {registradoDia.produccion.cantidad} producidos
+                    </small>
+                  ) : null}
                 </div>
               </div>
             );

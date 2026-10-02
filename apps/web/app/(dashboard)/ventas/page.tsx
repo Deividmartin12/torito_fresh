@@ -159,6 +159,11 @@ export default function VentasPage() {
       render: (item) => (
         <>
           <Badge tone={item.estadoPago === 'PAGADA' ? 'green' : 'amber'}>{item.estadoPago}</Badge>
+          {item.cantidadPendienteStock > 0 ? (
+            <small className="mt-1 block max-w-48 whitespace-normal text-xs text-amber-700">
+              Pendiente de cuadrar producción: <b>{item.cantidadPendienteStock}</b>
+            </small>
+          ) : null}
           <small className="mt-0.5 block text-[11px] text-muted">Saldo {moneda(item.saldo)}</small>
         </>
       ),

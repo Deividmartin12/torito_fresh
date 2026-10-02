@@ -15,7 +15,7 @@ import {
   unidadControlaInventario,
 } from '../common/unit-context';
 import {
-  TRANSACCION_DE_STOCK,
+  transaccionStock,
   Transaction,
   movementLabel,
   movementPhrase,
@@ -23,6 +23,7 @@ import {
 } from '../common/stock';
 import { resolverTrabajadorAutor } from '../common/worker-context';
 import { PaymentMethodsService } from '../payment-methods/payment-methods.service';
+import { descontarVenta, revertirStockVenta } from '../common/sale-stock';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   AnnulSaleDto,
@@ -58,6 +59,8 @@ type MovementsFilter = {
   almacenId?: string;
   tipoOperacion?: string;
   ref?: string;
+  /** 'ENTRADA' suma además PRODUCCION (genera producto terminado); 'SALIDA' solo salidas. */
+  direccion?: string;
 };
 
 @Injectable()
@@ -808,7 +811,7 @@ export class OperationsService {
 
   async createReturn(type: string, dto: CreateReturnDto, actor: AuthUser, unidadActiva?: string) {
     if (type !== 'venta') throw new BadRequestException('Tipo de devolución inválido');
-    const id = await this.prisma.$transaction(async (tx) => {
+    const id = await transaccionStock(this.prisma, async (tx) => {
       const workerId = await resolverTrabajadorAutor(tx, actor, dto.trabajadorId);
       const unidad = await resolverUnidadDeEscritura(tx, {
         actor,
@@ -962,6 +965,12 @@ export class OperationsService {
       ...(fecha ? { fecha } : {}),
       ...(filters.tipoOperacion ? { tipoOperacion: filters.tipoOperacion } : {}),
       ...(filters.ref ? { numeroReferencia: { contains: filters.ref, mode: 'insensitive' } } : {}),
+      // Producción cuenta como entrada porque genera producto terminado. Transferencias,
+      // ajustes sueltos y cambios de estado solo salen en "Todas".
+      ...(filters.direccion === 'ENTRADA'
+        ? { tipoMovimiento: { in: ['ENTRADA', 'PRODUCCION'] } }
+        : {}),
+      ...(filters.direccion === 'SALIDA' ? { tipoMovimiento: 'SALIDA' } : {}),
       ...(Object.keys(detalleFilter).length ? { detalles: { some: detalleFilter } } : {}),
     };
     const rows = await this.prisma.movimientoInventario.findMany({
@@ -1090,10 +1099,12 @@ export class OperationsService {
   // + cuenta por cobrar de inmediato), sin un estado intermedio BORRADOR que requiera una
   // confirmación aparte — mismo patrón que ya se usa en ProductionService.create().
   async createSale(dto: CreateOperationalSaleDto, actor: AuthUser, unidadActiva?: string) {
-    return this.prisma.$transaction(async (tx) => {
-      const saleId = await this.registrarVenta(tx, dto, actor, unidadActiva);
+    return transaccionStock(this.prisma, async (tx) => {
+      const saleId = await this.registrarVenta(tx, dto, actor, unidadActiva, {
+        permitirPendiente: true,
+      });
       return this.saleView(await this.findSale(tx, saleId));
-    }, TRANSACCION_DE_STOCK);
+    });
   }
 
   /**
@@ -1109,7 +1120,7 @@ export class OperationsService {
     dto: CreateOperationalSaleDto,
     actor: AuthUser,
     unidadActiva?: string,
-    opciones: { fecha?: string } = {},
+    opciones: { fecha?: string; loteId?: bigint; permitirPendiente?: boolean } = {},
   ): Promise<bigint> {
     let fechaVenta: Date | undefined;
     if (opciones.fecha) {
@@ -1191,7 +1202,15 @@ export class OperationsService {
     // En un puesto que solo registra ventas y gastos no hay stock que descontar ni kardex que
     // escribir: la venta queda igual de completa (cuenta por cobrar, cobros, reportes), solo
     // que sin su contrapartida física.
-    if (controlaInventario) await this.applySaleOutbound(tx, sale.id, '', fechaVenta);
+    if (controlaInventario)
+      await this.applySaleOutbound(
+        tx,
+        sale.id,
+        '',
+        fechaVenta,
+        opciones.loteId,
+        opciones.permitirPendiente,
+      );
     // Los envases van fuera del gateo: el saldo de envases es una deuda del cliente, no
     // stock del almacén, y un puesto sin inventario igual entrega bidones.
     await this.aplicarEnvasesDeVenta(
@@ -1250,194 +1269,228 @@ export class OperationsService {
     // de edición no lo usa y sigue anotando todo con la hora en que se corrige.
     opciones: { fecharEnLaVenta?: boolean } = {},
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      const saleId = BigInt(id);
-      // Con la unidad activa: sin ella, un admin parado en un puesto satélite recibía "Venta
-      // no encontrada" al corregir una venta de ese puesto.
-      const alcance = await resolverAlcanceUnidad(tx, actor, unidadActiva);
-      const sale = await tx.venta.findFirst({
-        where: { id: saleId, ...filtroUnidad(alcance) },
-        include: { cuentaCobrar: true, devoluciones: true },
+    return transaccionStock(this.prisma, (tx) =>
+      this.actualizarVentaEnTransaccion(tx, id, dto, actor, unidadActiva, {
+        ...opciones,
+        permitirPendiente: true,
+      }),
+    );
+  }
+
+  /** Permite corregir un día completo sin confirmar ventas por separado. */
+  async actualizarVentaEnTransaccion(
+    tx: Transaction,
+    id: string,
+    dto: UpdateOperationalSaleDto,
+    actor: AuthUser,
+    unidadActiva?: string,
+    opciones: {
+      fecharEnLaVenta?: boolean;
+      inventarioRevertido?: boolean;
+      loteId?: bigint;
+      permitirVacia?: boolean;
+      permitirPendiente?: boolean;
+    } = {},
+  ) {
+    const saleId = BigInt(id);
+    // Con la unidad activa: sin ella, un admin parado en un puesto satélite recibía "Venta
+    // no encontrada" al corregir una venta de ese puesto.
+    const alcance = await resolverAlcanceUnidad(tx, actor, unidadActiva);
+    const sale = await tx.venta.findFirst({
+      where: { id: saleId, ...filtroUnidad(alcance) },
+      include: { cuentaCobrar: true, devoluciones: true },
+    });
+    if (!sale) throw new NotFoundException('Venta no encontrada');
+    // Solo un admin puede corregir a quién se le atribuye la venta; si no viene nada en el
+    // DTO se conserva el vendedor original (editar no debe robarle la venta a quien la hizo).
+    const trabajadorId = dto.trabajadorId
+      ? await resolverTrabajadorAutor(tx, actor, dto.trabajadorId)
+      : sale.trabajadorId;
+    // La venta NO cambia de unidad al editarla. Mudarla arrastraría su cliente, su
+    // almacén y su kardex, que siguen siendo de la unidad original: quedaría inconsistente.
+    // Un gasto sí se puede reasignar (es solo un monto); una venta, no.
+    if (dto.trabajadorId) {
+      const nuevoAutor = await tx.trabajador.findFirst({
+        where: { id: trabajadorId },
+        select: { unidadNegocioId: true },
       });
-      if (!sale) throw new NotFoundException('Venta no encontrada');
-      // Solo un admin puede corregir a quién se le atribuye la venta; si no viene nada en el
-      // DTO se conserva el vendedor original (editar no debe robarle la venta a quien la hizo).
-      const trabajadorId = dto.trabajadorId
-        ? await resolverTrabajadorAutor(tx, actor, dto.trabajadorId)
-        : sale.trabajadorId;
-      // La venta NO cambia de unidad al editarla. Mudarla arrastraría su cliente, su
-      // almacén y su kardex, que siguen siendo de la unidad original: quedaría inconsistente.
-      // Un gasto sí se puede reasignar (es solo un monto); una venta, no.
-      if (dto.trabajadorId) {
-        const nuevoAutor = await tx.trabajador.findFirst({
-          where: { id: trabajadorId },
-          select: { unidadNegocioId: true },
-        });
-        if (nuevoAutor?.unidadNegocioId !== sale.unidadNegocioId)
-          throw new BadRequestException(
-            'No se puede reasignar la venta a un trabajador de otra unidad de negocio',
-          );
-      }
-      // El medio centavo de margen evita que un redondeo del decimal marque falso positivo.
-      const cobrado = Number(sale.cuentaCobrar?.montoPagado ?? 0);
-      if (cobrado > Number(sale.montoInicial) + 0.005)
+      if (nuevoAutor?.unidadNegocioId !== sale.unidadNegocioId)
         throw new BadRequestException(
-          'No se puede editar una venta con cobros registrados desde Cobranzas',
+          'No se puede reasignar la venta a un trabajador de otra unidad de negocio',
         );
-      // Una venta anulada ya fue deshecha entera y su plata devuelta: editarla rearmaría la
-      // cuenta por cobrar desde cero y le volvería a cobrar al cliente. El mensaje va antes
-      // que el de devoluciones porque es más preciso: toda anulación ES una devolución.
-      if (sale.cuentaCobrar?.estado === 'ANULADA')
-        throw new BadRequestException('Esta venta está anulada: no se puede editar.');
-      if (sale.devoluciones.some((item) => item.estado === 'CONFIRMADA'))
-        throw new BadRequestException('No se puede editar una venta con devoluciones registradas');
+    }
+    // El medio centavo de margen evita que un redondeo del decimal marque falso positivo.
+    const cobrado = Number(sale.cuentaCobrar?.montoPagado ?? 0);
+    if (cobrado > Number(sale.montoInicial) + 0.005)
+      throw new BadRequestException(
+        'No se puede editar una venta con cobros registrados desde Cobranzas',
+      );
+    // Una venta anulada ya fue deshecha entera y su plata devuelta: editarla rearmaría la
+    // cuenta por cobrar desde cero y le volvería a cobrar al cliente. El mensaje va antes
+    // que el de devoluciones porque es más preciso: toda anulación ES una devolución.
+    if (sale.cuentaCobrar?.estado === 'ANULADA')
+      throw new BadRequestException('Esta venta está anulada: no se puede editar.');
+    if (sale.devoluciones.some((item) => item.estado === 'CONFIRMADA'))
+      throw new BadRequestException('No se puede editar una venta con devoluciones registradas');
 
-      // La bandera se lee de la unidad DE LA VENTA, no de la activa: una venta nunca cambia de
-      // unidad, así que editarla tiene que comportarse igual que cuando nació. Con la unidad
-      // activa, un admin en "Todo consolidado" la editaría con la semántica equivocada.
-      const controlaInventario = await unidadControlaInventario(tx, sale.unidadNegocioId);
+    // La bandera se lee de la unidad DE LA VENTA, no de la activa: una venta nunca cambia de
+    // unidad, así que editarla tiene que comportarse igual que cuando nació. Con la unidad
+    // activa, un admin en "Todo consolidado" la editaría con la semántica equivocada.
+    const controlaInventario = await unidadControlaInventario(tx, sale.unidadNegocioId);
 
-      // La fecha de emisión se puede corregir al editar. No puede quedar en el futuro (Lima).
-      // Se guarda a mediodía Lima para que los listados que agrupan por día no se corran de fecha;
-      // la cuenta por cobrar la guarda como fecha calendario (columna Date).
-      let nuevaFecha: { emision: Date; venta: Date } | null = null;
-      if (dto.fecha) {
-        const fechaKey = dto.fecha.slice(0, 10);
-        if (fechaKey > limaTodayKey())
-          throw new BadRequestException('La fecha de la venta no puede estar en el futuro');
-        nuevaFecha = {
-          emision: new Date(`${fechaKey}T00:00:00.000Z`),
-          venta: new Date(`${fechaKey}T12:00:00-05:00`),
-        };
-      }
+    // La fecha de emisión se puede corregir al editar. No puede quedar en el futuro (Lima).
+    // Se guarda a mediodía Lima para que los listados que agrupan por día no se corran de fecha;
+    // la cuenta por cobrar la guarda como fecha calendario (columna Date).
+    let nuevaFecha: { emision: Date; venta: Date } | null = null;
+    if (dto.fecha) {
+      const fechaKey = dto.fecha.slice(0, 10);
+      if (fechaKey > limaTodayKey())
+        throw new BadRequestException('La fecha de la venta no puede estar en el futuro');
+      nuevaFecha = {
+        emision: new Date(`${fechaKey}T00:00:00.000Z`),
+        venta: new Date(`${fechaKey}T12:00:00-05:00`),
+      };
+    }
 
-      // El cobro automático se rehace más abajo con el total nuevo, así que se borra el viejo.
-      // Acotado a `origen: 'VENTA'`: los cobros de Cobranzas ya cortaron la edición arriba, y
-      // un reembolso de anulación nunca debe borrarse (también cortado arriba), pero el
-      // filtro deja explícito qué es lo único que esta línea puede tocar.
-      if (sale.cuentaCobrar)
-        await tx.pagoCliente.deleteMany({
-          where: { cuentaCobrarId: sale.cuentaCobrar.id, origen: 'VENTA' },
-        });
+    // El cobro automático se rehace más abajo con el total nuevo, así que se borra el viejo.
+    // Acotado a `origen: 'VENTA'`: los cobros de Cobranzas ya cortaron la edición arriba, y
+    // un reembolso de anulación nunca debe borrarse (también cortado arriba), pero el
+    // filtro deja explícito qué es lo único que esta línea puede tocar.
+    if (sale.cuentaCobrar)
+      await tx.pagoCliente.deleteMany({
+        where: { cuentaCobrarId: sale.cuentaCobrar.id, origen: 'VENTA' },
+      });
 
-      // El gateo va acá afuera y NO adentro de `reverseSaleOutbound`: ese método tiene que
-      // seguir fallando cuando una venta con inventario no tiene movimiento, porque es lo que
-      // impide que al editar una venta vieja se descuente stock que nunca se descontó.
-      const fechaAsiento = opciones.fecharEnLaVenta ? (nuevaFecha?.venta ?? sale.fecha) : undefined;
-      if (controlaInventario) await this.reverseSaleOutbound(tx, saleId, fechaAsiento);
-      // Los envases se deshacen contra el cliente ORIGINAL: el DTO permite cambiar de cliente,
-      // y los bidones se los llevó el que figuraba antes.
-      await this.revertirEnvasesDeVenta(
+    // El gateo va acá afuera y NO adentro de `reverseSaleOutbound`: ese método tiene que
+    // seguir fallando cuando una venta con inventario no tiene movimiento, porque es lo que
+    // impide que al editar una venta vieja se descuente stock que nunca se descontó.
+    const fechaAsiento = opciones.fecharEnLaVenta ? (nuevaFecha?.venta ?? sale.fecha) : undefined;
+    if (controlaInventario && !opciones.inventarioRevertido)
+      await this.reverseSaleOutbound(tx, saleId, fechaAsiento);
+    // Los envases se deshacen contra el cliente ORIGINAL: el DTO permite cambiar de cliente,
+    // y los bidones se los llevó el que figuraba antes.
+    await this.revertirEnvasesDeVenta(
+      tx,
+      saleId,
+      sale.clienteId,
+      actor.userId,
+      'la edición de la venta',
+    );
+
+    const warehouse = dto.almacenId
+      ? await tx.almacen.findUnique({ where: { id: BigInt(dto.almacenId) } })
+      : await tx.almacen.findUnique({ where: { id: sale.almacenOrigenId } });
+    if (!warehouse || !warehouse.estado)
+      throw new BadRequestException('No existe un almacén activo para registrar la venta');
+    // El DTO permite cambiar cliente y almacén, así que hay que revalidarlos: si no, una
+    // venta se editaría para apuntar al almacén de otra unidad y descontarle stock real.
+    await exigirMismaUnidad(tx, sale.unidadNegocioId, {
+      clienteId: BigInt(dto.clienteId),
+      almacenId: warehouse.id,
+    });
+    const totals = this.totals(dto.items, dto.descuento, false);
+    // Solo la corrección interna de carga diaria admite dejar un importe en cero.
+    const terms =
+      opciones.permitirVacia && dto.items.length === 0 && !dto.pagosIniciales?.length
+        ? { payments: [], initial: 0, dueDate: null }
+        : await this.paymentTerms(tx, dto, totals.total, trabajadorId);
+    await this.validarProductosDeVenta(tx, dto.items);
+    // `excluirVentaId` es imprescindible acá: sin él, la propia deuda de esta venta contaría
+    // como deuda previa y una venta a crédito no se podría editar nunca más.
+    const autorizacion = await this.exigirCreditoDisponible(tx, {
+      clienteId: BigInt(dto.clienteId),
+      saldoQueDeja: Math.max(Math.round((totals.total - terms.initial) * 100) / 100, 0),
+      actor,
+      excluirVentaId: saleId,
+    });
+    await tx.venta.update({
+      where: { id: saleId },
+      data: {
+        clienteId: BigInt(dto.clienteId),
+        // Se reescriben siempre, también a null: si la venta pasó a contado o el cliente
+        // regularizó, la marca de excepción tiene que desaparecer, no quedar pegada.
+        creditoAutorizadoPorId: autorizacion?.autorizadoPorId ?? null,
+        creditoAutorizadoNota: autorizacion?.nota ?? null,
+        almacenOrigenId: warehouse.id,
+        trabajadorId,
+        tipoPago: dto.tipoPago,
+        ...(nuevaFecha ? { fecha: nuevaFecha.venta } : {}),
+        // Referencia rápida al método principal; el desglose real vive en PagoCliente.
+        metodoPagoInicialId: terms.payments[0]?.methodId ?? null,
+        montoInicial: terms.initial,
+        fechaVencimientoPago: terms.dueDate,
+        subtotal: totals.subtotal,
+        igv: totals.igv,
+        descuento: totals.descuento,
+        total: totals.total,
+        vaciosRecibidos: dto.vaciosDevueltos ?? 0,
+        detalles: {
+          deleteMany: {},
+          create: dto.items.map((item) => ({
+            productoId: BigInt(item.productoId),
+            // El lote lo asigna el descuento de stock (FIFO), no el formulario.
+            loteId: null,
+            cantidad: item.cantidad,
+            precioUnitario: item.precioUnitario,
+            descuento: item.descuento ?? 0,
+            subtotal: this.lineTotal(item),
+          })),
+        },
+      },
+    });
+
+    if (controlaInventario)
+      await this.applySaleOutbound(
         tx,
         saleId,
-        sale.clienteId,
-        actor.userId,
-        'la edición de la venta',
+        '-R',
+        fechaAsiento,
+        opciones.loteId,
+        opciones.permitirPendiente,
       );
+    await this.aplicarEnvasesDeVenta(
+      tx,
+      saleId,
+      BigInt(dto.clienteId),
+      dto.vaciosDevueltos ?? 0,
+      actor.userId,
+    );
 
-      const warehouse = dto.almacenId
-        ? await tx.almacen.findUnique({ where: { id: BigInt(dto.almacenId) } })
-        : await tx.almacen.findUnique({ where: { id: sale.almacenOrigenId } });
-      if (!warehouse || !warehouse.estado)
-        throw new BadRequestException('No existe un almacén activo para registrar la venta');
-      // El DTO permite cambiar cliente y almacén, así que hay que revalidarlos: si no, una
-      // venta se editaría para apuntar al almacén de otra unidad y descontarle stock real.
-      await exigirMismaUnidad(tx, sale.unidadNegocioId, {
-        clienteId: BigInt(dto.clienteId),
-        almacenId: warehouse.id,
-      });
-      const totals = this.totals(dto.items, dto.descuento, false);
-      const terms = await this.paymentTerms(tx, dto, totals.total, trabajadorId);
-      await this.validarProductosDeVenta(tx, dto.items);
-      // `excluirVentaId` es imprescindible acá: sin él, la propia deuda de esta venta contaría
-      // como deuda previa y una venta a crédito no se podría editar nunca más.
-      const autorizacion = await this.exigirCreditoDisponible(tx, {
-        clienteId: BigInt(dto.clienteId),
-        saldoQueDeja: Math.max(Math.round((totals.total - terms.initial) * 100) / 100, 0),
-        actor,
-        excluirVentaId: saleId,
-      });
-      await tx.venta.update({
-        where: { id: saleId },
+    // La cuenta por cobrar se rearma desde cero con el total nuevo: se borró el cobro viejo,
+    // así que parte en 0 pagado y se vuelve a registrar el cobro inicial que corresponda al
+    // tipo de pago nuevo. También se actualiza el vencimiento, porque Cobranzas lo lee de
+    // acá y no de la venta: sin esto la venta seguía apareciendo vencida al reprogramarla.
+    if (sale.cuentaCobrar) {
+      await tx.cuentaCobrar.update({
+        where: { id: sale.cuentaCobrar.id },
         data: {
-          clienteId: BigInt(dto.clienteId),
-          // Se reescriben siempre, también a null: si la venta pasó a contado o el cliente
-          // regularizó, la marca de excepción tiene que desaparecer, no quedar pegada.
-          creditoAutorizadoPorId: autorizacion?.autorizadoPorId ?? null,
-          creditoAutorizadoNota: autorizacion?.nota ?? null,
-          almacenOrigenId: warehouse.id,
-          trabajadorId,
-          tipoPago: dto.tipoPago,
-          ...(nuevaFecha ? { fecha: nuevaFecha.venta } : {}),
-          // Referencia rápida al método principal; el desglose real vive en PagoCliente.
-          metodoPagoInicialId: terms.payments[0]?.methodId ?? null,
-          montoInicial: terms.initial,
-          fechaVencimientoPago: terms.dueDate,
-          subtotal: totals.subtotal,
-          igv: totals.igv,
-          descuento: totals.descuento,
-          total: totals.total,
-          vaciosRecibidos: dto.vaciosDevueltos ?? 0,
-          detalles: {
-            deleteMany: {},
-            create: dto.items.map((item) => ({
-              productoId: BigInt(item.productoId),
-              // El lote lo asigna el descuento de stock (FIFO), no el formulario.
-              loteId: null,
-              cantidad: item.cantidad,
-              precioUnitario: item.precioUnitario,
-              descuento: item.descuento ?? 0,
-              subtotal: this.lineTotal(item),
-            })),
-          },
+          montoOriginal: totals.total,
+          montoPagado: 0,
+          saldoPendiente: totals.total,
+          fechaVencimiento: terms.dueDate,
+          ...(nuevaFecha ? { fechaEmision: nuevaFecha.emision } : {}),
+          estado: 'PENDIENTE',
         },
       });
-
-      if (controlaInventario) await this.applySaleOutbound(tx, saleId, '-R', fechaAsiento);
-      await this.aplicarEnvasesDeVenta(
+      // Los cobros se recrean a nombre del trabajador vigente. El kardex no: los
+      // `MovimientoInventario` ya escritos son historia y no se reescriben.
+      await this.applyInitialPayments(
         tx,
-        saleId,
-        BigInt(dto.clienteId),
-        dto.vaciosDevueltos ?? 0,
-        actor.userId,
+        { id: sale.cuentaCobrar.id, montoOriginal: totals.total },
+        trabajadorId,
+        terms.payments,
+        fechaAsiento,
       );
+      const estadoPago =
+        terms.initial >= totals.total - 0.005
+          ? 'PAGADA'
+          : terms.initial > 0
+            ? 'PARCIAL'
+            : 'PENDIENTE';
+      await tx.venta.update({ where: { id: saleId }, data: { estadoPago } });
+    }
 
-      // La cuenta por cobrar se rearma desde cero con el total nuevo: se borró el cobro viejo,
-      // así que parte en 0 pagado y se vuelve a registrar el cobro inicial que corresponda al
-      // tipo de pago nuevo. También se actualiza el vencimiento, porque Cobranzas lo lee de
-      // acá y no de la venta: sin esto la venta seguía apareciendo vencida al reprogramarla.
-      if (sale.cuentaCobrar) {
-        await tx.cuentaCobrar.update({
-          where: { id: sale.cuentaCobrar.id },
-          data: {
-            montoOriginal: totals.total,
-            montoPagado: 0,
-            saldoPendiente: totals.total,
-            fechaVencimiento: terms.dueDate,
-            ...(nuevaFecha ? { fechaEmision: nuevaFecha.emision } : {}),
-            estado: 'PENDIENTE',
-          },
-        });
-        // Los cobros se recrean a nombre del trabajador vigente. El kardex no: los
-        // `MovimientoInventario` ya escritos son historia y no se reescriben.
-        await this.applyInitialPayments(
-          tx,
-          { id: sale.cuentaCobrar.id, montoOriginal: totals.total },
-          trabajadorId,
-          terms.payments,
-          fechaAsiento,
-        );
-        const estadoPago =
-          terms.initial >= totals.total - 0.005
-            ? 'PAGADA'
-            : terms.initial > 0
-              ? 'PARCIAL'
-              : 'PENDIENTE';
-        await tx.venta.update({ where: { id: saleId }, data: { estadoPago } });
-      }
-
-      return this.saleView(await this.findSale(tx, saleId));
-    }, TRANSACCION_DE_STOCK);
+    return this.saleView(await this.findSale(tx, saleId));
   }
 
   /**
@@ -1456,7 +1509,7 @@ export class OperationsService {
    * No se puede deshacer ni repetir.
    */
   async annulSale(id: string, dto: AnnulSaleDto, actor: AuthUser, unidadActiva?: string) {
-    const devolucionId = await this.prisma.$transaction(async (tx) => {
+    const devolucionId = await transaccionStock(this.prisma, async (tx) => {
       const saleId = BigInt(id);
       const workerId = await resolverTrabajadorAutor(tx, actor, dto.trabajadorId);
       const alcance = await resolverAlcanceUnidad(tx, actor, unidadActiva);
@@ -1525,7 +1578,7 @@ export class OperationsService {
         'la anulación de la venta',
       );
       return created;
-    }, TRANSACCION_DE_STOCK);
+    });
 
     const row = await this.prisma.devolucionVenta.findUniqueOrThrow({
       where: { id: devolucionId },
@@ -1540,146 +1593,19 @@ export class OperationsService {
     return this.devolucionView(row);
   }
 
-  /** Descuenta stock según las líneas actuales de la venta y registra el movimiento de salida. */
-  private async applySaleOutbound(tx: Transaction, id: bigint, referenceSuffix = '', fecha?: Date) {
-    const sale = await this.findSale(tx, id);
-    const movement = await tx.movimientoInventario.create({
-      data: {
-        ...(fecha ? { fecha } : {}),
-        tipoMovimiento: 'SALIDA',
-        tipoOperacion: 'VENTA',
-        almacenOrigenId: sale.almacenOrigenId,
-        ventaId: sale.id,
-        trabajadorId: sale.trabajadorId,
-        estado: 'CONFIRMADO',
-        numeroReferencia: `VEN-${sale.id.toString().padStart(6, '0')}${referenceSuffix}`,
-        observaciones: referenceSuffix
-          ? `Salida por edición de venta ${saleCode(sale.id)}`
-          : `Salida automática por venta ${saleCode(sale.id)}`,
-      },
-    });
-    for (const item of sale.detalles) {
-      const stocks = await this.saleableStockRows(
-        tx,
-        item.productoId,
-        sale.almacenOrigenId,
-        item.loteId,
-      );
-      const free = stocks.reduce(
-        (total, stock) =>
-          total + Math.max(Number(stock.cantidad) - Number(stock.cantidadReservada), 0),
-        0,
-      );
-      if (free < Number(item.cantidad)) {
-        throw new BadRequestException(
-          `Stock insuficiente para ${item.producto.nombre}. Disponible: ${free}`,
-        );
-      }
-      let remaining = Number(item.cantidad);
-      for (const stock of stocks) {
-        const previous = Number(stock.cantidad);
-        const take = Math.min(Math.max(previous - Number(stock.cantidadReservada), 0), remaining);
-        if (take <= 0) continue;
-        const next = previous - take;
-        await tx.stockAlmacen.update({ where: { id: stock.id }, data: { cantidad: next } });
-        await tx.detalleMovimientoInventario.create({
-          data: {
-            movimientoId: movement.id,
-            productoId: item.productoId,
-            almacenId: sale.almacenOrigenId,
-            loteId: stock.loteId,
-            estadoInventarioId: stock.estadoInventarioId,
-            direccion: 'SALIDA',
-            cantidad: take,
-            costoUnitario: stock.costoPromedio,
-            costoTotal: take * Number(stock.costoPromedio),
-            saldoAnterior: previous,
-            saldoPosterior: next,
-          },
-        });
-        remaining -= take;
-        if (remaining <= 0) break;
-      }
-    }
+  private applySaleOutbound(
+    tx: Transaction,
+    id: bigint,
+    referenceSuffix = '',
+    fecha?: Date,
+    loteId?: bigint,
+    permitirPendiente = false,
+  ) {
+    return descontarVenta(tx, id, { referenceSuffix, fecha, loteId, permitirPendiente });
   }
 
-  /**
-   * Revierte el efecto físico del último movimiento de salida confirmado de una venta:
-   * repone el stock exacto que se descontó y deja un nuevo movimiento de entrada como
-   * constancia — el kardex es un ledger de solo-append, nunca se borra ni se muta un
-   * movimiento ya existente (mismo criterio que ya usan las devoluciones).
-   */
-  private async reverseSaleOutbound(tx: Transaction, saleId: bigint, fecha?: Date) {
-    const sale = await tx.venta.findUniqueOrThrow({ where: { id: saleId } });
-    const outbound = await tx.movimientoInventario.findFirst({
-      where: {
-        ventaId: saleId,
-        tipoOperacion: 'VENTA',
-        tipoMovimiento: 'SALIDA',
-        estado: 'CONFIRMADO',
-      },
-      orderBy: { id: 'desc' },
-      include: { detalles: true },
-    });
-    // Sin movimiento de salida no hay nada que revertir, y seguir adelante descontaría el
-    // stock una segunda vez. Se corta acá con un mensaje claro (pasa con ventas viejas,
-    // anteriores a este flujo).
-    if (!outbound)
-      throw new BadRequestException(
-        'Esta venta no tiene movimiento de inventario registrado, así que no se puede editar.',
-      );
-    const reversal = await tx.movimientoInventario.create({
-      data: {
-        ...(fecha ? { fecha } : {}),
-        tipoMovimiento: 'ENTRADA',
-        tipoOperacion: 'VENTA',
-        almacenDestinoId: sale.almacenOrigenId,
-        ventaId: saleId,
-        trabajadorId: sale.trabajadorId,
-        estado: 'CONFIRMADO',
-        numeroReferencia: `VEN-${saleId.toString().padStart(6, '0')}-REV`,
-        observaciones: `Reversión por edición de venta ${saleCode(saleId)}`,
-      },
-    });
-    for (const line of outbound.detalles) {
-      const stock = await this.stockRow(
-        tx,
-        line.productoId,
-        line.almacenId,
-        line.loteId,
-        line.estadoInventarioId,
-      );
-      const previous = Number(stock?.cantidad ?? 0);
-      const next = previous + Number(line.cantidad);
-      if (stock)
-        await tx.stockAlmacen.update({ where: { id: stock.id }, data: { cantidad: next } });
-      else
-        await tx.stockAlmacen.create({
-          data: {
-            productoId: line.productoId,
-            almacenId: line.almacenId,
-            loteId: line.loteId,
-            estadoInventarioId: line.estadoInventarioId,
-            cantidad: next,
-            costoPromedio: Number(line.costoUnitario),
-          },
-        });
-      await tx.detalleMovimientoInventario.create({
-        data: {
-          movimientoId: reversal.id,
-          productoId: line.productoId,
-          almacenId: line.almacenId,
-          loteId: line.loteId,
-          estadoInventarioId: line.estadoInventarioId,
-          direccion: 'ENTRADA',
-          cantidad: line.cantidad,
-          costoUnitario: line.costoUnitario,
-          costoTotal: line.costoTotal,
-          saldoAnterior: previous,
-          saldoPosterior: next,
-        },
-      });
-    }
+  reverseSaleOutbound(tx: Transaction, saleId: bigint, fecha?: Date) {
+    return revertirStockVenta(tx, saleId, fecha);
   }
 
   /**
@@ -1901,15 +1827,30 @@ export class OperationsService {
     // La venta ya no guarda un lote por línea (el sistema saca FIFO y una línea puede salir
     // de varios lotes), así que la devolución vuelve a los lotes que dice el kardex, en el
     // mismo orden en que salieron. Si no hay kardex —ventas viejas— entra sin lote.
+    const devolucionesPrevias = await tx.detalleMovimientoInventario.findMany({
+      where: {
+        movimiento: {
+          tipoOperacion: 'DEVOLUCION_VENTA',
+          estado: 'CONFIRMADO',
+          devolucionVenta: { ventaId: sale.id, estado: 'CONFIRMADA' },
+        },
+      },
+    });
+    const lotesPorProducto = new Map<
+      string,
+      Map<string, { loteId: bigint | null; cantidad: number }>
+    >();
+    for (const linea of [...lineasDeMovimiento, ...devolucionesPrevias]) {
+      const producto = linea.productoId.toString();
+      const porLote = lotesPorProducto.get(producto) ?? new Map();
+      const clave = linea.loteId?.toString() ?? 'sin-lote';
+      const acumulado = porLote.get(clave) ?? { loteId: linea.loteId, cantidad: 0 };
+      acumulado.cantidad += signoDeLinea(linea) * Number(linea.cantidad);
+      porLote.set(clave, acumulado);
+      lotesPorProducto.set(producto, porLote);
+    }
     const repartirEntreLotesVendidos = (productoId: bigint, aDevolver: number) => {
-      const porLote = new Map<string, { loteId: bigint | null; cantidad: number }>();
-      for (const linea of lineasDeMovimiento) {
-        if (linea.productoId !== productoId) continue;
-        const clave = linea.loteId?.toString() ?? 'sin-lote';
-        const acumulado = porLote.get(clave) ?? { loteId: linea.loteId, cantidad: 0 };
-        acumulado.cantidad += signoDeLinea(linea) * Number(linea.cantidad);
-        porLote.set(clave, acumulado);
-      }
+      const porLote = lotesPorProducto.get(productoId.toString()) ?? new Map();
       const disponibles = [...porLote.values()].filter((fila) => fila.cantidad > 0);
 
       const reparto: { loteId: bigint | null; cantidad: number }[] = [];
@@ -1918,11 +1859,17 @@ export class OperationsService {
         if (restante <= 0) break;
         const cantidad = Math.min(fila.cantidad, restante);
         reparto.push({ loteId: fila.loteId, cantidad });
+        fila.cantidad -= cantidad;
         restante -= cantidad;
       }
-      // Sobrante (p. ej. una segunda devolución parcial): va al último lote conocido.
-      if (restante > 0)
-        reparto.push({ loteId: disponibles.at(-1)?.loteId ?? null, cantidad: restante });
+      // Solo los registros históricos sin kardex conservan el reingreso sin lote.
+      if (restante > 0.0005) {
+        if (sale.movimientosInventario.length)
+          throw new BadRequestException(
+            'La devolución supera las unidades descontadas del inventario.',
+          );
+        reparto.push({ loteId: null, cantidad: restante });
+      }
       return reparto;
     };
 
@@ -1977,21 +1924,32 @@ export class OperationsService {
         },
       },
     });
-    const physical = selected.filter(reintegra);
-    if (physical.length) {
-      for (const entry of physical) {
-        // Sin estado elegido vale el DISPONIBLE que ya se resolvió arriba, que es el que
-        // termina guardándose. Es el caso de una anulación: la venta se está deshaciendo
-        // entera, el producto nunca salió de verdad y no hay nada que elegir por línea.
-        if (entry.input.estadoDestinoId === undefined) continue;
-        const state = await tx.estadoInventario.findUnique({
-          where: { id: BigInt(entry.input.estadoDestinoId) },
+    const physical = [] as typeof selected;
+    for (const entry of selected.filter(reintegra)) {
+      const pendiente = Number(entry.detail.cantidadPendienteStock);
+      const cancelada = Math.min(pendiente, entry.quantity);
+      if (cancelada > 0)
+        await tx.detalleVenta.update({
+          where: { id: entry.detail.id },
+          data: { cantidadPendienteStock: pendiente - cancelada },
         });
-        if (!state?.estado)
-          throw new BadRequestException(
-            'Seleccione un estado de inventario válido para cada producto devuelto',
-          );
-      }
+      if (entry.quantity > cancelada)
+        physical.push({ ...entry, quantity: entry.quantity - cancelada });
+    }
+    for (const entry of selected.filter(reintegra)) {
+      // Sin estado elegido vale el DISPONIBLE que ya se resolvió arriba, que es el que
+      // termina guardándose. Es el caso de una anulación: la venta se está deshaciendo
+      // entera, el producto nunca salió de verdad y no hay nada que elegir por línea.
+      if (entry.input.estadoDestinoId === undefined) continue;
+      const state = await tx.estadoInventario.findUnique({
+        where: { id: BigInt(entry.input.estadoDestinoId) },
+      });
+      if (!state?.estado)
+        throw new BadRequestException(
+          'Seleccione un estado de inventario válido para cada producto devuelto',
+        );
+    }
+    if (physical.length) {
       const movement = await tx.movimientoInventario.create({
         data: {
           tipoMovimiento: 'ENTRADA',
@@ -2409,33 +2367,6 @@ export class OperationsService {
   }
 
   /**
-   * Filas de stock de las que puede salir una venta, en orden FIFO: primero lo más antiguo.
-   *
-   * La venta nunca elige lote, así que acá se devuelven TODOS los lotes del producto en ese
-   * almacén y `applySaleOutbound` va tomando de uno en uno hasta cubrir la cantidad: si el
-   * lote más viejo tiene 1 unidad y se venden 5, salen 1 de ese lote y 4 del siguiente.
-   */
-  private saleableStockRows(
-    tx: Transaction,
-    productoId: bigint,
-    almacenId: bigint,
-    loteId: bigint | null,
-  ) {
-    return tx.stockAlmacen.findMany({
-      where: {
-        productoId,
-        almacenId,
-        loteId: loteId ?? undefined,
-        cantidad: { gt: 0 },
-        estadoInventario: { estado: true, permiteVenta: true },
-      },
-      // `fechaProduccion` es la fecha en que el lote entró al almacén. El id desempata los
-      // lotes sin fecha y el stock que no controla lote.
-      orderBy: [{ lote: { fechaProduccion: 'asc' } }, { id: 'asc' }],
-    });
-  }
-
-  /**
    * Una venta fuera del alcance no da 403 sino 404: para quien no puede verla, no existe.
    * Por eso el filtro de unidad entra en el mismo `where` y no en un chequeo posterior.
    */
@@ -2582,6 +2513,10 @@ export class OperationsService {
           0,
         ) ?? 0,
       vaciosRecibidos: Number(row.vaciosRecibidos ?? 0),
+      cantidadPendienteStock: row.detalles.reduce(
+        (sum: number, item: any) => sum + Number(item.cantidadPendienteStock ?? 0),
+        0,
+      ),
       // Si la venta se editó hay varios movimientos; el que vale es la última SALIDA (la
       // primera ya fue revertida), así el enlace "Ver kardex" no lleva a un movimiento anulado.
       kardexId: movimientoVigente?.id?.toString() ?? null,
@@ -2591,6 +2526,7 @@ export class OperationsService {
         productoId: item.productoId.toString(),
         producto: item.producto.nombre,
         cantidad: Number(item.cantidad),
+        cantidadPendienteStock: Number(item.cantidadPendienteStock ?? 0),
         cantidadDevuelta:
           item.detallesDevolucion?.reduce(
             (sum: number, detail: any) => sum + Number(detail.cantidad),

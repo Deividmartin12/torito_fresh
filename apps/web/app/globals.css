@@ -3485,31 +3485,33 @@ a.entity-row:hover {
 
 /* Resumen diario: el filtro de rango se presenta sin una tarjeta exterior. */
 .summary-filters {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  column-gap: 12px;
+  row-gap: 12px;
   align-items: center;
-  flex-wrap: nowrap;
-  gap: 16px;
   margin: 16px 0 14px;
 }
 
+/* Los pasos se disuelven para que el navegador de fechas (dentro de PeriodFilter)
+   quede en la columna derecha ocupando el alto de las dos filas. */
 .summary-filter-step {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.summary-filter-step:first-child {
-  min-width: 0;
-  flex: 1;
+  display: contents;
 }
 
 .summary-filter-step:first-child .period-filter {
-  min-width: 0;
-  flex: 1;
-  flex-wrap: nowrap;
+  display: contents;
+}
+
+.summary-filter-step:first-child .summary-filter-label {
+  grid-column: 1;
+  grid-row: 1;
 }
 
 .summary-filter-step:first-child .period-filter-rail {
+  grid-column: 2;
+  grid-row: 1;
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
@@ -3519,14 +3521,29 @@ a.entity-row:hover {
   display: none;
 }
 
-.summary-filter-step:last-child {
-  flex: none;
+.summary-filter-step:first-child .period-filter-sep {
+  display: none;
 }
 
-.summary-filter-step + .summary-filter-step {
-  margin-left: 12px;
-  padding-left: 16px;
+.summary-filter-step:first-child .period-nav {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  margin-left: 4px;
   border-left: 1px solid var(--border);
+  padding-left: 16px;
+}
+
+.summary-filter-step:last-child .summary-filter-label {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.summary-filter-step:last-child .segmented {
+  grid-column: 2;
+  grid-row: 2;
 }
 
 .summary-filter-label {
@@ -4375,6 +4392,8 @@ html[data-theme='dark'] .stock-report-alert {
   .comparison-column,
   .comparison-chart-labeled .comparison-column {
     min-width: 26px;
+    /* Los importes están ocultos: quedan solo las barras y las fechas. */
+    grid-template-rows: minmax(0, 1fr) auto;
   }
 
   .comparison-values {
@@ -8752,29 +8771,41 @@ input[type='radio'] {
     font-size: 20px !important;
   }
 
-  /* Al envolver, el separador vertical quedaba flotando a la izquierda. */
+  /* En angosto se apila: período, fechas, agrupar. */
   .summary-filters {
-    align-items: stretch;
-    flex-wrap: wrap;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
+    row-gap: 10px;
   }
 
-  .summary-filter-step:first-child .period-filter {
-    flex-wrap: wrap;
+  .summary-filter-step:first-child .summary-filter-label {
+    grid-column: 1;
+    grid-row: 1;
   }
 
-  .summary-filter-step {
-    align-items: stretch;
-    flex-direction: column;
-    width: 100%;
+  .summary-filter-step:first-child .period-filter-rail {
+    grid-column: 2;
+    grid-row: 1;
   }
 
-  .summary-filter-step + .summary-filter-step {
+  .summary-filter-step:first-child .period-nav {
+    grid-column: 1 / span 2;
+    grid-row: 2;
     margin-left: 0;
-    margin-top: 12px;
     border-left: 0;
     border-top: 1px solid var(--border);
     padding-left: 0;
-    padding-top: 12px;
+    padding-top: 10px;
+  }
+
+  .summary-filter-step:last-child .summary-filter-label {
+    grid-column: 1;
+    grid-row: 3;
+  }
+
+  .summary-filter-step:last-child .segmented {
+    grid-column: 2;
+    grid-row: 3;
   }
 }
 

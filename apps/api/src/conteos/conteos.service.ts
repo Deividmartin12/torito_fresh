@@ -92,7 +92,9 @@ export class ConteosService {
                 costoReferencia: true,
               },
             },
-            lote: { select: { id: true, codigoLote: true, estado: true, costoUnitario: true } },
+            lote: {
+              select: { id: true, codigoLote: true, estado: true, costoUnitario: true, createdAt: true },
+            },
             estadoInventario: { select: { id: true, codigo: true, nombre: true } },
           },
           orderBy: [{ producto: { nombre: 'asc' } }, { id: 'asc' }],
@@ -159,7 +161,54 @@ export class ConteosService {
       delDia.set(clave, acumulado);
     }
 
-    const filas = posiciones.map((posicion) => {
+    // La hoja agrupa por PRODUCTO: todos los lotes de un producto se cuentan juntos y el
+    // ajuste cae en el lote más antiguo (PEPS). Lo por posición se calcula igual que antes
+    // (el kardex y los saldos viven por posición) y después se agrega por producto + estado.
+    // Del más antiguo al más nuevo dentro de cada producto: las posiciones sin lote
+    // (legado) se consideran las más viejas.
+    const ordenadas = [...posiciones].sort((a, b) => {
+      const porNombre = a.producto.nombre.localeCompare(b.producto.nombre);
+      if (porNombre !== 0) return porNombre;
+      if (a.estadoInventarioId !== b.estadoInventarioId)
+        return a.estadoInventarioId < b.estadoInventarioId ? -1 : 1;
+      const fechaA = a.lote?.createdAt?.getTime() ?? Number.NEGATIVE_INFINITY;
+      const fechaB = b.lote?.createdAt?.getTime() ?? Number.NEGATIVE_INFINITY;
+      if (fechaA !== fechaB) return fechaA - fechaB;
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    });
+
+    type GrupoProducto = {
+      stockId: null;
+      productoId: string;
+      producto: string;
+      codigo: string;
+      unidadMedida: string;
+      estadoInventarioId: string;
+      estado: string;
+      /** Cuántas posiciones de stock se agregaron. Solo informativo. */
+      posiciones: number;
+      /** Referencia de los lotes agregados, del más antiguo al más nuevo. */
+      lotes: { lote: string; teorico: number }[];
+      saldoInicial: number;
+      producido: number;
+      consumido: number;
+      vendido: number;
+      devuelto: number;
+      mermas: number;
+      ajustes: number;
+      otros: number;
+      teorico: number;
+      costoPromedio: number;
+      costoSugerido: number;
+      ledgerCuadra: boolean;
+      /** Acumulador interno:Σ teórico × promedio por posición. No sale en la respuesta. */
+      valorizado: number;
+      /** Si ya se tomó el costo sugerido (el de la posición más antigua). No sale. */
+      sugeridoTomado: boolean;
+    };
+    const porGrupo = new Map<string, GrupoProducto>();
+    const filas: GrupoProducto[] = [];
+    for (const posicion of ordenadas) {
       const clave = clavePosicion(
         posicion.productoId,
         posicion.loteId,
@@ -169,35 +218,69 @@ export class ConteosService {
       const cantidadActual = Number(posicion.cantidad);
       const neto = Number(saldosPosteriores.get(clave) ?? 0);
       const teorico = this.redondear(cantidadActual - neto);
-      return {
-        stockId: posicion.id.toString(),
-        productoId: posicion.productoId.toString(),
-        producto: posicion.producto.nombre,
-        codigo: posicion.producto.codigo,
-        unidadMedida: posicion.producto.unidadMedida,
-        controlaLote: posicion.producto.controlaLote,
-        loteId: posicion.loteId?.toString() ?? null,
-        lote: posicion.lote?.codigoLote ?? 'Sin lote',
-        loteEstado: posicion.lote?.estado ?? null,
-        estadoInventarioId: posicion.estadoInventarioId.toString(),
-        estado: posicion.estadoInventario.codigo,
-        saldoInicial: this.redondear(teorico - movimientos.neto),
-        producido: this.redondear(movimientos.producido),
-        consumido: this.redondear(movimientos.consumido),
-        vendido: this.redondear(movimientos.vendido),
-        devuelto: this.redondear(movimientos.devuelto),
-        mermas: this.redondear(movimientos.mermas),
-        ajustes: this.redondear(movimientos.ajustes),
-        otros: this.redondear(movimientos.otros),
-        teorico,
-        costoPromedio: Number(posicion.costoPromedio),
-        // Costo con el que entrarían unidades nuevas si el promedio está en cero, que es el
-        // caso de toda producción registrada sin insumos.
-        costoSugerido: this.costoDe(posicion),
-        ledgerCuadra:
-          Math.abs(Number(saldosDeSiempre.get(clave) ?? 0) - cantidadActual) < EPSILON_CANTIDAD,
-      };
-    });
+      const costoPromedio = Number(posicion.costoPromedio);
+      const claveGrupo = `${posicion.productoId}|${posicion.estadoInventarioId}`;
+      let grupo = porGrupo.get(claveGrupo);
+      if (!grupo) {
+        grupo = {
+          stockId: null,
+          productoId: posicion.productoId.toString(),
+          producto: posicion.producto.nombre,
+          codigo: posicion.producto.codigo,
+          unidadMedida: posicion.producto.unidadMedida,
+          estadoInventarioId: posicion.estadoInventarioId.toString(),
+          estado: posicion.estadoInventario.codigo,
+          posiciones: 0,
+          lotes: [],
+          saldoInicial: 0,
+          producido: 0,
+          consumido: 0,
+          vendido: 0,
+          devuelto: 0,
+          mermas: 0,
+          ajustes: 0,
+          otros: 0,
+          teorico: 0,
+          costoPromedio: 0,
+          costoSugerido: 0,
+          ledgerCuadra: true,
+          valorizado: 0,
+          sugeridoTomado: false,
+        };
+        porGrupo.set(claveGrupo, grupo);
+        filas.push(grupo);
+      }
+      grupo.posiciones += 1;
+      grupo.lotes.push({ lote: posicion.lote?.codigoLote ?? 'Sin lote', teorico });
+      grupo.saldoInicial = this.redondear(grupo.saldoInicial + (teorico - movimientos.neto));
+      grupo.producido = this.redondear(grupo.producido + movimientos.producido);
+      grupo.consumido = this.redondear(grupo.consumido + movimientos.consumido);
+      grupo.vendido = this.redondear(grupo.vendido + movimientos.vendido);
+      grupo.devuelto = this.redondear(grupo.devuelto + movimientos.devuelto);
+      grupo.mermas = this.redondear(grupo.mermas + movimientos.mermas);
+      grupo.ajustes = this.redondear(grupo.ajustes + movimientos.ajustes);
+      grupo.otros = this.redondear(grupo.otros + movimientos.otros);
+      grupo.teorico = this.redondear(grupo.teorico + teorico);
+      grupo.valorizado += teorico * costoPromedio;
+      if (!grupo.sugeridoTomado) {
+        // Costo con el que entrarían unidades nuevas si el promedio está en cero, que es
+        // el caso de toda producción registrada sin insumos. Se toma de la posición más
+        // antigua, que es la primera del grupo.
+        grupo.costoSugerido = this.costoDe(posicion);
+        grupo.sugeridoTomado = true;
+      }
+      grupo.ledgerCuadra =
+        grupo.ledgerCuadra &&
+        Math.abs(Number(saldosDeSiempre.get(clave) ?? 0) - cantidadActual) < EPSILON_CANTIDAD;
+    }
+    // Promedio ponderado del producto para mostrar y valorizar. Los internos no salen.
+    const filasRespuesta = filas.map(
+      ({ valorizado, sugeridoTomado, ...grupo }) => ({
+        ...grupo,
+        costoPromedio:
+          grupo.teorico !== 0 ? this.redondear(valorizado / grupo.teorico) : 0,
+      }),
+    );
 
     return {
       almacen: {
@@ -221,17 +304,23 @@ export class ConteosService {
           }
         : null,
       totales: {
-        posiciones: filas.length,
-        teorico: this.redondear(filas.reduce((suma, fila) => suma + fila.teorico, 0)),
-        producido: this.redondear(filas.reduce((suma, fila) => suma + fila.producido, 0)),
-        vendido: this.redondear(filas.reduce((suma, fila) => suma + fila.vendido, 0)),
-        valorizado: this.redondear(
-          filas.reduce((suma, fila) => suma + fila.teorico * fila.costoPromedio, 0),
+        posiciones: filasRespuesta.length,
+        teorico: this.redondear(
+          filasRespuesta.reduce((suma, fila) => suma + fila.teorico, 0),
         ),
-        posicionesEnCero: filas.filter((fila) => fila.teorico === 0).length,
-        ledgerDescuadrado: filas.filter((fila) => !fila.ledgerCuadra).length,
+        producido: this.redondear(
+          filasRespuesta.reduce((suma, fila) => suma + fila.producido, 0),
+        ),
+        vendido: this.redondear(
+          filasRespuesta.reduce((suma, fila) => suma + fila.vendido, 0),
+        ),
+        valorizado: this.redondear(
+          filas.reduce((suma, fila) => suma + fila.valorizado, 0),
+        ),
+        posicionesEnCero: filasRespuesta.filter((fila) => fila.teorico === 0).length,
+        ledgerDescuadrado: filasRespuesta.filter((fila) => !fila.ledgerCuadra).length,
       },
-      filas,
+      filas: filasRespuesta,
     };
   }
 
@@ -271,34 +360,45 @@ export class ConteosService {
           },
           include: {
             producto: { select: { nombre: true, costoReferencia: true } },
-            lote: { select: { costoUnitario: true } },
+            lote: { select: { costoUnitario: true, createdAt: true } },
           },
         });
-        const porClave = new Map(
-          posiciones.map((posicion) => [
-            clavePosicion(posicion.productoId, posicion.loteId, posicion.estadoInventarioId),
-            posicion,
-          ]),
-        );
+        // Las líneas vienen agregadas por producto (sin lote): el ajuste se aplica sobre
+        // los lotes del producto del más antiguo al más nuevo (PEPS). Las posiciones sin
+        // lote (legado) se consideran las más viejas.
+        const porProducto = new Map<string, typeof posiciones>();
+        for (const posicion of posiciones) {
+          const grupo = `${posicion.productoId}|${posicion.estadoInventarioId}`;
+          const lista = porProducto.get(grupo) ?? [];
+          lista.push(posicion);
+          porProducto.set(grupo, lista);
+        }
+        for (const lista of porProducto.values()) {
+          lista.sort((a, b) => {
+            const fechaA = a.lote?.createdAt?.getTime() ?? Number.NEGATIVE_INFINITY;
+            const fechaB = b.lote?.createdAt?.getTime() ?? Number.NEGATIVE_INFINITY;
+            if (fechaA !== fechaB) return fechaA - fechaB;
+            return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+          });
+        }
+        const grupoDe = (linea: LineaConteoDto) =>
+          porProducto.get(`${BigInt(linea.productoId)}|${BigInt(linea.estadoInventarioId)}`) ??
+          [];
         // Que el almacén no tenga NINGUNA posición es lo que distingue una carga inicial de
         // un cuadre: no hay nada contra qué cuadrar todavía.
         const totalPosiciones = await tx.stockAlmacen.count({ where: { almacenId: almacen.id } });
 
         // Bloqueo optimista. Sin esto, un conteo hecho a las 7 y guardado a las 7:20 pisaría
         // las ventas del medio: el stock quedaría en lo contado y esas ventas desaparecerían
-        // del saldo sin dejar rastro.
+        // del saldo sin dejar rastro. Se compara por producto, que es la unidad del conteo.
         const movidas: string[] = [];
         for (const linea of dto.lineas) {
-          const posicion = porClave.get(
-            clavePosicion(
-              BigInt(linea.productoId),
-              linea.loteId ? BigInt(linea.loteId) : null,
-              BigInt(linea.estadoInventarioId),
-            ),
+          const actualReal = this.redondear(
+            grupoDe(linea).reduce((suma, posicion) => suma + Number(posicion.cantidad), 0),
           );
-          const actualReal = Number(posicion?.cantidad ?? 0);
           if (Math.abs(actualReal - linea.teorico) >= EPSILON_CANTIDAD) {
-            movidas.push(posicion?.producto.nombre ?? `producto ${linea.productoId}`);
+            const lista = grupoDe(linea);
+            movidas.push(lista[0]?.producto.nombre ?? `producto ${linea.productoId}`);
           }
         }
         if (movidas.length && !dto.forzar) {
@@ -308,33 +408,92 @@ export class ConteosService {
           );
         }
 
-        const preparadas = dto.lineas.map((linea) => {
-          const clave = clavePosicion(
-            BigInt(linea.productoId),
-            linea.loteId ? BigInt(linea.loteId) : null,
-            BigInt(linea.estadoInventarioId),
+        // Una línea = un producto contado. La diferencia se reparte sobre sus lotes del
+        // más antiguo al más nuevo: el sobrante entra entero al lote más viejo y el
+        // faltante se descuenta en orden hasta cubrirlo.
+        type AplicacionAjuste = {
+          linea: LineaConteoDto;
+          posicion: (typeof posiciones)[number] | null;
+          anterior: number;
+          destino: number;
+          diferencia: number;
+          costo: number;
+        };
+        const lineasPreparadas = dto.lineas.map((linea) => {
+          const lista = grupoDe(linea);
+          const nombre = lista[0]?.producto.nombre ?? `producto ${linea.productoId}`;
+          const actualTotal = this.redondear(
+            lista.reduce((suma, posicion) => suma + Number(posicion.cantidad), 0),
           );
-          const posicion = porClave.get(clave);
           // Con `forzar` la diferencia se aplica sobre el saldo de ahora, no sobre el que se
           // vio al contar: así las ventas del medio se conservan.
-          const base = dto.forzar ? Number(posicion?.cantidad ?? 0) : linea.teorico;
-          const destino = this.redondear(base + (linea.contado - linea.teorico));
-          if (destino < 0)
+          const base = dto.forzar ? actualTotal : linea.teorico;
+          const destinoTotal = this.redondear(base + (linea.contado - linea.teorico));
+          if (destinoTotal < 0)
             throw new BadRequestException(
-              `La diferencia de ${posicion?.producto.nombre ?? 'un producto'} dejaría el stock en negativo`,
+              `La diferencia de ${nombre} dejaría el stock en negativo`,
             );
           return {
             linea,
-            posicion,
-            anterior: Number(posicion?.cantidad ?? 0),
-            destino,
-            diferencia: this.redondear(destino - Number(posicion?.cantidad ?? 0)),
-            costo: linea.costoUnitario ?? this.costoDe(posicion),
+            nombre,
+            lista,
+            destinoTotal,
+            diferenciaTotal: this.redondear(destinoTotal - actualTotal),
           };
         });
 
-        const conDiferencia = preparadas.filter(
-          (fila) => Math.abs(fila.diferencia) >= EPSILON_CANTIDAD,
+        const aplicaciones: AplicacionAjuste[] = [];
+        for (const preparada of lineasPreparadas) {
+          const { linea, nombre, lista, destinoTotal, diferenciaTotal } = preparada;
+          if (Math.abs(diferenciaTotal) < EPSILON_CANTIDAD) continue;
+          if (lista.length === 0) {
+            aplicaciones.push({
+              linea,
+              posicion: null,
+              anterior: 0,
+              destino: destinoTotal,
+              diferencia: diferenciaTotal,
+              costo: linea.costoUnitario ?? 0,
+            });
+            continue;
+          }
+          if (diferenciaTotal > 0) {
+            const vieja = lista[0];
+            const anterior = Number(vieja.cantidad);
+            aplicaciones.push({
+              linea,
+              posicion: vieja,
+              anterior,
+              destino: this.redondear(anterior + diferenciaTotal),
+              diferencia: diferenciaTotal,
+              costo: linea.costoUnitario ?? this.costoDe(vieja),
+            });
+          } else {
+            let falta = -diferenciaTotal;
+            for (const posicion of lista) {
+              if (falta < EPSILON_CANTIDAD) break;
+              const anterior = Number(posicion.cantidad);
+              const quita = Math.min(falta, anterior);
+              if (quita < EPSILON_CANTIDAD) continue;
+              aplicaciones.push({
+                linea,
+                posicion,
+                anterior,
+                destino: this.redondear(anterior - quita),
+                diferencia: this.redondear(-quita),
+                costo: this.costoDe(posicion),
+              });
+              falta = this.redondear(falta - quita);
+            }
+            if (falta >= EPSILON_CANTIDAD)
+              throw new BadRequestException(
+                `La diferencia de ${nombre} dejaría el stock en negativo`,
+              );
+          }
+        }
+
+        const conDiferencia = lineasPreparadas.filter(
+          (fila) => Math.abs(fila.diferenciaTotal) >= EPSILON_CANTIDAD,
         );
         const conteo = await tx.conteoInventario.create({
           data: {
@@ -346,24 +505,32 @@ export class ConteosService {
             contadas: dto.lineas.length,
             diferencias: conDiferencia.length,
             unidadesSobrantes: conDiferencia
-              .filter((fila) => fila.diferencia > 0)
-              .reduce((suma, fila) => suma + fila.diferencia, 0),
+              .filter((fila) => fila.diferenciaTotal > 0)
+              .reduce((suma, fila) => suma + fila.diferenciaTotal, 0),
             unidadesFaltantes: conDiferencia
-              .filter((fila) => fila.diferencia < 0)
-              .reduce((suma, fila) => suma - fila.diferencia, 0),
+              .filter((fila) => fila.diferenciaTotal < 0)
+              .reduce((suma, fila) => suma - fila.diferenciaTotal, 0),
             observaciones: dto.observaciones?.trim() || null,
+            // El detalle queda a nivel producto (sin lote): el lote que absorbió cada
+            // diferencia vive en el kardex, que sí lo registra por posición.
             detalles: {
-              create: preparadas.map((fila) => ({
-                productoId: BigInt(fila.linea.productoId),
-                loteId: fila.linea.loteId ? BigInt(fila.linea.loteId) : null,
-                estadoInventarioId: BigInt(fila.linea.estadoInventarioId),
-                teorico: fila.linea.teorico,
-                contado: fila.linea.contado,
-                diferencia: this.redondear(fila.linea.contado - fila.linea.teorico),
-                costoUnitario: fila.costo,
-                motivo: fila.linea.motivo ?? null,
-                nota: fila.linea.nota?.trim() || null,
-              })),
+              create: lineasPreparadas.map((preparada) => {
+                const aplicacion = aplicaciones.find((item) => item.linea === preparada.linea);
+                return {
+                  productoId: BigInt(preparada.linea.productoId),
+                  loteId: null,
+                  estadoInventarioId: BigInt(preparada.linea.estadoInventarioId),
+                  teorico: preparada.linea.teorico,
+                  contado: preparada.linea.contado,
+                  diferencia: this.redondear(
+                    preparada.linea.contado - preparada.linea.teorico,
+                  ),
+                  costoUnitario:
+                    aplicacion?.costo ?? preparada.linea.costoUnitario ?? 0,
+                  motivo: preparada.linea.motivo ?? null,
+                  nota: preparada.linea.nota?.trim() || null,
+                };
+              }),
             },
           },
         });
@@ -374,17 +541,17 @@ export class ConteosService {
         const referencia = `CONT-${conteo.id.toString().padStart(6, '0')}`;
         const baldes = [
           {
-            filas: conDiferencia.filter((fila) => !fila.posicion),
+            filas: aplicaciones.filter((fila) => !fila.posicion),
             tipoOperacion: 'CARGA_INICIAL',
             sufijo: '-CI',
           },
           {
-            filas: conDiferencia.filter((fila) => fila.posicion && fila.diferencia > 0),
+            filas: aplicaciones.filter((fila) => fila.posicion && fila.diferencia > 0),
             tipoOperacion: 'AJUSTE_POSITIVO',
             sufijo: '',
           },
           {
-            filas: conDiferencia.filter((fila) => fila.posicion && fila.diferencia < 0),
+            filas: aplicaciones.filter((fila) => fila.posicion && fila.diferencia < 0),
             tipoOperacion: 'AJUSTE_NEGATIVO',
             sufijo: '-F',
           },
@@ -440,7 +607,7 @@ export class ConteosService {
                 data: {
                   productoId: BigInt(fila.linea.productoId),
                   almacenId: almacen.id,
-                  loteId: fila.linea.loteId ? BigInt(fila.linea.loteId) : null,
+                  loteId: fila.posicion?.loteId ?? null,
                   estadoInventarioId,
                   cantidad: fila.destino,
                   costoPromedio: fila.costo,
@@ -453,7 +620,7 @@ export class ConteosService {
                 movimientoId: movimiento.id,
                 productoId: BigInt(fila.linea.productoId),
                 almacenId: almacen.id,
-                loteId: fila.linea.loteId ? BigInt(fila.linea.loteId) : null,
+                loteId: fila.posicion?.loteId ?? null,
                 estadoInventarioId,
                 direccion: entrada ? 'ENTRADA' : 'SALIDA',
                 cantidad: Math.abs(fila.diferencia),
@@ -584,20 +751,16 @@ export class ConteosService {
     return saldos;
   }
 
-  /** Dos líneas para la misma posición se pisarían entre sí al guardar. */
+  /** Dos líneas para el mismo producto se pisarían entre sí al guardar. */
   private exigirLineasUnicas(lineas: LineaConteoDto[]) {
     const claves = new Set(
-      lineas.map((linea) =>
-        clavePosicion(
-          BigInt(linea.productoId),
-          linea.loteId ? BigInt(linea.loteId) : null,
-          BigInt(linea.estadoInventarioId),
-        ),
+      lineas.map(
+        (linea) => `${BigInt(linea.productoId)}|${BigInt(linea.estadoInventarioId)}`,
       ),
     );
     if (claves.size !== lineas.length)
       throw new BadRequestException(
-        'Cada producto y lote puede aparecer una sola vez en el conteo',
+        'Cada producto puede aparecer una sola vez en el conteo',
       );
   }
 

@@ -79,6 +79,14 @@ export const CATALOGO_PERMISOS: GrupoPermisos[] = [
         // POST /expenses, PATCH /expenses/:id
       },
       {
+        clave: 'gastos.anular',
+        etiqueta: 'Revertir gastos',
+        descripcion:
+          'Da de baja un gasto con motivo. Deja de restar en reportes y caja. No se puede deshacer.',
+        implica: ['gastos.ver'],
+        // POST /expenses/:id/anular
+      },
+      {
         clave: 'gastos.categorias.crear',
         etiqueta: 'Crear categorías de gasto',
         descripcion: 'Agregar una categoría nueva sin salir del formulario de gasto.',
@@ -618,6 +626,7 @@ export const ROLES_DEL_SISTEMA: {
       'documento.consultar',
       'gastos.ver',
       'gastos.registrar',
+      'gastos.anular',
       'gastos.categorias.crear',
       'proveedores.ver',
       'proveedores.crear',

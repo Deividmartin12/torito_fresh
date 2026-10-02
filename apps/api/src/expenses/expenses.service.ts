@@ -18,6 +18,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   CreateExpenseCategoryDto,
   CreateExpenseDto,
+  AnnulExpenseDto,
   UpdateExpenseCategoryDto,
   UpdateExpenseDto,
 } from './expenses.dto';
@@ -34,6 +35,7 @@ const CON_RELACIONES = {
   beneficiario: true,
   proveedor: true,
   metodoPago: { include: { categoria: true } },
+  anuladoPor: true,
 } as const;
 
 type CategoriaRow = { id: bigint; nombre: string; sistema: boolean };
@@ -49,6 +51,7 @@ export class ExpensesService {
     trabajadorId?: string,
     beneficiarioId?: string,
     unidad?: string,
+    incluirAnulados?: string,
   ) {
     const alcance = await resolverAlcanceUnidad(this.prisma, actor, unidad);
     // `Gasto.fecha` es una columna de solo fecha guardada a medianoche UTC, así que se
@@ -66,6 +69,9 @@ export class ExpensesService {
     const rows = await this.prisma.gasto.findMany({
       where: {
         ...filtroUnidad(alcance),
+        // Anular no borra: por defecto la lista solo trae vigentes. Con
+        // `?incluirAnulados=true` la web muestra también los revertidos.
+        ...(incluirAnulados === 'true' ? {} : { estado: 'CONFIRMADO' }),
         ...(hasRange ? { fecha: { ...(gte ? { gte } : {}), ...(lt ? { lt } : {}) } } : {}),
         ...(trabajadorId ? { trabajadorId: BigInt(trabajadorId) } : {}),
         ...(beneficiarioId ? { beneficiarioId: BigInt(beneficiarioId) } : {}),
@@ -194,6 +200,8 @@ export class ExpensesService {
       include: { categoria: { select: { nombre: true } } },
     });
     if (!current) throw new NotFoundException('Gasto no encontrado');
+    if ((current as { estado?: string }).estado === 'ANULADO')
+      throw new ConflictException('Este gasto ya está revertido y no se puede corregir');
 
     const data: Prisma.GastoUpdateInput = {};
     if (dto.fecha !== undefined) {
@@ -278,6 +286,50 @@ export class ExpensesService {
     return this.view(row);
   }
 
+  /**
+   * Revierte un gasto. No lo borra: lo marca ANULADO con motivo, autor y fecha, para que
+   * deje de restar en reportes y caja pero quede la auditoría de quién lo revirtió y por
+   * qué. Es irreversible y no se puede corregir después.
+   *
+   * Los gastos de "Gastos del día" que genera la carga diaria se rechazan acá: esa cifra es
+   * el total del día y su bitácora (`registroDiario`) espera poder reescribirla. Si se
+   * anulara por acá, la carga diría "El gasto cambió fuera...". Se revierte desde la
+   * propia carga diaria.
+   */
+  async annul(id: string, dto: AnnulExpenseDto, actor: AuthUser, unidad?: string) {
+    const gastoId = this.parseId(id);
+    const alcance = await resolverAlcanceUnidad(this.prisma, actor, unidad);
+    const current = await this.prisma.gasto.findFirst({
+      where: { id: gastoId, ...filtroUnidad(alcance) },
+      include: { categoria: { select: { nombre: true } } },
+    });
+    if (!current) throw new NotFoundException('Gasto no encontrado');
+    if ((current as { estado?: string }).estado === 'ANULADO')
+      throw new BadRequestException('Este gasto ya está revertido.');
+    if (current.categoria.nombre === 'Gastos del día' || current.concepto === 'Gastos del día')
+      throw new ConflictException(
+        'Este gasto viene de la Carga diaria: reviertelo desde ahí para no descuadrar el total del día.',
+      );
+    const motivo = dto.motivo?.trim();
+    if (!motivo) throw new BadRequestException('Escribe por qué se revierte el gasto.');
+    const anuladoPorId = await resolverTrabajadorAutor(this.prisma, actor);
+    const row = await this.prisma.gasto.update({
+      where: { id: gastoId },
+      data: {
+        estado: 'ANULADO',
+        motivoAnulacion: motivo.slice(0, 300),
+        observaciones:
+          dto.observaciones !== undefined
+            ? dto.observaciones.trim() || null
+            : current.observaciones,
+        anuladoPorId,
+        anuladoAt: new Date(),
+      },
+      include: CON_RELACIONES,
+    });
+    return this.view(row);
+  }
+
   async categories() {
     const rows = await this.prisma.categoriaGasto.findMany({
       select: { id: true, nombre: true, sistema: true },
@@ -317,7 +369,9 @@ export class ExpensesService {
   async deleteCategory(id: string) {
     const category = await this.findCategory(id);
     this.exigirCategoriaEditable(category);
-    const count = await this.prisma.gasto.count({ where: { categoriaId: category.id } });
+    const count = await this.prisma.gasto.count({
+      where: { categoriaId: category.id, estado: 'CONFIRMADO' },
+    });
     if (count)
       throw new ConflictException(
         'No se puede eliminar una categoría que tiene gastos registrados',
@@ -412,6 +466,13 @@ export class ExpensesService {
         : null,
       metodoPagoId: row.metodoPagoId?.toString() ?? null,
       metodoPago: row.metodoPago ? etiquetaMetodoPago(row.metodoPago) : null,
+      estado: (row as { estado?: string }).estado ?? 'CONFIRMADO',
+      motivoAnulacion: (row as { motivoAnulacion?: string | null }).motivoAnulacion ?? null,
+      anuladoPor: (row as { anuladoPor?: { nombres?: string; apellidos?: string } | null })
+        .anuladoPor
+        ? `${(row as any).anuladoPor.nombres} ${(row as any).anuladoPor.apellidos}`.trim()
+        : null,
+      anuladoAt: (row as { anuladoAt?: Date | null }).anuladoAt ?? null,
     };
   }
 }

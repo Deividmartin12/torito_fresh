@@ -7,6 +7,8 @@ export type CargaProducto = { id: string; nombre: string; precio: number; retorn
 /** Lo que ya se cargó para un día. Solo vienen los días que tienen algo. */
 export type CargaDiaRegistrado = {
   fecha: string;
+  productoId: string | null;
+  revision: string;
   produccion: { cantidad: number; partes: number[] | null; codigo: string | null } | null;
   ventas: {
     metodoPagoId: string;
@@ -31,6 +33,8 @@ export type CargaResumen = {
 
 export type CargaDiaPayload = {
   fecha: string;
+  editar?: boolean;
+  revision?: string;
   produccion?: number;
   producciones?: number[];
   ventas?: { metodoPagoId: number; monto: number }[];

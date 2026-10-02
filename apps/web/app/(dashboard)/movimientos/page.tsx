@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { ArrowRight, Boxes, Eye, FileText, Search, UserRound, Warehouse, X } from 'lucide-react';
+import { ArrowRight, Boxes, Eye, FileText, Search, SlidersHorizontal, UserRound, Warehouse, X } from 'lucide-react';
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
@@ -9,9 +9,17 @@ import { toast } from 'sonner';
 import { DataTable, DataTableColumn } from '../../../components/DataTable';
 import { PeriodFilter } from '../../../components/PeriodFilter';
 import { SearchableSelect } from '../../../components/SearchableSelect';
+import { Segmented } from '../../../components/Segmented';
 import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
-import { modalActionsClass } from '../../../components/ui/Field';
+import {
+  controlClass,
+  fieldHintClass,
+  fieldLabelClass,
+  fieldWideClass,
+  modalActionsClass,
+  modalFormClass,
+} from '../../../components/ui/Field';
 import { IconButton } from '../../../components/ui/IconButton';
 import { Modal, ModalHeader } from '../../../components/ui/Modal';
 import { ProductLedger } from '../../../components/kardex/ProductLedger';
@@ -44,8 +52,10 @@ function MovimientosView() {
   const [tipoOperacion, setTipoOperacion] = useState('');
   const [productoId, setProductoId] = useState('');
   const [almacenId, setAlmacenId] = useState('');
+  const [direccion, setDireccion] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [seleccionado, setSeleccionado] = useState<Movement | null>(null);
 
   const catalogsQuery = useQuery({
@@ -56,7 +66,7 @@ function MovimientosView() {
   const productos = catalogsQuery.data?.productos ?? [];
   const almacenes = catalogsQuery.data?.almacenes ?? [];
 
-  const filtros = { from, to, productoId, almacenId, tipoOperacion, ref };
+  const filtros = { from, to, productoId, almacenId, tipoOperacion, ref, direccion };
   const movimientosQuery = useQuery({
     queryKey: ['movements', filtros],
     queryFn: () =>
@@ -67,6 +77,7 @@ function MovimientosView() {
         almacenId: almacenId || undefined,
         tipoOperacion: tipoOperacion || undefined,
         ref: ref || undefined,
+        direccion: direccion || undefined,
       }),
     enabled: tab === 'movimientos',
   });
@@ -101,8 +112,15 @@ function MovimientosView() {
   }, [buscar, movimientos]);
 
   const hasFilters = Boolean(
-    buscar || ref || tipoOperacion || productoId || almacenId || from || to,
+    buscar || ref || tipoOperacion || productoId || almacenId || direccion || from || to,
   );
+  const filtrosActivos = [direccion, tipoOperacion, productoId, almacenId].filter(Boolean).length;
+  function limpiarFiltros() {
+    setDireccion('');
+    setTipoOperacion('');
+    setProductoId('');
+    setAlmacenId('');
+  }
 
   const movementColumns: DataTableColumn<Movement>[] = [
     {
@@ -235,36 +253,9 @@ function MovimientosView() {
                 placeholder="Buscar documento, referencia o tercero"
               />
             </label>
-            <select
-              className="filter-pill"
-              value={tipoOperacion}
-              onChange={(event) => setTipoOperacion(event.target.value)}
-              aria-label="Tipo de movimiento"
-            >
-              {MOVEMENT_TYPE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            <SearchableSelect
-              value={productoId}
-              onChange={setProductoId}
-              options={[
-                { value: '', label: 'Todos los productos' },
-                ...productos.map((item) => ({ value: item.id, label: item.nombre })),
-              ]}
-              placeholder="Producto"
-            />
-            <SearchableSelect
-              value={almacenId}
-              onChange={setAlmacenId}
-              options={[
-                { value: '', label: 'Todos los almacenes' },
-                ...almacenes.map((item) => ({ value: item.id, label: item.nombre })),
-              ]}
-              placeholder="Almacén"
-            />
+            <Button variant="secondary" type="button" onClick={() => setFiltersOpen(true)}>
+              <SlidersHorizontal size={16} /> Filtros{filtrosActivos ? ` (${filtrosActivos})` : ''}
+            </Button>
           </div>
           <PeriodFilter onChange={changePeriod} />
 
@@ -298,6 +289,93 @@ function MovimientosView() {
         </>
       )}
 
+      {filtersOpen ? (
+        <div
+          className="filters-drawer-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setFiltersOpen(false);
+          }}
+        >
+          <section className="filters-drawer" role="dialog" aria-modal="true" aria-label="Filtros">
+            <div className="modal-top">
+              <h2>Filtros</h2>
+              <button
+                className="modal-close"
+                type="button"
+                onClick={() => setFiltersOpen(false)}
+                aria-label="Cerrar filtros"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className={modalFormClass}>
+              <div className={fieldWideClass}>
+                <span className={fieldLabelClass}>Dirección</span>
+                <Segmented
+                  ariaLabel="Dirección del movimiento"
+                  value={direccion}
+                  onChange={setDireccion}
+                  options={[
+                    { value: '', label: 'Todas' },
+                    { value: 'ENTRADA', label: 'Entradas' },
+                    { value: 'SALIDA', label: 'Salidas' },
+                  ]}
+                />
+              </div>
+              <label className={fieldWideClass}>
+                <span className={fieldLabelClass}>Tipo de movimiento</span>
+                <select
+                  className={controlClass}
+                  value={tipoOperacion}
+                  onChange={(event) => setTipoOperacion(event.target.value)}
+                >
+                  {MOVEMENT_TYPE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+
+              </label>
+              <label className={fieldWideClass}>
+                <span className={fieldLabelClass}>Producto</span>
+                <SearchableSelect
+                  value={productoId}
+                  onChange={setProductoId}
+                  options={[
+                    { value: '', label: 'Todos los productos' },
+                    ...productos.map((item) => ({ value: item.id, label: item.nombre })),
+                  ]}
+                  placeholder="Producto"
+                />
+                
+              </label>
+              <label className={fieldWideClass}>
+                <span className={fieldLabelClass}>Almacén</span>
+                <SearchableSelect
+                  value={almacenId}
+                  onChange={setAlmacenId}
+                  options={[
+                    { value: '', label: 'Todos los almacenes' },
+                    ...almacenes.map((item) => ({ value: item.id, label: item.nombre })),
+                  ]}
+                  placeholder="Almacén"
+                />
+
+              </label>
+              <Button
+                variant="secondary"
+                className={fieldWideClass}
+                type="button"
+                onClick={limpiarFiltros}
+                disabled={!filtrosActivos}
+              >
+                Limpiar filtros
+              </Button>
+            </div>
+          </section>
+        </div>
+      ) : null}
       {seleccionado ? (
         <MovementDetail movement={seleccionado} onClose={() => setSeleccionado(null)} />
       ) : null}

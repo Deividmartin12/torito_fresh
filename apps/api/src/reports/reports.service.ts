@@ -51,7 +51,7 @@ export class ReportsService {
           },
         }),
         this.prisma.gasto.findMany({
-          where: { ...deUnidad, fecha: expenseRange },
+          where: { ...deUnidad, estado: 'CONFIRMADO', fecha: expenseRange },
           orderBy: { fecha: 'asc' },
           include: {
             categoria: { select: { nombre: true } },
@@ -186,16 +186,25 @@ export class ReportsService {
       // la revierte y la salida nueva. Por eso las salidas SUMAN y las entradas RESTAN: el
       // resultado es el costo que quedó vigente, no la suma de todos los intentos.
       const kardexCostByProduct = new Map<string, number>();
+      const stockQtyByProduct = new Map<string, number>();
       for (const movement of movementDetails) {
         const key = movement.productoId.toString();
         const costo = Number(movement.costoTotal);
         const costoConSigno = movement.direccion === 'SALIDA' ? costo : -costo;
         kardexCostByProduct.set(key, (kardexCostByProduct.get(key) ?? 0) + costoConSigno);
+        stockQtyByProduct.set(
+          key,
+          (stockQtyByProduct.get(key) ?? 0) +
+            (movement.direccion === 'SALIDA' ? 1 : -1) * Number(movement.cantidad),
+        );
       }
-      const soldQtyByProduct = new Map<string, number>();
+      const pendingQtyByProduct = new Map<string, number>();
       for (const detail of sale.detalles) {
         const key = detail.productoId.toString();
-        soldQtyByProduct.set(key, (soldQtyByProduct.get(key) ?? 0) + Number(detail.cantidad));
+        pendingQtyByProduct.set(
+          key,
+          (pendingQtyByProduct.get(key) ?? 0) + Number(detail.cantidadPendienteStock),
+        );
       }
       let saleCost = 0;
       for (const detail of sale.detalles) {
@@ -205,11 +214,13 @@ export class ReportsService {
           0,
         );
         const netQuantity = Math.max(Number(detail.cantidad) - returnedQuantity, 0);
-        const soldQty = soldQtyByProduct.get(productKey) ?? Number(detail.cantidad);
+        const pendingQty = pendingQtyByProduct.get(productKey) ?? 0;
+        const costQty = (stockQtyByProduct.get(productKey) ?? 0) + pendingQty;
         const kardexCost = kardexCostByProduct.get(productKey);
         const lineCost =
-          kardexCost != null && soldQty > 0
-            ? kardexCost * (netQuantity / soldQty)
+          costQty > 0
+            ? ((kardexCost ?? 0) + pendingQty * Number(detail.producto.costoReferencia)) *
+              (netQuantity / costQty)
             : netQuantity * Number(detail.producto.costoReferencia);
         const share = detalleSubtotal > 0 ? Number(detail.subtotal) / detalleSubtotal : 0;
         const lineRevenue = netSale * share;
@@ -423,6 +434,9 @@ export class ReportsService {
       // El costo de esta vista salió del costo de referencia de cada producto y no del kardex.
       // Lo lee la pantalla para no llamarlo "costo de inventario" cuando no lo es.
       costoEstimado,
+      costoProvisional: sales.some((sale) =>
+        sale.detalles.some((d) => Number(d.cantidadPendienteStock) > 0),
+      ),
       // Cuánto puso cada unidad. La pantalla lo muestra solo cuando hay más de una: con una
       // sola sería repetir el total en una tabla de un renglón.
       porUnidad: [...porUnidad.values()].sort((a, b) => b.ventas - a.ventas || b.gastos - a.gastos),
@@ -494,7 +508,7 @@ export class ReportsService {
         },
       }),
       this.prisma.gasto.findMany({
-        where: { ...deUnidad, fecha: expenseRange },
+        where: { ...deUnidad, estado: 'CONFIRMADO', fecha: expenseRange },
         select: {
           trabajadorId: true,
           beneficiarioId: true,

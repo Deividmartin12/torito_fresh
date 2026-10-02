@@ -31,16 +31,10 @@ if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
   exit 1
 fi
 
-mkdir -p .deploy backups
+mkdir -p .deploy
 previous_commit="$(git rev-parse HEAD)"
 printf '%s\n' "$previous_commit" > .deploy/previous_commit
 git symbolic-ref --quiet --short HEAD > .deploy/branch || true
-
-if docker compose ps --status running --services 2>/dev/null | grep -qx db; then
-  backup_file="backups/torito-$(date -u +%Y%m%dT%H%M%SZ).sql.gz"
-  echo "Creando respaldo de PostgreSQL en $backup_file..."
-  docker compose exec -T db sh -ec 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' | gzip > "$backup_file"
-fi
 
 echo "Descargando cambios (solo avance lineal)..."
 git pull --ff-only
@@ -59,4 +53,3 @@ curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-connrefused
 
 docker compose ps
 echo "Actualización completada. Commit anterior: $previous_commit"
-echo "El respaldo previo, si la base estaba activa, está en backups/."

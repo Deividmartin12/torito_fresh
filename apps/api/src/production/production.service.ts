@@ -7,9 +7,15 @@ import {
   resolverAlcanceUnidad,
   resolverUnidadDeEscritura,
 } from '../common/unit-context';
-import { Transaction, ensureAvailableState, exigirInventario } from '../common/stock';
+import {
+  Transaction,
+  ensureAvailableState,
+  exigirInventario,
+  transaccionStock,
+} from '../common/stock';
 import { exigirTrabajadorId } from '../common/worker-context';
 import { PrismaService } from '../prisma/prisma.service';
+import { regularizarStockPendiente } from '../common/sale-stock';
 import { CreateProductionOrderDto, UpdateProductionOrderDto } from './production.dto';
 
 // Un consumo listo para descontar del almacén: cuánto y de qué producto.
@@ -80,17 +86,16 @@ export class ProductionService {
     // Registrar producción es un solo paso: la orden nace ya completada (crea el lote,
     // consume insumos y actualiza el stock) en la misma transacción, sin un estado
     // intermedio "BORRADOR" que requiera una confirmación aparte.
-    return this.prisma.$transaction(
-      async (tx) => {
-        const orderId = await this.registrarProduccion(tx, dto, actor, unidad);
-        const completed = await tx.ordenProduccion.findUniqueOrThrow({
-          where: { id: orderId },
-          include: this.include(),
-        });
-        return this.view(completed);
-      },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-    );
+    return transaccionStock(this.prisma, async (tx) => {
+      const orderId = await this.registrarProduccion(tx, dto, actor, unidad);
+      const order = await tx.ordenProduccion.findUniqueOrThrow({ where: { id: orderId } });
+      await regularizarStockPendiente(tx, order.productoId, order.almacenProductoTerminadoId);
+      const completed = await tx.ordenProduccion.findUniqueOrThrow({
+        where: { id: orderId },
+        include: this.include(),
+      });
+      return this.view(completed);
+    });
   }
 
   /**
@@ -231,6 +236,88 @@ export class ProductionService {
   }
 
   /**
+   * Corrige la producción sin insumos de una carga diaria después de reponer sus ventas.
+   * Conserva la orden y el lote, y agrega al kardex solamente la diferencia de cantidad.
+   */
+  async ajustarCantidadCargaDiaria(
+    tx: Transaction,
+    id: bigint,
+    cantidad: number,
+    unidadNegocioId: bigint,
+  ) {
+    const order = await tx.ordenProduccion.findFirst({
+      where: { id, almacenProductoTerminado: { unidadNegocioId } },
+      include: { consumos: true },
+    });
+    if (!order || !order.loteId || !['COMPLETADA', 'CANCELADA'].includes(order.estado))
+      throw new BadRequestException('La producción del día no está disponible para editar');
+    if (order.consumos.length || Number(order.costoTotal) !== 0)
+      throw new BadRequestException(
+        'Esta producción tiene insumos o costos: corrígela desde Producción',
+      );
+    const anterior = Number(order.cantidadProducida);
+    const delta = cantidad - anterior;
+    if (!delta) return order;
+    const available = await ensureAvailableState(tx);
+    const stock = await tx.stockAlmacen.findFirst({
+      where: {
+        productoId: order.productoId,
+        almacenId: order.almacenProductoTerminadoId,
+        loteId: order.loteId,
+        estadoInventarioId: available.id,
+      },
+    });
+    // Las ventas del día ya se revirtieron dentro de esta misma transacción. Si falta
+    // producto o está reservado, otras operaciones dependen del lote y no se puede rehacer.
+    if (
+      !stock ||
+      Math.abs(Number(stock.cantidad) - anterior) > 0.0005 ||
+      Number(stock.cantidadReservada) > 0
+    )
+      throw new BadRequestException(
+        'El lote tiene movimientos fuera de esta carga diaria; no se puede cambiar su producción aquí',
+      );
+    const movimiento = await tx.movimientoInventario.create({
+      data: {
+        fecha: this.fechaSeleccionada(order.fechaPlanificada.toISOString().slice(0, 10)),
+        tipoMovimiento: 'AJUSTE',
+        tipoOperacion: 'PRODUCCION',
+        almacenOrigenId: order.almacenProductoTerminadoId,
+        almacenDestinoId: order.almacenProductoTerminadoId,
+        ordenProduccionId: order.id,
+        trabajadorId: order.trabajadorId,
+        estado: 'CONFIRMADO',
+        numeroReferencia: `${order.codigo}-COR`,
+        observaciones: `Corrección de carga diaria: ${anterior} → ${cantidad} bidones`,
+      },
+    });
+    await tx.stockAlmacen.update({ where: { id: stock.id }, data: { cantidad } });
+    await tx.detalleMovimientoInventario.create({
+      data: {
+        movimientoId: movimiento.id,
+        productoId: order.productoId,
+        almacenId: stock.almacenId,
+        loteId: stock.loteId,
+        estadoInventarioId: stock.estadoInventarioId,
+        direccion: delta > 0 ? 'ENTRADA' : 'SALIDA',
+        cantidad: Math.abs(delta),
+        costoUnitario: 0,
+        costoTotal: 0,
+        saldoAnterior: anterior,
+        saldoPosterior: cantidad,
+      },
+    });
+    return tx.ordenProduccion.update({
+      where: { id },
+      data: {
+        cantidadPlanificada: cantidad || order.cantidadPlanificada,
+        cantidadProducida: cantidad,
+        estado: cantidad ? 'COMPLETADA' : 'CANCELADA',
+      },
+    });
+  }
+
+  /**
    * Edita una producción ya completada. Como la producción nace completada (no hay un estado
    * intermedio), editar significa revertir su efecto físico —devolver los insumos al almacén y
    * retirar el producto terminado— y volver a aplicarlo con los datos nuevos, sin borrar el
@@ -242,152 +329,143 @@ export class ProductionService {
    */
   async update(id: string, dto: UpdateProductionOrderDto, actor: AuthUser, unidad?: string) {
     const alcance = await resolverAlcanceUnidad(this.prisma, actor, unidad);
-    return this.prisma.$transaction(
-      async (tx) => {
-        const orderId = BigInt(id);
-        // `findFirst` con el filtro de unidad: una producción de otro puesto no es
-        // "prohibida", sencillamente no existe para quien está mirando este.
-        const order = await tx.ordenProduccion.findFirst({
-          where: { id: orderId, ...filtroUnidadPor('almacenProductoTerminado', alcance) },
-          include: {
-            producto: true,
-            consumos: true,
-            lote: { include: { detallesVenta: true, detallesDevolucionVenta: true } },
-            movimientosInventario: { include: { detalles: true }, orderBy: { id: 'asc' } },
-          },
-        });
-        if (!order) throw new NotFoundException('Producción no encontrada');
-        if (order.estado !== 'COMPLETADA')
-          throw new BadRequestException('Solo se puede editar una producción completada');
+    return transaccionStock(this.prisma, async (tx) => {
+      const orderId = BigInt(id);
+      // `findFirst` con el filtro de unidad: una producción de otro puesto no es
+      // "prohibida", sencillamente no existe para quien está mirando este.
+      const order = await tx.ordenProduccion.findFirst({
+        where: { id: orderId, ...filtroUnidadPor('almacenProductoTerminado', alcance) },
+        include: {
+          producto: true,
+          consumos: true,
+          lote: { include: { detallesVenta: true, detallesDevolucionVenta: true } },
+          movimientosInventario: { include: { detalles: true }, orderBy: { id: 'asc' } },
+        },
+      });
+      if (!order) throw new NotFoundException('Producción no encontrada');
+      if (order.estado !== 'COMPLETADA')
+        throw new BadRequestException('Solo se puede editar una producción completada');
 
-        const nuevosInsumos = dto.insumos ?? [];
-        const repetidos = new Set(nuevosInsumos.map((item) => item.productoId));
-        if (repetidos.size !== nuevosInsumos.length)
-          throw new BadRequestException('Cada insumo debe aparecer una sola vez');
+      const nuevosInsumos = dto.insumos ?? [];
+      const repetidos = new Set(nuevosInsumos.map((item) => item.productoId));
+      if (repetidos.size !== nuevosInsumos.length)
+        throw new BadRequestException('Cada insumo debe aparecer una sola vez');
 
-        // Si el lote ya se vendió o se movió, no se puede reconstruir el movimiento de
-        // inventario sin descuadrar el stock. En ese caso solo se permite corregir las
-        // fechas (metadata que no afecta el kardex ni el costo).
-        if (await this.loteYaSeMovio(tx, order)) {
-          return this.actualizarSoloFechas(tx, order, dto);
-        }
+      // Si el lote ya se vendió o se movió, no se puede reconstruir el movimiento de
+      // inventario sin descuadrar el stock. En ese caso solo se permite corregir las
+      // fechas (metadata que no afecta el kardex ni el costo).
+      if (await this.loteYaSeMovio(tx, order)) {
+        return this.actualizarSoloFechas(tx, order, dto);
+      }
 
-        // 1. Revertir el efecto de la producción actual.
-        await this.reverseProduction(tx, order);
+      // 1. Revertir el efecto de la producción actual.
+      await this.reverseProduction(tx, order);
 
-        // 2. Rehacer con los datos nuevos.
-        const destino = dto.almacenProductoTerminadoId
-          ? await tx.almacen.findUnique({ where: { id: BigInt(dto.almacenProductoTerminadoId) } })
-          : await tx.almacen.findUnique({ where: { id: order.almacenProductoTerminadoId } });
-        if (!destino || !destino.estado)
-          throw new BadRequestException('El almacén destino no está disponible');
-        // Editar no muda la producción de unidad, igual que una venta: el almacén nuevo tiene
-        // que ser de la misma unidad que el original.
-        const almacenOriginal = await tx.almacen.findUniqueOrThrow({
-          where: { id: order.almacenProductoTerminadoId },
-          select: { unidadNegocioId: true },
-        });
-        await exigirMismaUnidad(tx, almacenOriginal.unidadNegocioId, { almacenId: destino.id });
+      // 2. Rehacer con los datos nuevos.
+      const destino = dto.almacenProductoTerminadoId
+        ? await tx.almacen.findUnique({ where: { id: BigInt(dto.almacenProductoTerminadoId) } })
+        : await tx.almacen.findUnique({ where: { id: order.almacenProductoTerminadoId } });
+      if (!destino || !destino.estado)
+        throw new BadRequestException('El almacén destino no está disponible');
+      // Editar no muda la producción de unidad, igual que una venta: el almacén nuevo tiene
+      // que ser de la misma unidad que el original.
+      const almacenOriginal = await tx.almacen.findUniqueOrThrow({
+        where: { id: order.almacenProductoTerminadoId },
+        select: { unidadNegocioId: true },
+      });
+      await exigirMismaUnidad(tx, almacenOriginal.unidadNegocioId, { almacenId: destino.id });
 
-        await tx.consumoOrdenProduccion.deleteMany({ where: { ordenProduccionId: order.id } });
-        if (nuevosInsumos.length)
-          await tx.consumoOrdenProduccion.createMany({
-            data: nuevosInsumos.map((item) => ({
-              ordenProduccionId: order.id,
-              productoId: BigInt(item.productoId),
-              cantidadPlanificada: item.cantidad,
-            })),
-          });
-        const consumos = await tx.consumoOrdenProduccion.findMany({
-          where: { ordenProduccionId: order.id },
-          include: { producto: true },
-        });
-
-        const available = await ensureAvailableState(tx);
-        const reapply = await tx.movimientoInventario.create({
-          data: {
-            tipoMovimiento: 'PRODUCCION',
-            tipoOperacion: 'PRODUCCION',
-            almacenOrigenId: order.almacenInsumosId,
-            almacenDestinoId: destino.id,
+      await tx.consumoOrdenProduccion.deleteMany({ where: { ordenProduccionId: order.id } });
+      if (nuevosInsumos.length)
+        await tx.consumoOrdenProduccion.createMany({
+          data: nuevosInsumos.map((item) => ({
             ordenProduccionId: order.id,
-            trabajadorId: order.trabajadorId,
-            estado: 'CONFIRMADO',
-            numeroReferencia: `${order.codigo}-R`,
-            observaciones: `Edición de producción de ${order.producto.nombre}`,
-          },
+            productoId: BigInt(item.productoId),
+            cantidadPlanificada: item.cantidad,
+          })),
         });
+      const consumos = await tx.consumoOrdenProduccion.findMany({
+        where: { ordenProduccionId: order.id },
+        include: { producto: true },
+      });
 
-        const cantidadProducida = dto.cantidadPlanificada;
-        // Igual que al crear: inicio, fin y la fecha del lote se ponen en el día elegido
-        // en el formulario, para que el reporte de resumen agrupe la producción por esa
-        // fecha y no por el momento de la edición.
-        const fechaProduccion = this.fechaSeleccionada(dto.fechaPlanificada);
-        const totalCost = await this.consumeInputs(
-          tx,
-          reapply.id,
-          order.almacenInsumosId,
-          consumos,
-        );
-        const unitCost = totalCost / cantidadProducida;
-        const vencimiento = dto.fechaVencimiento ? new Date(dto.fechaVencimiento) : null;
+      const available = await ensureAvailableState(tx);
+      const reapply = await tx.movimientoInventario.create({
+        data: {
+          tipoMovimiento: 'PRODUCCION',
+          tipoOperacion: 'PRODUCCION',
+          almacenOrigenId: order.almacenInsumosId,
+          almacenDestinoId: destino.id,
+          ordenProduccionId: order.id,
+          trabajadorId: order.trabajadorId,
+          estado: 'CONFIRMADO',
+          numeroReferencia: `${order.codigo}-R`,
+          observaciones: `Edición de producción de ${order.producto.nombre}`,
+        },
+      });
 
-        // El lote ya existe: se reutiliza (mismo código) y solo se recalculan costo y
-        // vencimiento con los datos nuevos.
-        const lotCode =
-          order.lote?.codigoLote ??
-          order.codigoLote ??
-          `LOT-${order.id.toString().padStart(6, '0')}`;
-        const lot = order.loteId
-          ? await tx.lote.update({
-              where: { id: order.loteId },
-              data: { costoUnitario: unitCost, fechaVencimiento: vencimiento, fechaProduccion },
-            })
-          : await tx.lote.create({
-              data: {
-                productoId: order.productoId,
-                codigoLote: lotCode,
-                fechaProduccion,
-                fechaVencimiento: vencimiento,
-                costoUnitario: unitCost,
-                estado: 'ACTIVO',
-              },
-            });
+      const cantidadProducida = dto.cantidadPlanificada;
+      // Igual que al crear: inicio, fin y la fecha del lote se ponen en el día elegido
+      // en el formulario, para que el reporte de resumen agrupe la producción por esa
+      // fecha y no por el momento de la edición.
+      const fechaProduccion = this.fechaSeleccionada(dto.fechaPlanificada);
+      const totalCost = await this.consumeInputs(tx, reapply.id, order.almacenInsumosId, consumos);
+      const unitCost = totalCost / cantidadProducida;
+      const vencimiento = dto.fechaVencimiento ? new Date(dto.fechaVencimiento) : null;
 
-        await this.produceOutput(tx, {
-          movementId: reapply.id,
-          productoId: order.productoId,
-          almacenId: destino.id,
-          loteId: lot.id,
-          estadoInventarioId: available.id,
+      // El lote ya existe: se reutiliza (mismo código) y solo se recalculan costo y
+      // vencimiento con los datos nuevos.
+      const lotCode =
+        order.lote?.codigoLote ?? order.codigoLote ?? `LOT-${order.id.toString().padStart(6, '0')}`;
+      const lot = order.loteId
+        ? await tx.lote.update({
+            where: { id: order.loteId },
+            data: { costoUnitario: unitCost, fechaVencimiento: vencimiento, fechaProduccion },
+          })
+        : await tx.lote.create({
+            data: {
+              productoId: order.productoId,
+              codigoLote: lotCode,
+              fechaProduccion,
+              fechaVencimiento: vencimiento,
+              costoUnitario: unitCost,
+              estado: 'ACTIVO',
+            },
+          });
+
+      await this.produceOutput(tx, {
+        movementId: reapply.id,
+        productoId: order.productoId,
+        almacenId: destino.id,
+        loteId: lot.id,
+        estadoInventarioId: available.id,
+        cantidadProducida,
+        unitCost,
+        totalCost,
+      });
+
+      await tx.ordenProduccion.update({
+        where: { id: order.id },
+        data: {
+          almacenProductoTerminadoId: destino.id,
+          cantidadPlanificada: dto.cantidadPlanificada,
           cantidadProducida,
-          unitCost,
-          totalCost,
-        });
+          costoTotal: totalCost,
+          fechaPlanificada: fechaProduccion,
+          fechaVencimiento: vencimiento,
+          loteId: lot.id,
+          fechaInicio: fechaProduccion,
+          fechaFin: fechaProduccion,
+        },
+      });
 
-        await tx.ordenProduccion.update({
-          where: { id: order.id },
-          data: {
-            almacenProductoTerminadoId: destino.id,
-            cantidadPlanificada: dto.cantidadPlanificada,
-            cantidadProducida,
-            costoTotal: totalCost,
-            fechaPlanificada: fechaProduccion,
-            fechaVencimiento: vencimiento,
-            loteId: lot.id,
-            fechaInicio: fechaProduccion,
-            fechaFin: fechaProduccion,
-          },
-        });
-
-        const updated = await tx.ordenProduccion.findUniqueOrThrow({
-          where: { id: order.id },
-          include: this.include(),
-        });
-        return this.view(updated);
-      },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-    );
+      await regularizarStockPendiente(tx, order.productoId, destino.id);
+      const updated = await tx.ordenProduccion.findUniqueOrThrow({
+        where: { id: order.id },
+        include: this.include(),
+      });
+      return this.view(updated);
+    });
   }
 
   /**
@@ -734,7 +812,17 @@ export class ProductionService {
       trabajador: true,
       lote: {
         include: {
-          _count: { select: { detallesVenta: true, detallesDevolucionVenta: true } },
+          _count: {
+            select: {
+              detallesVenta: true,
+              detallesDevolucionVenta: true,
+              detallesMovimiento: {
+                where: {
+                  movimiento: { estado: 'CONFIRMADO', tipoOperacion: { not: 'PRODUCCION' } },
+                },
+              },
+            },
+          },
         },
       },
       consumos: { include: { producto: true } },
@@ -795,6 +883,7 @@ export class ProductionService {
       lote: row.lote?.codigoLote ?? row.codigoLote,
       // El lote ya se vendió o devolvió: la edición queda limitada a corregir fechas.
       loteMovido:
+        (row.lote?._count?.detallesMovimiento ?? 0) > 0 ||
         (row.lote?._count?.detallesVenta ?? 0) > 0 ||
         (row.lote?._count?.detallesDevolucionVenta ?? 0) > 0,
       responsable: `${row.trabajador.nombres} ${row.trabajador.apellidos}`,

@@ -1,10 +1,11 @@
 import { BadRequestException, HttpException, Injectable, Logger } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { AuthUser, tienePermiso } from '../common/auth-user';
 import { etiquetaMetodoPago } from '../common/payment-method-label';
 import { CATEGORIA_GASTOS_DEL_DIA } from '../common/expense-categories';
 import { limaTodayKey } from '../common/receivables';
-import { TRANSACCION_DE_STOCK, Transaction } from '../common/stock';
+import { TRANSACCION_DE_STOCK } from '../common/stock';
 import { resolverUnidadDeEscritura, unidadControlaInventario } from '../common/unit-context';
 import { exigirTrabajadorId } from '../common/worker-context';
 import { CreateOperationalSaleDto, UpdateOperationalSaleDto } from '../operations/operations.dto';
@@ -17,7 +18,14 @@ const FECHA = /^\d{4}-\d{2}-\d{2}$/;
 const CLIENTE_DEL_DIA = 'Ventas del día';
 const MAX_DIAS_CONSULTA = 93;
 
-type Concepto = 'PRODUCCION' | 'VENTA' | 'GASTO';
+const revisionDia = (registros: unknown[]) =>
+  createHash('sha256')
+    .update(
+      JSON.stringify(registros, (_, valor) =>
+        typeof valor === 'bigint' ? valor.toString() : valor,
+      ),
+    )
+    .digest('hex');
 
 /** `2026-09-23` → Date a medianoche UTC, que es como Postgres devuelve una columna `date`. */
 const diaUtc = (fecha: string) => new Date(`${fecha}T00:00:00.000Z`);
@@ -102,7 +110,11 @@ export class CargaDiariaService {
           in: registros.flatMap((row) => (row.ordenProduccionId ? [row.ordenProduccionId] : [])),
         },
       },
-      select: { id: true, codigo: true },
+      select: { id: true, codigo: true, productoId: true },
+    });
+    const ventasGuardadas = await this.prisma.venta.findMany({
+      where: { id: { in: registros.flatMap((r) => (r.ventaId ? [r.ventaId] : [])) } },
+      select: { id: true, detalles: { select: { productoId: true } } },
     });
     const codigoOrden = new Map(ordenes.map((row) => [row.id, row.codigo]));
 
@@ -172,7 +184,23 @@ export class CargaDiariaService {
         retornable: row.esRetornable,
       })),
       productoPorDefectoId: porDefecto?.id.toString() ?? null,
-      dias: [...porDia.values()],
+      dias: [...porDia.values()].map((dia) => {
+        const filas = registros.filter((r) => claveDia(r.fecha) === dia.fecha);
+        const orden = ordenes.find((o) => filas.some((r) => r.ordenProduccionId === o.id));
+        const venta = ventasGuardadas.find((v) => filas.some((r) => r.ventaId === v.id));
+        const datosVenta = filas.find((r) => r.concepto === 'VENTA')?.partes;
+        const productoAnterior =
+          datosVenta && !Array.isArray(datosVenta) && typeof datosVenta === 'object'
+            ? datosVenta.productoId
+            : null;
+        return {
+          ...dia,
+          productoId:
+            (orden?.productoId ?? venta?.detalles[0]?.productoId)?.toString() ??
+            (typeof productoAnterior === 'string' ? productoAnterior : null),
+          revision: revisionDia(filas),
+        };
+      }),
     };
   }
 
@@ -212,7 +240,7 @@ export class CargaDiariaService {
                 retornable: producto.esRetornable,
               },
             }),
-          TRANSACCION_DE_STOCK,
+          { ...TRANSACCION_DE_STOCK, timeout: 15000 },
         );
         resultados.push({ fecha: dia.fecha, ok: true });
       } catch (cause) {
@@ -233,110 +261,186 @@ export class CargaDiariaService {
     },
   ) {
     const fecha = dia.fecha;
-    if (Number.isNaN(diaUtc(fecha).getTime()) || claveDia(diaUtc(fecha)) !== fecha)
+    if (
+      !FECHA.test(fecha) ||
+      Number.isNaN(diaUtc(fecha).getTime()) ||
+      claveDia(diaUtc(fecha)) !== fecha
+    )
       throw new BadRequestException('La fecha no es válida');
     if (fecha > limaTodayKey())
       throw new BadRequestException('No se pueden cargar días que todavía no pasaron');
-
     if (
       (dia.producciones && dia.produccion !== undefined) ||
       (dia.gastos && dia.gasto !== undefined)
     )
       throw new BadRequestException('Envía las dos partes o el total, no ambos');
-    dia = {
-      ...dia,
-      produccion: dia.producciones ? dia.producciones.reduce((a, b) => a + b, 0) : dia.produccion,
-      gasto: dia.gastos ? dia.gastos.reduce((a, b) => a + Math.round(b * 100), 0) / 100 : dia.gasto,
-    };
-    if ((dia.produccion ?? 0) > 1_000_000 || (dia.gasto ?? 0) > 9_999_999)
+    const produccionEntrada = dia.producciones?.reduce((a, b) => a + b, 0) ?? dia.produccion;
+    const gastoEntrada = dia.gastos
+      ? dia.gastos.reduce((a, b) => a + Math.round(b * 100), 0) / 100
+      : dia.gasto;
+    if ((produccionEntrada ?? 0) > 1_000_000 || (gastoEntrada ?? 0) > 9_999_999)
       throw new BadRequestException('El total de producción o gastos supera el máximo permitido');
-    const ventas = (dia.ventas ?? []).filter((venta) => venta.monto > 0);
-    const metodosUnicos = new Set(ventas.map((venta) => venta.metodoPagoId));
-    if (metodosUnicos.size !== ventas.length)
+    const entradas = dia.ventas ?? [];
+    if (new Set(entradas.map((v) => v.metodoPagoId)).size !== entradas.length)
       throw new BadRequestException('Cada método de pago va una sola vez por día');
-    if (!dia.produccion && !ventas.length && !dia.gasto)
-      throw new BadRequestException('El día no tiene nada para registrar');
-
-    const yaCargados = await tx.registroDiario.findMany({
+    const registros = await tx.registroDiario.findMany({
       where: { unidadNegocioId: ctx.unidadNegocioId, fecha: diaUtc(fecha) },
-      select: { concepto: true, categoriaMetodoPagoId: true, metodoPagoId: true, cantidad: true },
+      orderBy: { id: 'asc' },
     });
-    const cargado = (concepto: Concepto, metodoId = 0n) =>
-      yaCargados.some((row) => row.concepto === concepto && row.metodoPagoId === metodoId);
-    if (dia.produccion && cargado('PRODUCCION'))
-      throw new BadRequestException('La producción de este día ya estaba cargada');
-    if (dia.gasto && cargado('GASTO'))
-      throw new BadRequestException('El gasto de este día ya estaba cargado');
-    for (const venta of ventas)
-      if (cargado('VENTA', BigInt(venta.metodoPagoId)))
-        throw new BadRequestException('Las ventas de este día ya estaban cargadas');
-
-    const trabajadorId = await exigirTrabajadorId(tx, ctx.actor.userId);
-    const bitacora = {
-      unidadNegocioId: ctx.unidadNegocioId,
-      fecha: diaUtc(fecha),
-      trabajadorId,
-    };
-
-    if (dia.produccion) {
-      if (!(await unidadControlaInventario(tx, ctx.unidadNegocioId)))
+    const produccion = registros.find((r) => r.concepto === 'PRODUCCION');
+    const gasto = registros.find((r) => r.concepto === 'GASTO');
+    const ventasPrevias = registros.filter((r) => r.concepto === 'VENTA');
+    if (dia.editar) {
+      if (!registros.length || dia.revision !== revisionDia(registros))
         throw new BadRequestException(
-          'Esta unidad no lleva inventario: no se le registra producción',
+          'Este día cambió desde que lo abriste. Recarga la tabla antes de editar',
         );
+    } else {
+      if (produccion && produccionEntrada !== undefined)
+        throw new BadRequestException('La producción de este día ya estaba cargada. Usa Editar');
+      if (gasto && gastoEntrada !== undefined)
+        throw new BadRequestException('El gasto de este día ya estaba cargado. Usa Editar');
+      if (
+        entradas.some((v) => ventasPrevias.some((r) => r.metodoPagoId === BigInt(v.metodoPagoId)))
+      )
+        throw new BadRequestException('Las ventas de este día ya estaban cargadas. Usa Editar');
+      if (!produccionEntrada && !gastoEntrada && !entradas.some((v) => v.monto > 0))
+        throw new BadRequestException('El día no tiene nada para registrar');
+    }
+    const cantidadProducida = produccionEntrada ?? produccion?.cantidad ?? 0;
+    const ventas: { metodoPagoId: bigint; monto: number; registro?: (typeof registros)[number] }[] =
+      ventasPrevias.map((registro) => ({
+        metodoPagoId: registro.metodoPagoId,
+        monto:
+          entradas.find((v) => BigInt(v.metodoPagoId) === registro.metodoPagoId)?.monto ??
+          Number(registro.monto),
+        registro,
+      }));
+    for (const entrada of entradas) {
+      if (!ventas.some((v) => v.metodoPagoId === BigInt(entrada.metodoPagoId)) && entrada.monto > 0)
+        ventas.push({ metodoPagoId: BigInt(entrada.metodoPagoId), monto: entrada.monto });
+    }
+    const positivas = ventas.filter((v) => v.monto > 0);
+    const cambiaProduccion = cantidadProducida !== (produccion?.cantidad ?? 0);
+    const recalcularVentas =
+      ventas.length > 0 &&
+      (cambiaProduccion ||
+        (dia.editar && cantidadProducida > 0) ||
+        ventas.some((v) => !v.registro || v.monto !== Number(v.registro.monto)) ||
+        (cantidadProducida > 0 &&
+          ventasPrevias.reduce((suma, v) => suma + v.cantidad, 0) !== cantidadProducida));
+    if (
+      recalcularVentas &&
+      positivas.length &&
+      cantidadProducida === 0 &&
+      (produccion || produccionEntrada !== undefined)
+    )
+      throw new BadRequestException('Hay ventas: ingresa la producción del día antes de guardar');
+    const cantidades =
+      cantidadProducida > 0 && positivas.length
+        ? repartirCantidad(
+            cantidadProducida,
+            positivas.map((v) => v.monto),
+          )
+        : null;
+    if (recalcularVentas && positivas.length && !cantidades && ctx.producto.precio <= 0)
+      throw new BadRequestException(
+        'El producto no tiene precio de venta para calcular los bidones',
+      );
+    const trabajadorId = await exigirTrabajadorId(tx, ctx.actor.userId);
+    const controlaInventario = await unidadControlaInventario(tx, ctx.unidadNegocioId);
+    const bitacora = { unidadNegocioId: ctx.unidadNegocioId, fecha: diaUtc(fecha), trabajadorId };
+    let orden = produccion?.ordenProduccionId
+      ? await tx.ordenProduccion.findUniqueOrThrow({ where: { id: produccion.ordenProduccionId } })
+      : null;
+    if (
+      orden &&
+      (orden.productoId !== ctx.producto.id ||
+        Number(orden.cantidadProducida) !== produccion!.cantidad)
+    )
+      throw new BadRequestException(
+        'La producción cambió fuera de esta carga o pertenece a otro producto. Revisa Producción',
+      );
+    const ventasReales = await tx.venta.findMany({
+      where: {
+        id: { in: ventasPrevias.flatMap((v) => (v.ventaId ? [v.ventaId] : [])) },
+        unidadNegocioId: ctx.unidadNegocioId,
+      },
+      include: { detalles: true },
+    });
+    if (recalcularVentas) {
+      if (ventasPrevias.some((r) => !r.ventaId) || ventas.some((v) => v.metodoPagoId === 0n))
+        throw new BadRequestException(
+          'Hay ventas antiguas sin método identificado. Revisa esas ventas antes de corregir el día',
+        );
+      for (const registro of ventasPrevias) {
+        const venta = ventasReales.find((v) => v.id === registro.ventaId);
+        if (
+          !venta ||
+          Number(venta.total) !== Number(registro.monto) ||
+          venta.detalles.some((d) => d.productoId !== ctx.producto.id) ||
+          venta.detalles.reduce((n, d) => n + Number(d.cantidad), 0) !== registro.cantidad
+        )
+          throw new BadRequestException(
+            'Una venta cambió fuera de esta carga diaria. Revisa Ventas antes de corregir el día',
+          );
+        if (controlaInventario)
+          await this.operations.reverseSaleOutbound(tx, venta.id, venta.fecha);
+      }
+    }
+    if (cantidadProducida > 0 && !produccion) {
       const ordenId = await this.production.registrarProduccion(
         tx,
         {
           productoId: Number(ctx.producto.id),
-          cantidadPlanificada: dia.produccion,
+          cantidadPlanificada: cantidadProducida,
           fechaPlanificada: fecha,
         },
         ctx.actor,
         ctx.unidad,
         { fecharKardex: true },
       );
+      orden = await tx.ordenProduccion.findUniqueOrThrow({ where: { id: ordenId } });
       await tx.registroDiario.create({
         data: {
           ...bitacora,
           concepto: 'PRODUCCION',
-          cantidad: dia.produccion,
-          ...(dia.producciones ? { partes: dia.producciones } : {}),
+          cantidad: cantidadProducida,
+          partes: dia.producciones,
           ordenProduccionId: ordenId,
         },
       });
-    }
-
-    if (ventas.length) {
-      // Lo producido en el día se consume ese mismo día: las ventas se llevan toda la
-      // producción, repartida entre los métodos de pago según el monto de cada uno. Cuenta
-      // también la producción cargada antes para ese día, menos lo que ya se vendió en él.
-      const producidoDia =
-        dia.produccion ?? yaCargados.find((row) => row.concepto === 'PRODUCCION')?.cantidad ?? 0;
-      const vendidoDia = yaCargados
-        .filter((row) => row.concepto === 'VENTA')
-        .reduce((suma, row) => suma + row.cantidad, 0);
-      const porConsumir = producidoDia - vendidoDia;
-      // Sin producción del día (o si no alcanza para al menos un bidón por método), la
-      // cantidad se calcula con el precio del producto, como antes.
-      const cantidades =
-        porConsumir >= ventas.length
-          ? repartirCantidad(
-              porConsumir,
-              ventas.map((venta) => venta.monto),
-            )
-          : null;
-      if (!cantidades && ctx.producto.precio <= 0)
-        throw new BadRequestException(
-          'El producto no tiene precio de venta: no se puede calcular cuántos se vendieron',
+    } else if (produccion && produccionEntrada !== undefined) {
+      if (!orden) throw new BadRequestException('No se encontró la orden de producción del día');
+      if (cambiaProduccion) {
+        if (!controlaInventario)
+          throw new BadRequestException('Esta unidad ya no controla inventario');
+        orden = await this.production.ajustarCantidadCargaDiaria(
+          tx,
+          orden.id,
+          cantidadProducida,
+          ctx.unidadNegocioId,
         );
+      }
+      await tx.registroDiario.update({
+        where: { id: produccion.id },
+        data: {
+          cantidad: cantidadProducida,
+          partes: dia.producciones ?? [cantidadProducida, 0],
+        },
+      });
+    }
+    if (recalcularVentas) {
       const clienteId = await this.clienteDelDia(tx, ctx.unidadNegocioId);
-      for (const [indice, venta] of ventas.entries()) {
-        const metodoPagoId = BigInt(venta.metodoPagoId);
+      for (const venta of ventas) {
         const metodo = await tx.metodoPago.findFirst({
-          where: { id: metodoPagoId, estado: true, categoria: { estado: true } },
+          where: { id: venta.metodoPagoId, estado: true, categoria: { estado: true } },
           include: { trabajador: true },
         });
         if (!metodo || !metodo.categoriaId)
-          throw new BadRequestException('El método de pago no está disponible');
+          throw new BadRequestException(
+            'Un método de pago del día está inactivo; actívalo para corregir las ventas',
+          );
         if (
           metodo.trabajadorId !== null &&
           metodo.trabajadorId !== trabajadorId &&
@@ -345,139 +449,142 @@ export class CargaDiariaService {
             metodo.trabajador.unidadNegocioId !== ctx.unidadNegocioId)
         )
           throw new BadRequestException('El método de pago pertenece a otro trabajador');
-        const categoriaId = metodo.categoriaId;
         if (
-          yaCargados.some(
-            (row) =>
-              row.concepto === 'VENTA' &&
-              row.metodoPagoId === 0n &&
-              row.categoriaMetodoPagoId === categoriaId,
+          ventasPrevias.some(
+            (r) => r.metodoPagoId === 0n && r.categoriaMetodoPagoId === metodo.categoriaId,
           )
         )
           throw new BadRequestException(
-            'Esta categoría tiene una carga anterior sin método identificado; revisa esa venta antes de volver a cargarla',
+            'Esta categoría tiene una carga anterior sin método identificado',
           );
-        const items = lineasPorMonto(
-          venta.monto,
-          cantidades?.[indice] ?? cantidadPorPrecio(venta.monto, ctx.producto.precio),
-          Number(ctx.producto.id),
-        );
-        const cantidad = items.reduce((suma, item) => suma + item.cantidad, 0);
-        const ventaId = await this.operations.registrarVenta(
-          tx as Transaction,
-          {
-            clienteId: Number(clienteId),
-            ...(metodo.trabajadorId !== null && metodo.trabajadorId !== trabajadorId
-              ? { trabajadorId: Number(metodo.trabajadorId) }
-              : {}),
-            tipoPago: 'CONTADO',
-            pagosIniciales: [{ metodoPagoId: Number(metodoPagoId), monto: venta.monto }],
-            items,
-            // Canje uno a uno: el cliente genérico no acumula deuda de envases.
-            vaciosDevueltos: ctx.producto.retornable ? cantidad : 0,
-          } as CreateOperationalSaleDto,
-          ctx.actor,
-          ctx.unidad,
-          { fecha },
-        );
+        const indice = positivas.indexOf(venta);
+        const cantidad =
+          venta.monto > 0
+            ? (cantidades?.[indice] ?? cantidadPorPrecio(venta.monto, ctx.producto.precio))
+            : 0;
+        const real = ventasReales.find((v) => v.id === venta.registro?.ventaId);
+        const dtoVenta = {
+          clienteId: Number(real?.clienteId ?? clienteId),
+          almacenId: orden
+            ? Number(orden.almacenProductoTerminadoId)
+            : real
+              ? Number(real.almacenOrigenId)
+              : undefined,
+          ...(metodo.trabajadorId !== null &&
+          metodo.trabajadorId !== (real?.trabajadorId ?? trabajadorId)
+            ? { trabajadorId: Number(metodo.trabajadorId) }
+            : {}),
+          tipoPago: 'CONTADO',
+          pagosIniciales:
+            venta.monto > 0 ? [{ metodoPagoId: Number(metodo.id), monto: venta.monto }] : [],
+          items: cantidad ? lineasPorMonto(venta.monto, cantidad, Number(ctx.producto.id)) : [],
+          vaciosDevueltos: ctx.producto.retornable ? cantidad : 0,
+        } as CreateOperationalSaleDto;
+        const loteId = cantidadProducida > 0 ? (orden?.loteId ?? undefined) : undefined;
+        if (real) {
+          await this.operations.actualizarVentaEnTransaccion(
+            tx,
+            real.id.toString(),
+            dtoVenta as UpdateOperationalSaleDto,
+            ctx.actor,
+            ctx.unidad,
+            {
+              fecharEnLaVenta: true,
+              inventarioRevertido: controlaInventario,
+              loteId,
+              permitirVacia: true,
+            },
+          );
+          await tx.registroDiario.update({
+            where: { id: venta.registro!.id },
+            data: {
+              monto: venta.monto,
+              cantidad,
+              partes: { productoId: ctx.producto.id.toString() },
+            },
+          });
+        } else {
+          const ventaId = await this.operations.registrarVenta(
+            tx,
+            dtoVenta,
+            ctx.actor,
+            ctx.unidad,
+            { fecha, loteId },
+          );
+          await tx.registroDiario.create({
+            data: {
+              ...bitacora,
+              concepto: 'VENTA',
+              categoriaMetodoPagoId: metodo.categoriaId,
+              metodoPagoId: metodo.id,
+              monto: venta.monto,
+              cantidad,
+              ventaId,
+              partes: { productoId: ctx.producto.id.toString() },
+            },
+          });
+        }
+      }
+    }
+    if (gastoEntrada !== undefined) {
+      if (gasto) {
+        const real = gasto.gastoId
+          ? await tx.gasto.findFirst({
+              where: { id: gasto.gastoId, unidadNegocioId: ctx.unidadNegocioId },
+            })
+          : null;
+        if (!real || Number(real.monto) !== Number(gasto.monto))
+          throw new BadRequestException(
+            'El gasto cambió fuera de esta carga diaria. Revisa Gastos',
+          );
+        if ((real as { estado?: string }).estado === 'ANULADO')
+          throw new BadRequestException(
+            'Este gasto fue revertido desde Gastos. Vuelve a cargarlo desde esta pantalla.',
+          );
+        await tx.gasto.update({ where: { id: real.id }, data: { monto: gastoEntrada } });
+        await tx.registroDiario.update({
+          where: { id: gasto.id },
+          data: { monto: gastoEntrada, partes: dia.gastos ?? [gastoEntrada, 0] },
+        });
+      } else if (gastoEntrada > 0) {
+        const categoria = await this.categoriaGastosDelDia(tx);
+        const nuevo = await tx.gasto.create({
+          data: {
+            unidadNegocioId: ctx.unidadNegocioId,
+            fecha: new Date(`${fecha}T00:00:00-05:00`),
+            concepto: CATEGORIA_GASTOS_DEL_DIA,
+            categoriaId: categoria.id,
+            monto: gastoEntrada,
+            observaciones: 'Total del día cargado desde la carga diaria',
+            trabajadorId,
+          },
+        });
         await tx.registroDiario.create({
           data: {
             ...bitacora,
-            concepto: 'VENTA',
-            categoriaMetodoPagoId: categoriaId,
-            metodoPagoId,
-            monto: venta.monto,
-            cantidad,
-            ventaId,
+            concepto: 'GASTO',
+            monto: gastoEntrada,
+            partes: dia.gastos,
+            gastoId: nuevo.id,
           },
         });
       }
     }
-
-    if (dia.gasto) {
-      const categoria = await this.categoriaGastosDelDia(tx);
-      const gasto = await tx.gasto.create({
-        data: {
-          unidadNegocioId: ctx.unidadNegocioId,
-          // Mismo criterio que ExpensesService.create: el día calendario de Lima.
-          fecha: new Date(`${fecha}T00:00:00-05:00`),
-          concepto: CATEGORIA_GASTOS_DEL_DIA,
-          categoriaId: categoria.id,
-          monto: dia.gasto,
-          observaciones: 'Total del día cargado desde la carga diaria',
-          trabajadorId,
-        },
-      });
-      await tx.registroDiario.create({
-        data: {
-          ...bitacora,
-          concepto: 'GASTO',
-          monto: dia.gasto,
-          ...(dia.gastos ? { partes: dia.gastos } : {}),
-          gastoId: gasto.id,
-        },
-      });
-    }
   }
 
-  /**
-   * Corrige un día cargado antes de que las ventas consumieran toda la producción: vuelve a
-   * repartir los bidones producidos entre las ventas del día y edita cada venta con su cantidad
-   * nueva. La edición revierte la salida vieja y escribe la nueva (el kardex no se borra), todo
-   * fechado ese mismo día. Los montos cobrados no cambian.
-   */
+  /** Corrige cargas anteriores con las mismas garantías que la edición de la tabla. */
   async consumirProduccionDelDia(fecha: string, actor: AuthUser, unidad?: string) {
-    const unidadNegocioId = await resolverUnidadDeEscritura(this.prisma, {
+    const resumen = await this.resumen(actor, fecha, fecha, unidad);
+    const dia = resumen.dias[0];
+    if (!dia?.productoId || !dia.produccion || !dia.ventas.length) return { resultados: [] };
+    return this.registrar(
+      {
+        productoId: Number(dia.productoId),
+        dias: [{ fecha, editar: true, revision: dia.revision }],
+      },
       actor,
-      unidadSolicitada: unidad,
-    });
-    const registros = await this.prisma.registroDiario.findMany({
-      where: { unidadNegocioId, fecha: diaUtc(fecha) },
-      orderBy: { id: 'asc' },
-    });
-    const produccion = registros.find((row) => row.concepto === 'PRODUCCION');
-    const ventas = registros.filter((row) => row.concepto === 'VENTA' && row.ventaId);
-    if (!produccion || !ventas.length) return { fecha, cambios: [] };
-    const cantidades = repartirCantidad(
-      produccion.cantidad,
-      ventas.map((row) => Number(row.monto)),
+      unidad,
     );
-
-    const cambios: { venta: string; antes: number; despues: number }[] = [];
-    for (const [indice, registro] of ventas.entries()) {
-      const cantidad = cantidades[indice];
-      if (cantidad === registro.cantidad) continue;
-      const venta = await this.prisma.venta.findUniqueOrThrow({
-        where: { id: registro.ventaId! },
-        include: {
-          detalles: { include: { producto: true } },
-          cuentaCobrar: { include: { pagos: { where: { origen: 'VENTA' } } } },
-        },
-      });
-      const producto = venta.detalles[0].producto;
-      const monto = Number(registro.monto);
-      const pagos = venta.cuentaCobrar?.pagos ?? [];
-      await this.operations.updateSale(
-        venta.id.toString(),
-        {
-          clienteId: Number(venta.clienteId),
-          almacenId: Number(venta.almacenOrigenId),
-          tipoPago: 'CONTADO',
-          pagosIniciales: pagos.map((pago) => ({
-            metodoPagoId: Number(pago.metodoPagoId),
-            monto: Number(pago.monto),
-          })),
-          items: lineasPorMonto(monto, cantidad, Number(producto.id)),
-          vaciosDevueltos: producto.esRetornable ? cantidad : 0,
-        } as UpdateOperationalSaleDto,
-        actor,
-        unidad,
-        { fecharEnLaVenta: true },
-      );
-      await this.prisma.registroDiario.update({ where: { id: registro.id }, data: { cantidad } });
-      cambios.push({ venta: codigoVenta(venta.id), antes: registro.cantidad, despues: cantidad });
-    }
-    return { fecha, cambios };
   }
 
   /** El cliente "Ventas del día" de la unidad; se crea la primera vez que hace falta. */
@@ -580,6 +687,15 @@ export const cantidadPorPrecio = (monto: number, precio: number) =>
  * Ejemplo: 141 bidones entre S/ 214 y S/ 485 → 43 y 98.
  */
 export function repartirCantidad(total: number, montos: number[]) {
+  if (
+    !montos.length ||
+    !Number.isInteger(total) ||
+    total < montos.length ||
+    montos.some((m) => !Number.isFinite(m) || m <= 0)
+  )
+    throw new BadRequestException(
+      'La producción debe tener al menos un bidón por cada método de pago con ventas',
+    );
   const suma = montos.reduce((acumulado, monto) => acumulado + monto, 0);
   const libres = total - montos.length;
   const exactas = montos.map((monto) => (monto / suma) * libres);

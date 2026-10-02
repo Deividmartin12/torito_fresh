@@ -118,10 +118,26 @@ export class CreateExpenseCategoryDto {
   @MaxLength(100)
   categoria: string;
 }
-
 export class UpdateExpenseCategoryDto {
   @IsString()
   @Matches(/\S/, { message: 'El nombre de la categoría es obligatorio' })
   @MaxLength(100)
   categoria: string;
+}
+
+/**
+ * Revertir un gasto. Solo pide el motivo (obligatorio, queda en auditoría) y unas
+ * observaciones opcionales. No mueve stock ni necesita método de pago: el gasto ya salió
+ * de caja cuando se registró, anularlo solo deja de restar en reportes.
+ */
+export class AnnulExpenseDto {
+  @IsString()
+  @Matches(/\S/, { message: 'Escribe por qué se revierte el gasto.' })
+  @MaxLength(300)
+  motivo: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  observaciones?: string;
 }

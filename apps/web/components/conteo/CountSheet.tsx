@@ -35,21 +35,27 @@ import { Button } from '../ui/Button';
 import { useUnidad } from '../UnidadProvider';
 import { AddPositionDialog, PosicionNueva } from './AddPositionDialog';
 
-/** Misma clave que usa el backend: producto + lote + estado. */
-const clave = (fila: { productoId: string; loteId: string | null; estadoInventarioId: string }) =>
-  `${fila.productoId}|${fila.loteId ?? ''}|${fila.estadoInventarioId}`;
+/** Misma clave que usa el backend: producto + estado (los lotes van agregados). */
+const clave = (fila: { productoId: string; estadoInventarioId: string }) =>
+  `${fila.productoId}|${fila.estadoInventarioId}`;
 
-/** Una posición agregada a mano nace con todo en cero: no existe en el almacén todavía. */
+/** Qué muestra la fila como referencia de lotes: uno solo, varios o nueva. */
+const textoLotes = (fila: FilaCuadre) =>
+  fila.posiciones === 0
+    ? 'posición nueva'
+    : fila.lotes.length === 1
+      ? fila.lotes[0].lote
+      : `${fila.lotes.length} lotes`;
+
+/** Un producto agregado a mano nace con todo en cero: no existe en el almacén todavía. */
 const filaDesdePosicion = (posicion: PosicionNueva): FilaCuadre => ({
   stockId: null,
   productoId: posicion.productoId,
   producto: posicion.producto,
   codigo: posicion.codigo,
   unidadMedida: posicion.unidadMedida,
-  controlaLote: posicion.controlaLote,
-  loteId: posicion.loteId,
-  lote: posicion.lote,
-  loteEstado: null,
+  posiciones: 0,
+  lotes: [],
   // Solo existe un estado de inventario en el sistema (DISPONIBLE, id 1) y todo lo que entra
   // entra como disponible; el backend lo reasegura con un upsert.
   estadoInventarioId: '1',
@@ -133,10 +139,10 @@ export function CountSheet() {
 
   const filas = useMemo(() => [...(hoja?.filas ?? []), ...extras], [extras, hoja]);
   const visibles = useMemo(
-    () => filas.filter((fila) => mostrarVacias || fila.teorico !== 0 || fila.stockId === null),
+    () => filas.filter((fila) => mostrarVacias || fila.teorico !== 0 || fila.posiciones === 0),
     [filas, mostrarVacias],
   );
-  const enCero = filas.filter((fila) => fila.teorico === 0 && fila.stockId !== null).length;
+  const enCero = filas.filter((fila) => fila.teorico === 0 && fila.posiciones !== 0).length;
 
   const diferenciaDe = (fila: FilaCuadre) => {
     const texto = contados[clave(fila)];
@@ -180,11 +186,10 @@ export function CountSheet() {
       const lineas: LineaConteo[] = contadas.map((fila) => ({
         stockId: fila.stockId ?? undefined,
         productoId: fila.productoId,
-        loteId: fila.loteId ?? undefined,
         estadoInventarioId: fila.estadoInventarioId,
         contado: Number(contados[clave(fila)]),
         teorico: fila.teorico,
-        costoUnitario: fila.stockId === null ? fila.costoSugerido : undefined,
+        costoUnitario: fila.posiciones === 0 ? fila.costoSugerido : undefined,
         motivo: motivos[clave(fila)] || undefined,
       }));
       const conteo = await createConteo({
@@ -378,8 +383,7 @@ export function CountSheet() {
                   <div className="count-cell count-product">
                     <strong>{fila.producto}</strong>
                     <small>
-                      {fila.lote} · {fila.codigo}
-                      {fila.stockId === null ? ' · posición nueva' : ''}
+                      {fila.codigo} · {textoLotes(fila)}
                     </small>
                     <details className="count-breakdown">
                       <summary>De dónde sale</summary>

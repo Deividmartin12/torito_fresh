@@ -433,7 +433,13 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
       porProducto.set(producto.id, porCodigo.get(producto.codigo ?? '') ?? 0);
     }
     for (const linea of ventaOriginal?.items ?? []) {
-      porProducto.set(linea.productoId, (porProducto.get(linea.productoId) ?? 0) + linea.cantidad);
+      if (ventaOriginal?.almacenId === warehouseId)
+        porProducto.set(
+          linea.productoId,
+          (porProducto.get(linea.productoId) ?? 0) +
+            linea.cantidad -
+            (linea.cantidadPendienteStock ?? 0),
+        );
     }
     return porProducto;
   }, [catalogs.almacenes, catalogs.productos, stock, warehouseId, ventaOriginal]);
@@ -470,9 +476,6 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
       )
     )
       next.items = 'Selecciona cada producto e ingresa una cantidad entera mayor a cero.';
-    // En un puesto que solo registra ventas y gastos no hay stock contra el cual validar.
-    else if (controlaInventario && items.some((item) => item.cantidad > available(item.productoId)))
-      next.items = 'Una cantidad supera el stock disponible del almacén seleccionado.';
     // El mismo límite que aplica el servidor en `aplicarEnvasesDeVenta`, para que el error
     // salga antes de guardar y no después de haber llenado toda la venta.
     if (vacios > vaciosMaximos)
@@ -504,10 +507,15 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
         fecha: editing ? fecha || undefined : undefined,
         vaciosDevueltos: vacios,
       };
-      if (editing && saleId) await updateSale(saleId, payload);
-      else await createSale(payload);
+      const saved =
+        editing && saleId ? await updateSale(saleId, payload) : await createSale(payload);
       await queryClient.invalidateQueries({ queryKey: ['sales'] });
-      toast.success(editing ? 'Venta actualizada' : 'Venta registrada');
+      toast.success(editing ? 'Venta actualizada' : 'Venta registrada', {
+        description:
+          saved.cantidadPendienteStock > 0
+            ? `Pendiente de cuadrar producción: ${saved.cantidadPendienteStock} unidades.`
+            : undefined,
+      });
       router.push('/ventas');
       router.refresh();
     } catch (cause) {
@@ -596,9 +604,22 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
                   />
                   {controlaInventario &&
                   item.productoId &&
-                  available(item.productoId) < item.cantidad ? (
+                  available(item.productoId) <
+                    items
+                      .filter((line) => line.productoId === item.productoId)
+                      .reduce((sum, line) => sum + line.cantidad, 0) ? (
                     <small className="stock-warning">
-                      Solo hay <b>{available(item.productoId)}</b> disponibles en este almacén.
+                      Puedes guardar. Pendiente de cuadrar producción para este producto:{' '}
+                      <b>
+                        {Math.max(
+                          0,
+                          items
+                            .filter((line) => line.productoId === item.productoId)
+                            .reduce((sum, line) => sum + line.cantidad, 0) -
+                            available(item.productoId),
+                        )}
+                      </b>{' '}
+                      unidades. Disponible: {available(item.productoId)}.
                     </small>
                   ) : null}
                 </label>

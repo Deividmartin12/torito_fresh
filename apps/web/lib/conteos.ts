@@ -1,18 +1,21 @@
 import { api } from './api';
 
-/** Una posición de stock en la hoja de cuadre, con el desglose de su día. */
+/**
+ * Un producto en la hoja de cuadre, con el desglose de su día. Todos los lotes del
+ * producto se cuentan juntos: el ajuste cae en el lote más antiguo (PEPS).
+ */
 export type FilaCuadre = {
   stockId: string | null;
   productoId: string;
   producto: string;
   codigo: string;
   unidadMedida: string;
-  controlaLote: boolean;
-  loteId: string | null;
-  lote: string;
-  loteEstado: string | null;
   estadoInventarioId: string;
   estado: string;
+  /** Cuántas posiciones de stock se agregaron en esta fila. 0 = agregado a mano. */
+  posiciones: number;
+  /** Referencia de los lotes agregados, del más antiguo al más nuevo. */
+  lotes: { lote: string; teorico: number }[];
   saldoInicial: number;
   producido: number;
   consumido: number;
@@ -66,7 +69,6 @@ export const MOTIVOS_DIFERENCIA = [
 export type LineaConteo = {
   stockId?: string;
   productoId: string;
-  loteId?: string;
   estadoInventarioId: string;
   contado: number;
   teorico: number;
