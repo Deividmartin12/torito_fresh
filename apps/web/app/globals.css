@@ -4147,7 +4147,7 @@ a.entity-row:hover {
 }
 .comparison-chart {
   display: flex;
-  height: 235px;
+  height: 300px;
   align-items: stretch;
   gap: 9px;
   overflow-x: auto;
@@ -4266,6 +4266,12 @@ a.entity-row:hover {
 }
 .margin-area-line {
   stroke: var(--chart-2);
+}
+.margin-area-line.negative {
+  stroke: #c52e49;
+}
+.margin-area-fill.negative {
+  color: #c52e49;
 }
 .margin-area-dot {
   fill: var(--chart-2);

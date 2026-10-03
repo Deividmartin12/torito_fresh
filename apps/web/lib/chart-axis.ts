@@ -151,9 +151,15 @@ function weekSeries(rows: AnalyticsPeriod[], from: string, to: string): ChartPoi
     }));
 }
 
+/** Mes en curso (`YYYY-MM`): los meses que aún no pasan no se dibujan. */
+function mesEnCurso() {
+  const now = new Date();
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}`;
+}
+
 /** Un mes por marca, con el nombre del mes abreviado (no la fecha). */
 function monthSeries(rows: AnalyticsPeriod[], from: string, to: string): ChartPoint[] {
-  const filled = fillMonthlySeries(rows, from, to);
+  const filled = fillMonthlySeries(rows, from, to).filter((row) => row.key <= mesEnCurso());
   const multiYear = new Set(filled.map((row) => row.key.slice(0, 4))).size > 1;
   return filled.map((row) => {
     const date = parseUtcDay(`${row.key}-01`);

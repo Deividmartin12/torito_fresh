@@ -167,10 +167,20 @@ export function MarginChart({
     padding.left + (rows.length <= 1 ? chartWidth / 2 : (index / (rows.length - 1)) * chartWidth);
   const y = (value: number) => padding.top + chartHeight - ((value - min) / span) * chartHeight;
   const zeroY = y(0);
-  const linePoints = rows.map((row, index) => `${x(index)},${y(row.margin)}`).join(' ');
-  const areaPoints = rows.length
-    ? `${x(0)},${zeroY} ${linePoints} ${x(rows.length - 1)},${zeroY}`
-    : '';
+  // La línea se dibuja por tramos: el tramo que toca zona negativa va en rojo. Con un solo
+  // `polyline` no se puede porque lleva un único color; partido sí, tramo por tramo.
+  const segmentos = rows.slice(1).map((row, index) => {
+    const anterior = rows[index].margin;
+    const actual = row.margin;
+    return {
+      key: `${rows[index].key}-${row.key}`,
+      x1: x(index),
+      y1: y(anterior),
+      x2: x(index + 1),
+      y2: y(actual),
+      negativo: Math.min(anterior, actual) < 0,
+    };
+  });
   const labelEvery = tickEvery(rows.length);
 
   return (
@@ -188,6 +198,13 @@ export function MarginChart({
               <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
                 <stop offset="0%" stopColor="currentColor" stopOpacity=".22" />
                 <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
+              </linearGradient>
+              {/* El rojo va con su propio degradado: el `currentColor` del de arriba se
+                  resuelve en el `defs` y no en cada polígono, así que un solo degradado
+                  nunca podría ser verde y rojo a la vez. */}
+              <linearGradient id={`${gradientId}-neg`} x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0%" stopColor="#c52e49" stopOpacity=".22" />
+                <stop offset="100%" stopColor="#c52e49" stopOpacity="0" />
               </linearGradient>
             </defs>
             {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
@@ -222,16 +239,25 @@ export function MarginChart({
                 y2={zeroY}
               />
             ) : null}
-            <polygon
-              className={`chart-area margin-area-fill ${aparece}`}
-              style={{ animationDelay: '600ms' }}
-              points={areaPoints}
-              fill={`url(#${gradientId})`}
-            />
-            <polyline
-              className={`chart-line margin-area-line ${trazoDibujado}`}
-              points={linePoints}
-            />
+            {segmentos.map((tramo) => (
+              <polygon
+                key={`area-${tramo.key}`}
+                className={`chart-area margin-area-fill${tramo.negativo ? ' negative' : ''} ${aparece}`}
+                style={{ animationDelay: '600ms' }}
+                points={`${tramo.x1},${zeroY} ${tramo.x1},${tramo.y1} ${tramo.x2},${tramo.y2} ${tramo.x2},${zeroY}`}
+                fill={`url(#${gradientId}${tramo.negativo ? '-neg' : ''})`}
+              />
+            ))}
+            {segmentos.map((tramo) => (
+              <line
+                key={`linea-${tramo.key}`}
+                className={`chart-line margin-area-line${tramo.negativo ? ' negative' : ''} ${trazoDibujado}`}
+                x1={tramo.x1}
+                y1={tramo.y1}
+                x2={tramo.x2}
+                y2={tramo.y2}
+              />
+            ))}
             {rows.map((row, index) => (
               <g key={row.key}>
                 <circle
