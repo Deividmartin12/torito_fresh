@@ -1,5 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { Permisos } from '../auth/permisos.decorator';
+import { CurrentUser } from '../auth/current-user.decorator';
+import { AuthUser } from '../common/auth-user';
 import { CreateUserDto, UpdateUserDto } from './users.dto';
 import { UsersService } from './users.service';
 
@@ -25,12 +27,12 @@ export class UsersController {
   }
 
   @Post()
-  create(@Body() dto: CreateUserDto) {
-    return this.users.create(dto);
+  create(@Body() dto: CreateUserDto, @CurrentUser() actor: AuthUser) {
+    return this.users.create(dto, undefined, actor);
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateUserDto) {
-    return this.users.update(id, dto);
+  update(@Param('id') id: string, @Body() dto: UpdateUserDto, @CurrentUser() actor: AuthUser) {
+    return this.users.update(id, dto, undefined, actor);
   }
 }

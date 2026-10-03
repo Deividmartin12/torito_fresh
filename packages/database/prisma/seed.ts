@@ -57,6 +57,7 @@ async function main() {
         username: u.username,
         passwordHash,
         active: true,
+        administradorPrincipal: u.role === 'ADMIN',
         roleId: roleByName[u.role].id,
       },
     });

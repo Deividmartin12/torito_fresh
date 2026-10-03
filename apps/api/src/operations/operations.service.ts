@@ -195,7 +195,11 @@ export class OperationsService {
       include: {
         tipoProducto: true,
         stocks: { where: filtroUnidadPor('almacen', alcance) },
-        _count: { select: { detallesVenta: true } },
+        _count: {
+          select: {
+            detallesVenta: { where: filtroUnidadPor('venta', alcance) },
+          },
+        },
       },
     });
     return rows.map((item) => ({
@@ -626,8 +630,9 @@ export class OperationsService {
   }
 
   /** Categorías activas para el combo "+ Agregar método de pago" de venta y cobro. */
-  async paymentMethodCategories() {
-    const categorias = await this.paymentMethodsService.categories();
+  async paymentMethodCategories(actor: AuthUser) {
+    const alcance = await resolverAlcanceUnidad(this.prisma, actor);
+    const categorias = await this.paymentMethodsService.categories(alcance);
     return categorias.filter((categoria) => categoria.estado);
   }
 

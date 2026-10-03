@@ -46,6 +46,10 @@ export class CuentaTrabajadorDto {
   @IsString()
   @MaxLength(40)
   role: string;
+
+  @IsOptional()
+  @IsBoolean()
+  administradorPrincipal?: boolean;
 }
 
 export class CreateTrabajadorDto {

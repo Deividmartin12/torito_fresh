@@ -28,13 +28,17 @@ export class TrabajadoresController {
 
   @Permisos('trabajadores.administrar')
   @Post()
-  create(@Body() dto: CreateTrabajadorDto) {
-    return this.trabajadores.create(dto);
+  create(@Body() dto: CreateTrabajadorDto, @CurrentUser() actor: AuthUser) {
+    return this.trabajadores.create(dto, actor);
   }
 
   @Permisos('trabajadores.administrar')
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateTrabajadorDto) {
-    return this.trabajadores.update(id, dto);
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateTrabajadorDto,
+    @CurrentUser() actor: AuthUser,
+  ) {
+    return this.trabajadores.update(id, dto, actor);
   }
 }

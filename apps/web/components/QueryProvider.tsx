@@ -4,12 +4,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useState } from 'react';
 
 /**
- * Un único `QueryClient` para toda la app, que cachea entre navegaciones: hoy cada pantalla
- * vuelve a pedir todo al montar (`cache: 'no-store'` en `lib/api.ts`), así que volver a
- * "/ventas" después de mirar otra pantalla repite las mismas cinco consultas.
- *
- * Se crea con `useState` (no como constante del módulo) para que cada sesión del navegador
- * tenga su propio cliente y no comparta caché con otra pestaña por accidente.
+ * Caché de la cuenta y el alcance actuales. UnidadProvider remonta este proveedor al
+ * cambiar cualquiera de los dos, evitando reutilizar datos de otra cuenta o unidad.
  */
 export function QueryProvider({ children }: { children: React.ReactNode }) {
   const [client] = useState(

@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { etiquetaMetodoPago } from '../common/payment-method-label';
+import { AlcanceUnidad, filtroUnidad } from '../common/unit-context';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   CreatePaymentMethodCategoryDto,
@@ -113,10 +114,18 @@ export class PaymentMethodsService {
 
   // ---- Categorías ----
 
-  async categories() {
+  async categories(alcance?: AlcanceUnidad) {
     const rows = await this.prisma.categoriaMetodoPago.findMany({
       orderBy: { nombre: 'asc' },
-      include: { _count: { select: { metodos: true } } },
+      include: {
+        _count: {
+          select: {
+            metodos: alcance
+              ? { where: { OR: [{ trabajadorId: null }, { trabajador: filtroUnidad(alcance) }] } }
+              : true,
+          },
+        },
+      },
     });
     return rows.map((row) => ({
       id: row.id.toString(),

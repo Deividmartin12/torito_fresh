@@ -135,7 +135,11 @@ export default function TrabajadoresPage() {
         item.usuario ? (
           <>
             {item.usuario.username ?? item.usuario.email}
-            <small className="mt-0.5 block text-[11px] text-muted">{item.usuario.rolNombre}</small>
+            <small className="mt-0.5 block text-[11px] text-muted">
+              {item.usuario.administradorPrincipal
+                ? 'Administrador principal · Todas las unidades'
+                : `${item.usuario.rolNombre} · Solo ${item.unidad ?? 'su unidad'}`}
+            </small>
           </>
         ) : (
           'Sin cuenta'

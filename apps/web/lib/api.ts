@@ -30,6 +30,8 @@ export type UsuarioSesion = {
   /** Unidad de negocio a la que pertenece la persona, vía su trabajador vinculado. */
   unidadNegocioId?: string | null;
   unidad?: string | null;
+  controlaInventario?: boolean | null;
+  administradorPrincipal?: boolean;
 };
 
 export function obtenerToken() {
@@ -80,13 +82,17 @@ export function haySesion() {
 }
 
 export function guardarSesion(accessToken: string, user: UsuarioSesion) {
+  const anterior = localStorage.getItem('torito_user');
+  const actual = JSON.stringify(user);
   localStorage.setItem('torito_token', accessToken);
-  localStorage.setItem('torito_user', JSON.stringify(user));
+  localStorage.setItem('torito_user', actual);
+  if (anterior !== actual) window.dispatchEvent(new Event('torito-sesion'));
 }
 
 export function limpiarSesion() {
   localStorage.removeItem('torito_token');
   localStorage.removeItem('torito_user');
+  window.dispatchEvent(new Event('torito-sesion'));
 }
 
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {

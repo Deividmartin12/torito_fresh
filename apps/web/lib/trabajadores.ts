@@ -11,6 +11,7 @@ export type CuentaTrabajador = {
   /** Nombre visible del rol. Lo manda el API porque la web ya no tiene la lista. */
   rolNombre: string;
   active: boolean;
+  administradorPrincipal: boolean;
 };
 
 export type Trabajador = {
@@ -39,6 +40,7 @@ export type CuentaTrabajadorPayload = {
   username: string;
   password?: string;
   role: string;
+  administradorPrincipal?: boolean;
 };
 
 export type TrabajadorPayload = Pick<

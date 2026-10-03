@@ -1,12 +1,14 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuthUser } from '../common/auth-user';
 import { CreateUserDto, UpdateUserDto } from './users.dto';
 
 /** Mismo costo de hash que usa el login (`AuthService`). */
@@ -52,7 +54,8 @@ export class UsersService {
     }));
   }
 
-  async create(dto: CreateUserDto, db: DbClient = this.prisma) {
+  async create(dto: CreateUserDto, db: DbClient = this.prisma, actor?: AuthUser) {
+    this.validarAccesoPrincipal(dto.administradorPrincipal, actor);
     const role = await this.roleId(dto.role, db);
     try {
       const row = await db.user.create({
@@ -62,6 +65,7 @@ export class UsersService {
           username: dto.username.trim().toLowerCase(),
           passwordHash: await bcrypt.hash(dto.password, BCRYPT_ROUNDS),
           active: dto.active ?? true,
+          administradorPrincipal: dto.administradorPrincipal ?? false,
           roleId: role,
         },
         include: { role: true, trabajador: true },
@@ -72,15 +76,43 @@ export class UsersService {
     }
   }
 
-  async update(id: string, dto: UpdateUserDto, db: DbClient = this.prisma) {
+  async update(id: string, dto: UpdateUserDto, db: DbClient = this.prisma, actor?: AuthUser) {
+    this.validarAccesoPrincipal(dto.administradorPrincipal, actor);
+    if (db === this.prisma) {
+      return this.prisma.$transaction((tx) => this.update(id, dto, tx, actor));
+    }
+    // Serializa las bajas para que dos administradores no eliminen simultáneamente
+    // el último acceso global. El bloqueo dura solo esta transacción.
+    if (dto.administradorPrincipal === false || dto.active === false) {
+      await db.$executeRaw`SELECT pg_advisory_xact_lock(849201)`;
+    }
     const current = await db.user.findUnique({ where: { id } });
     if (!current) throw new NotFoundException('Usuario no encontrado');
+    if (
+      current.administradorPrincipal &&
+      current.active &&
+      (dto.administradorPrincipal === false || dto.active === false)
+    ) {
+      const otros = await db.user.count({
+        where: {
+          id: { not: id },
+          administradorPrincipal: true,
+          active: true,
+          role: { estado: true },
+          OR: [{ trabajador: null }, { trabajador: { estado: true } }],
+        },
+      });
+      if (!otros)
+        throw new BadRequestException('Debe quedar al menos un administrador principal activo');
+    }
 
     const data: Prisma.UserUpdateInput = {};
     if (dto.name !== undefined) data.name = dto.name.trim();
     if (dto.email !== undefined) data.email = dto.email.trim().toLowerCase();
     if (dto.username !== undefined) data.username = dto.username.trim().toLowerCase();
     if (dto.active !== undefined) data.active = dto.active;
+    if (dto.administradorPrincipal !== undefined)
+      data.administradorPrincipal = dto.administradorPrincipal;
     if (dto.password) data.passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
     if (dto.role !== undefined) data.role = { connect: { id: await this.roleId(dto.role, db) } };
 
@@ -90,9 +122,23 @@ export class UsersService {
         data,
         include: { role: true, trabajador: true },
       });
+      if (
+        dto.administradorPrincipal !== undefined &&
+        dto.administradorPrincipal !== current.administradorPrincipal
+      ) {
+        await db.usuarioUnidadVisible.deleteMany({ where: { userId: id } });
+      }
       return this.view(row);
     } catch (error) {
       throw this.traducirError(error);
+    }
+  }
+
+  private validarAccesoPrincipal(valor: boolean | undefined, actor?: AuthUser) {
+    if (valor !== undefined && actor?.administradorPrincipal !== true) {
+      throw new ForbiddenException(
+        'Solo un administrador principal puede cambiar el acceso a todas las unidades',
+      );
     }
   }
 
@@ -139,6 +185,7 @@ export class UsersService {
       role: row.role.clave as string,
       rolNombre: row.role.nombre as string,
       active: row.active,
+      administradorPrincipal: row.administradorPrincipal,
       trabajadorId: row.trabajador?.id?.toString() ?? null,
       trabajador: row.trabajador ? `${row.trabajador.nombres} ${row.trabajador.apellidos}` : null,
     };

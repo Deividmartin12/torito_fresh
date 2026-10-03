@@ -3,6 +3,13 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
+import {
+  api,
+  guardarSesion,
+  obtenerToken,
+  obtenerUsuarioGuardado,
+  UsuarioSesion,
+} from '../lib/api';
 import { getRolesAsignables, RolAsignable } from '../lib/roles';
 import {
   CARGOS_TRABAJADOR,
@@ -62,7 +69,12 @@ type DatosForm = {
 };
 
 /** Lo que se teclea de la cuenta de acceso. El resto (nombre, correo) lo pone el API. */
-type CuentaForm = { username: string; password: string; role: string };
+type CuentaForm = {
+  username: string;
+  password: string;
+  role: string;
+  administradorPrincipal: boolean;
+};
 
 type FormErrors = Partial<Record<keyof DatosForm | keyof CuentaForm, string>>;
 
@@ -77,7 +89,12 @@ const datosVacios: DatosForm = {
   unidadNegocioId: '',
 };
 
-const cuentaVacia: CuentaForm = { username: '', password: '', role: 'SELLER' };
+const cuentaVacia: CuentaForm = {
+  username: '',
+  password: '',
+  role: 'SELLER',
+  administradorPrincipal: false,
+};
 
 /**
  * El cargo del trabajador y el rol con el que entra al sistema son la misma decisión.
@@ -125,6 +142,7 @@ export function TrabajadorFormModal({ editando, onClose, onSaved }: Props) {
           username: editando.usuario.username ?? '',
           password: '',
           role: editando.usuario.role,
+          administradorPrincipal: editando.usuario.administradorPrincipal ?? false,
         }
       : cuentaVacia,
   );
@@ -176,7 +194,7 @@ export function TrabajadorFormModal({ editando, onClose, onSaved }: Props) {
     setFieldErrors((current) => ({ ...current, [field]: undefined }));
   }
 
-  function updateCuenta(field: keyof CuentaForm, value: string) {
+  function updateCuenta<K extends keyof CuentaForm>(field: K, value: CuentaForm[K]) {
     setCuenta((current) => ({ ...current, [field]: value }));
     setFieldErrors((current) => ({ ...current, [field]: undefined }));
   }
@@ -241,11 +259,13 @@ export function TrabajadorFormModal({ editando, onClose, onSaved }: Props) {
             cuenta: {
               username: cuenta.username.trim(),
               role: cuenta.role,
+              administradorPrincipal: cuenta.administradorPrincipal,
               ...(cuenta.password ? { password: cuenta.password } : {}),
             },
           }
         : {}),
     };
+    const token = obtenerToken();
     try {
       const saved = editando
         ? await updateTrabajador(editando.id, payload)
@@ -254,6 +274,13 @@ export function TrabajadorFormModal({ editando, onClose, onSaved }: Props) {
         editando ? 'Trabajador actualizado correctamente.' : 'Trabajador registrado correctamente.',
       );
       onSaved(saved);
+      if (token && saved.usuario?.id === obtenerUsuarioGuardado()?.id) {
+        void api<UsuarioSesion>('/auth/me')
+          .then((usuario) => {
+            if (obtenerToken() === token) guardarSesion(token, usuario);
+          })
+          .catch(() => {});
+      }
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : 'No se pudo guardar el trabajador');
     } finally {
@@ -470,6 +497,24 @@ export function TrabajadorFormModal({ editando, onClose, onSaved }: Props) {
                     </option>
                   ))}
                 </select>
+              </label>
+              <label className={`${checkboxFieldClass} ${fieldWideClass}`}>
+                <input
+                  className={checkboxInputClass}
+                  type="checkbox"
+                  checked={cuenta.administradorPrincipal}
+                  onChange={(event) => updateCuenta('administradorPrincipal', event.target.checked)}
+                  disabled={saving}
+                />
+                <span>
+                  <strong className="text-[13px] font-medium">
+                    Administrador principal: acceso a todas las unidades
+                  </strong>
+                  <small className={`${formHintClass} block`}>
+                    Puede ver y administrar todas las unidades de negocio. Sin esta opción, entra
+                    únicamente a la unidad asignada y usa los permisos de su rol.
+                  </small>
+                </span>
               </label>
               <p className={`${formHintClass} ${fieldWideClass}`}>
                 Entra con su usuario o con el correo de arriba. El acceso se desactiva solo cuando

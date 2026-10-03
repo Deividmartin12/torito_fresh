@@ -12,6 +12,7 @@ import {
   filtroUnidad,
   resolverAlcanceUnidad,
   resolverUnidadDeEscritura,
+  unidadControlaInventario,
 } from '../common/unit-context';
 import { resolverTrabajadorAutor } from '../common/worker-context';
 import { PrismaService } from '../prisma/prisma.service';
@@ -117,7 +118,15 @@ export class ExpensesService {
       atribuidaA: dto.trabajadorId ? trabajadorId : null,
     });
     const metodoPagoId = await this.validarMetodoDePago(dto.metodoPagoId, trabajadorId);
-    const beneficiarioId = await this.resolverBeneficiario(categoria.nombre, dto.beneficiarioId);
+    const unidadBeneficiario =
+      actor.administradorPrincipal && (await unidadControlaInventario(this.prisma, unidadNegocioId))
+        ? undefined
+        : unidadNegocioId;
+    const beneficiarioId = await this.resolverBeneficiario(
+      categoria.nombre,
+      dto.beneficiarioId,
+      unidadBeneficiario,
+    );
     const row = await this.prisma.gasto.create({
       data: {
         unidadNegocioId,
@@ -144,7 +153,11 @@ export class ExpensesService {
    * cualquier otra se rechaza. Así el reporte por trabajador suma remuneraciones reales y
    * no gastos sueltos que alguien haya asociado a una persona por error.
    */
-  private async resolverBeneficiario(categoria: string, beneficiarioId?: string | null) {
+  private async resolverBeneficiario(
+    categoria: string,
+    beneficiarioId?: string | null,
+    unidadNegocioId?: bigint,
+  ) {
     const solicitado = beneficiarioId?.toString().trim();
     if (!esPagoTrabajador(categoria)) {
       if (solicitado)
@@ -162,11 +175,11 @@ export class ExpensesService {
       throw new BadRequestException('El trabajador seleccionado no es válido');
     }
     const trabajador = await this.prisma.trabajador.findFirst({
-      where: { id, estado: true },
+      where: { id, estado: true, ...(unidadNegocioId !== undefined ? { unidadNegocioId } : {}) },
       select: { id: true },
     });
     if (!trabajador)
-      throw new BadRequestException('El trabajador seleccionado no existe o está inactivo');
+      throw new BadRequestException('El trabajador seleccionado no está disponible en esta unidad');
     return trabajador.id;
   }
 
@@ -275,7 +288,16 @@ export class ExpensesService {
       dto.beneficiarioId !== undefined
         ? dto.beneficiarioId
         : (current.beneficiarioId?.toString() ?? undefined);
-    const beneficiarioId = await this.resolverBeneficiario(categoriaVigente, beneficiarioVigente);
+    const unidadBeneficiario =
+      actor.administradorPrincipal &&
+      (await unidadControlaInventario(this.prisma, current.unidadNegocioId))
+        ? undefined
+        : current.unidadNegocioId;
+    const beneficiarioId = await this.resolverBeneficiario(
+      categoriaVigente,
+      beneficiarioVigente,
+      unidadBeneficiario,
+    );
     data.beneficiario = beneficiarioId ? { connect: { id: beneficiarioId } } : { disconnect: true };
 
     const row = await this.prisma.gasto.update({

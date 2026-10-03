@@ -246,7 +246,7 @@ function sidebarTriggerClass({
 }
 
 const sidebarLabelClass =
-  'flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-sm font-medium text-fg';
+  'flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-left text-sm font-medium text-fg';
 
 /** El submenú de un grupo del sidebar: acordeón embebido si está expandido, popover flotante
  *  (abre con el mouse) si está compactado. */
@@ -298,7 +298,8 @@ export function AppShell({ children }: { children: ReactNode }) {
     // Hace falta el token Y los datos del usuario. Si falta cualquiera de los dos la sesión
     // está a medias: se limpia y se manda al login, en vez de quedarse en "Cargando...".
     const almacenado = obtenerUsuarioGuardado();
-    if (!obtenerToken() || !almacenado) {
+    const tokenInicial = obtenerToken();
+    if (!tokenInicial || !almacenado) {
       limpiarSesion();
       router.replace('/login');
       return;
@@ -309,16 +310,20 @@ export function AppShell({ children }: { children: ReactNode }) {
 
     // Refresco silencioso: si el rol o la unidad cambiaron, el menú y el selector se
     // acomodan solos. Un 401 lo maneja `api()`, que limpia la sesión y manda al login.
+    let vigente = true;
     api<UsuarioSesion>('/auth/me')
       .then((actual) => {
         const token = obtenerToken();
-        if (!token) return;
+        if (!vigente || token !== tokenInicial || actual.id !== almacenado.id) return;
         guardarSesion(token, actual);
         setUser(actual);
       })
       .catch(() => {
         // Sin conexión no se toca la sesión guardada: la pantalla sigue con lo que había.
       });
+    return () => {
+      vigente = false;
+    };
   }, [router]);
 
   // Menú visible según los PERMISOS y según la unidad en la que se está trabajando: un puesto

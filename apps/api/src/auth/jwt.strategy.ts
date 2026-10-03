@@ -4,6 +4,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import { obtenerClaveJwt } from './jwt-config';
+import { permisosEnUnidad } from './permisos-unidad';
 
 interface JwtPayload {
   sub: string;
@@ -36,7 +37,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       where: { id: payload.sub },
       include: {
         role: { include: { permisos: { select: { clave: true } } } },
-        trabajador: { select: { id: true, estado: true, unidadNegocioId: true } },
+        trabajador: {
+          select: {
+            id: true,
+            estado: true,
+            unidadNegocioId: true,
+            unidadNegocio: { select: { controlaInventario: true } },
+          },
+        },
       },
     });
 
@@ -57,13 +65,18 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       email: user.email,
       name: user.name,
       role: user.role.clave,
-      rolNombre: user.role.nombre,
-      accesoTotal: user.role.accesoTotal,
-      permisos: user.role.permisos.map((permiso) => permiso.clave),
+      rolNombre: user.administradorPrincipal ? 'Administrador principal' : user.role.nombre,
+      administradorPrincipal: user.administradorPrincipal,
+      ...permisosEnUnidad(
+        user.role,
+        user.trabajador?.unidadNegocio.controlaInventario,
+        user.administradorPrincipal,
+      ),
+      controlaInventario: user.trabajador?.unidadNegocio.controlaInventario ?? null,
       // Un trabajador dado de baja cuenta como "sin vincular": no debe poder seguir operando.
       trabajadorId: user.trabajador?.estado ? user.trabajador.id.toString() : null,
       // La unidad viaja con el trabajador: es la persona la que pertenece a un puesto, no
-      // la credencial. Sin trabajador activo no hay unidad y el alcance cae a la Principal.
+      // la credencial. Sin trabajador activo, una cuenta limitada no tiene alcance.
       unidadNegocioId: user.trabajador?.estado ? user.trabajador.unidadNegocioId.toString() : null,
     };
   }

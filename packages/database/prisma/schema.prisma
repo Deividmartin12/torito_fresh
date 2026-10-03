@@ -73,23 +73,26 @@ model RolPermiso {
 }
 
 model User {
-  id               String                 @id @default(cuid())
-  name             String
-  email            String                 @unique
-  username         String?                @unique
-  passwordHash     String                 @map("password_hash")
-  active           Boolean                @default(true)
-  roleId           String                 @map("role_id")
-  role             Role                   @relation(fields: [roleId], references: [id])
-  assignedOrders   Order[]                @relation("AssignedDelivery")
-  createdOrders    Order[]                @relation("CreatedOrders")
-  containerMoves   ContainerMovement[]
-  trabajador       Trabajador?
-  // Qué unidades de negocio mira esta persona. Sin filas = todas (ver UsuarioUnidadVisible).
-  unidadesVisibles UsuarioUnidadVisible[]
-  createdAt        DateTime               @default(now()) @map("created_at")
-  updatedAt        DateTime               @updatedAt @map("updated_at")
+  id                     String                 @id @default(cuid())
+  name                   String
+  email                  String                 @unique
+  username               String?                @unique
+  passwordHash           String                 @map("password_hash")
+  active                 Boolean                @default(true)
+  // Esta cuenta administra todas las unidades. Las demás solo acceden a la propia.
+  administradorPrincipal Boolean                @default(false) @map("administrador_principal")
+  roleId                 String                 @map("role_id")
+  role                   Role                   @relation(fields: [roleId], references: [id])
+  assignedOrders         Order[]                @relation("AssignedDelivery")
+  createdOrders          Order[]                @relation("CreatedOrders")
+  containerMoves         ContainerMovement[]
+  trabajador             Trabajador?
+  // Selección del administrador principal. Sin filas = todas (ver UsuarioUnidadVisible).
+  unidadesVisibles       UsuarioUnidadVisible[]
+  createdAt              DateTime               @default(now()) @map("created_at")
+  updatedAt              DateTime               @updatedAt @map("updated_at")
 
+  @@index([administradorPrincipal, active])
   @@map("users")
 }
 

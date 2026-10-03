@@ -77,10 +77,13 @@ export function QuickSaleForm() {
 
   const cargar = useCallback(async () => {
     setCargando(true);
+    const catalogos = getOperationCatalogs();
     const [cat, pagos, existencias] = await cargarParcial([
-      getOperationCatalogs(),
+      catalogos,
       getOperationalPaymentMethods(),
-      getOperationStock(),
+      catalogos.then((datos) =>
+        datos.unidadEscritura?.controlaInventario === false ? [] : getOperationStock(),
+      ),
     ] as const);
     if (cat.valor) setCatalogs(cat.valor);
     if (pagos.valor) setMetodos(pagos.valor);

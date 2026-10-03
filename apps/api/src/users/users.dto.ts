@@ -39,6 +39,10 @@ export class CreateUserDto {
   @IsOptional()
   @IsBoolean()
   active?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  administradorPrincipal?: boolean;
 }
 
 export class UpdateUserDto {
@@ -75,4 +79,8 @@ export class UpdateUserDto {
   @IsOptional()
   @IsBoolean()
   active?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  administradorPrincipal?: boolean;
 }

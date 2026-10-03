@@ -3,7 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChangePasswordDto, LoginDto } from './auth.dto';
-import { CLAVES_PERMISOS } from './permisos';
+import { permisosEnUnidad } from './permisos-unidad';
 
 @Injectable()
 export class AuthService {
@@ -17,7 +17,17 @@ export class AuthService {
     const identifier = dto.email.trim().toLowerCase();
     const user = await this.prisma.user.findFirst({
       where: { OR: [{ email: identifier }, { username: identifier }] },
-      include: { role: { include: { permisos: { select: { clave: true } } } } },
+      include: {
+        role: { include: { permisos: { select: { clave: true } } } },
+        trabajador: {
+          select: {
+            id: true,
+            cargo: true,
+            estado: true,
+            unidadNegocio: { select: { id: true, nombre: true, controlaInventario: true } },
+          },
+        },
+      },
     });
 
     // El mismo mensaje para "no existe", "está inactivo" y "contraseña mala": así nadie puede
@@ -54,23 +64,22 @@ export class AuthService {
         email: user.email,
         username: user.username,
         role: user.role.clave,
-        rolNombre: user.role.nombre,
-        accesoTotal: user.role.accesoTotal,
-        permisos: this.permisosDe(user.role),
+        rolNombre: user.administradorPrincipal ? 'Administrador principal' : user.role.nombre,
+        administradorPrincipal: user.administradorPrincipal,
+        ...permisosEnUnidad(
+          user.role,
+          user.trabajador?.unidadNegocio.controlaInventario,
+          user.administradorPrincipal,
+        ),
+        controlaInventario: user.trabajador?.unidadNegocio.controlaInventario ?? null,
+        trabajadorId: user.trabajador?.estado ? user.trabajador.id.toString() : null,
+        cargo: user.trabajador?.estado ? user.trabajador.cargo : null,
+        unidadNegocioId: user.trabajador?.estado
+          ? user.trabajador.unidadNegocio.id.toString()
+          : null,
+        unidad: user.trabajador?.estado ? user.trabajador.unidadNegocio.nombre : null,
       },
     };
-  }
-
-  /**
-   * Los permisos que ejerce un rol. Con `accesoTotal` es el catálogo entero, incluidos los
-   * permisos que se agreguen mañana; si no, los que tenga marcados.
-   *
-   * La web los recibe expandidos a propósito: así una pantalla pregunta siempre lo mismo
-   * (`puede('ventas.editar')`) sin tener que acordarse de contemplar el caso del administrador.
-   */
-  private permisosDe(role: { accesoTotal: boolean; permisos: { clave: string }[] }) {
-    if (role.accesoTotal) return [...CLAVES_PERMISOS];
-    return role.permisos.map((permiso) => permiso.clave);
   }
 
   async me(userId: string) {
@@ -82,6 +91,7 @@ export class AuthService {
         email: true,
         username: true,
         active: true,
+        administradorPrincipal: true,
         role: {
           select: {
             clave: true,
@@ -95,7 +105,7 @@ export class AuthService {
             id: true,
             cargo: true,
             estado: true,
-            unidadNegocio: { select: { id: true, nombre: true } },
+            unidadNegocio: { select: { id: true, nombre: true, controlaInventario: true } },
           },
         },
       },
@@ -111,9 +121,13 @@ export class AuthService {
       // dos en la misma clave de sesión y si tuvieran forma distinta, la pantalla que lo
       // muestra recibiría un objeto donde espera una cadena.
       role: role.clave,
-      rolNombre: role.nombre,
-      accesoTotal: role.accesoTotal,
-      permisos: this.permisosDe(role),
+      rolNombre: cuenta.administradorPrincipal ? 'Administrador principal' : role.nombre,
+      ...permisosEnUnidad(
+        role,
+        trabajador?.unidadNegocio.controlaInventario,
+        cuenta.administradorPrincipal,
+      ),
+      controlaInventario: trabajador?.unidadNegocio.controlaInventario ?? null,
       trabajadorId: vinculado?.id.toString() ?? null,
       // El cargo de la persona, que no es lo mismo que su rol: el rol dice qué puede hacer en
       // el sistema y el cargo cómo se llama su puesto. Al pie del menú se muestran los dos.

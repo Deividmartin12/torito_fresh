@@ -13,7 +13,19 @@ import { obtenerUsuarioGuardado, UsuarioSesion } from './api';
  */
 export function useSesion(): UsuarioSesion | null {
   const [sesion, setSesion] = useState<UsuarioSesion | null>(null);
-  useEffect(() => setSesion(obtenerUsuarioGuardado()), []);
+  useEffect(() => {
+    const actualizar = () => setSesion(obtenerUsuarioGuardado());
+    const cambioAlmacenamiento = (event: StorageEvent) => {
+      if (event.key === 'torito_user' || event.key === null) actualizar();
+    };
+    actualizar();
+    window.addEventListener('torito-sesion', actualizar);
+    window.addEventListener('storage', cambioAlmacenamiento);
+    return () => {
+      window.removeEventListener('torito-sesion', actualizar);
+      window.removeEventListener('storage', cambioAlmacenamiento);
+    };
+  }, []);
   return sesion;
 }
 

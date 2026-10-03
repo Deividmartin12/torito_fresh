@@ -18,6 +18,8 @@ export interface AuthUser {
    * incluidos, que es la diferencia con tener marcados todos los de hoy.
    */
   accesoTotal: boolean;
+  /** Opción de la cuenta que habilita administrar todas las unidades. */
+  administradorPrincipal?: boolean;
   /** Claves del catálogo que tiene otorgadas. Se leen de la base en cada petición. */
   permisos: string[];
   /**
@@ -28,9 +30,11 @@ export interface AuthUser {
   /**
    * Unidad de negocio del trabajador vinculado, o `null` si la cuenta no tiene ninguno.
    * Se resuelve en cada petición igual que el rol, así mover a alguien de unidad tiene
-   * efecto sin volver a entrar. Al leer, `null` se trata como la unidad Principal.
+   * efecto sin volver a entrar. Sin vínculo, una cuenta limitada no puede operar.
    */
   unidadNegocioId: string | null;
+  /** Las cuentas de una unidad sin inventario quedan aisladas en esa unidad. */
+  controlaInventario?: boolean | null;
 }
 
 /** Si esta persona tiene el permiso. El acceso total gana siempre. */

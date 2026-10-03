@@ -105,13 +105,17 @@ export class RolesService {
         'No puedes desactivar el rol con el que estás trabajando. Pide a otro administrador que lo haga.',
       );
     }
-    if (esElPropio && !rol.accesoTotal && permisos && !permisos.includes('roles.administrar')) {
+    if (
+      esElPropio &&
+      !actor.administradorPrincipal &&
+      !rol.accesoTotal &&
+      permisos &&
+      !permisos.includes('roles.administrar')
+    ) {
       throw new BadRequestException(
         'No puedes quitarte a ti mismo el permiso de administrar roles: después no habría forma de devolvértelo desde la app.',
       );
     }
-
-    if (dto.estado === false) await this.exigirOtroAdministrador(rol.id);
 
     const data: Prisma.RoleUpdateInput = {};
     if (dto.nombre !== undefined) data.nombre = dto.nombre.trim();
@@ -120,6 +124,10 @@ export class RolesService {
 
     try {
       await this.prisma.$transaction(async (tx) => {
+        if (dto.estado === false) {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(849201)`;
+          await this.exigirOtroAdministrador(rol.id, tx);
+        }
         await tx.role.update({ where: { id }, data });
         // Los permisos se reemplazan enteros en vez de comparar uno por uno: el formulario
         // manda la lista completa, así que un borrar y volver a insertar deja exactamente lo
@@ -172,18 +180,18 @@ export class RolesService {
    * Es la red de seguridad: sin esto, desactivar el rol del único administrador deja la app
    * sin nadie que pueda volver a activarlo, y la única salida sería un UPDATE a mano.
    */
-  private async exigirOtroAdministrador(idExcluido: string) {
-    const otros = await this.prisma.role.count({
+  private async exigirOtroAdministrador(idExcluido: string, db: Prisma.TransactionClient) {
+    const otros = await db.user.count({
       where: {
-        id: { not: idExcluido },
-        estado: true,
-        users: { some: { active: true } },
-        OR: [{ accesoTotal: true }, { permisos: { some: { clave: 'roles.administrar' } } }],
+        administradorPrincipal: true,
+        active: true,
+        role: { id: { not: idExcluido }, estado: true },
+        OR: [{ trabajador: null }, { trabajador: { estado: true } }],
       },
     });
     if (otros === 0) {
       throw new BadRequestException(
-        'Es el único rol activo que puede administrar roles. Dale ese permiso a otro rol antes de desactivar este.',
+        'Debe quedar al menos un administrador principal activo con otro rol antes de desactivar este.',
       );
     }
   }

@@ -7,11 +7,13 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import { puede } from '../lib/permissions';
 import { getMisUnidades, getUnidadesVisibles, UnidadOpcion } from '../lib/unidades';
 import { useSesion } from '../lib/useCurrentUser';
+import { QueryProvider } from './QueryProvider';
 
 /**
  * Qué unidades de negocio está mirando el usuario, para toda la app.
@@ -54,24 +56,31 @@ export function useUnidad(): UnidadContexto {
 
 export function UnidadProvider({ children }: { children: ReactNode }) {
   const sesion = useSesion();
-  const puedeElegir = puede(sesion?.permisos, 'unidades.elegir');
+  const puedeElegir =
+    sesion?.administradorPrincipal === true && puede(sesion?.permisos, 'unidades.elegir');
+  const usuarioId = sesion?.id;
+  const propiaId = sesion?.unidadNegocioId;
   const [todas, setTodas] = useState(true);
   const [ids, setIds] = useState<string[]>([]);
   const [disponibles, setDisponibles] = useState<UnidadOpcion[]>([]);
+  const revision = useRef(0);
 
   const recargar = useCallback(async () => {
+    const peticion = ++revision.current;
     try {
       // La preferencia de "qué unidades miro" solo existe para quien puede elegir unidad; al
       // resto el API le niega ese endpoint, y pedirlo igual dejaba un 403 en la consola en
       // cada pantalla. Su unidad sale de `/unidades/mias`, que sí les corresponde.
       if (!puedeElegir) {
         const propias = await getMisUnidades();
-        setTodas(true);
-        setIds([]);
+        if (peticion !== revision.current) return;
+        setTodas(false);
+        setIds(propias.map((unidad) => unidad.id));
         setDisponibles(propias);
         return;
       }
       const visibles = await getUnidadesVisibles();
+      if (peticion !== revision.current) return;
       setTodas(visibles.todas);
       setIds(visibles.unidades);
       setDisponibles(visibles.disponibles);
@@ -79,11 +88,14 @@ export function UnidadProvider({ children }: { children: ReactNode }) {
       // Sin respuesta se deja lo que había: la app sigue funcionando y el API igual resuelve
       // el alcance por su cuenta, que es la única fuente que manda.
     }
-  }, [puedeElegir]);
+  }, [puedeElegir, usuarioId, propiaId]);
 
   useEffect(() => {
     if (!sesion) return;
     void recargar();
+    return () => {
+      revision.current += 1;
+    };
   }, [sesion, recargar]);
 
   const elegidas = useMemo(
@@ -97,19 +109,32 @@ export function UnidadProvider({ children }: { children: ReactNode }) {
       : (disponibles[0]?.nombre ?? '')
     : elegidas.length === 1
       ? elegidas[0].nombre
-      : `${elegidas.length} unidades`;
+      : elegidas.length === 0
+        ? (sesion?.unidad ?? '')
+        : `${elegidas.length} unidades`;
 
-  // Una sola unidad sin inventario es el único caso donde las pantallas de stock sobran. Con
-  // varias, o mientras carga, se muestran: esconderlas y volver a mostrarlas parpadea feo.
-  const controlaInventario = elegidas.length === 1 ? elegidas[0].controlaInventario : true;
+  const controlaInventario =
+    !puedeElegir && sesion?.controlaInventario === false
+      ? false
+      : elegidas.length === 1
+        ? elegidas[0].controlaInventario
+        : disponibles.length === 1
+          ? disponibles[0].controlaInventario
+          : true;
 
-  const clave = todas ? 'todas' : [...ids].sort().join(',');
+  const alcance = puedeElegir
+    ? todas
+      ? 'todas'
+      : [...ids].sort().join(',')
+    : (propiaId ?? ids[0] ?? 'sin-unidad');
+  const clave = `${usuarioId ?? 'sin-sesion'}:${alcance}:${controlaInventario}`;
+  const claveCache = `${clave}:${[...(sesion?.permisos ?? [])].sort().join(',')}`;
 
   return (
     <Contexto.Provider
       value={{ todas, elegidas, disponibles, resumen, clave, controlaInventario, recargar }}
     >
-      {children}
+      <QueryProvider key={claveCache}>{children}</QueryProvider>
     </Contexto.Provider>
   );
 }

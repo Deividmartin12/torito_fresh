@@ -67,7 +67,7 @@ export class TrabajadoresService {
    * trabajador que nunca llegó a existir (antes pasaba, porque el usuario se guardaba
    * primero y nadie lo deshacía).
    */
-  async create(dto: CreateTrabajadorDto) {
+  async create(dto: CreateTrabajadorDto, actor: AuthUser) {
     const unidadNegocioId = await this.resolverUnidad(dto.unidadNegocioId);
     try {
       const created = await this.prisma.$transaction(async (tx) => {
@@ -81,6 +81,7 @@ export class TrabajadoresService {
             estado: true,
           },
           null,
+          actor,
         );
         return tx.trabajador.create({
           data: {
@@ -98,7 +99,7 @@ export class TrabajadoresService {
   }
 
   /** Igual que el alta: la persona y su cuenta se guardan juntas, o no se guarda nada. */
-  async update(id: string, dto: UpdateTrabajadorDto) {
+  async update(id: string, dto: UpdateTrabajadorDto, actor: AuthUser) {
     const actual = await this.find(id);
     const unidadNegocioId =
       dto.unidadNegocioId === undefined
@@ -116,6 +117,7 @@ export class TrabajadoresService {
             estado: dto.estado ?? actual.estado,
           },
           actual.userId,
+          actor,
         );
         return tx.trabajador.update({
           where: { id: actual.id },
@@ -153,6 +155,7 @@ export class TrabajadoresService {
     dto: { userId?: string; cuenta?: CuentaTrabajadorDto; estado?: boolean },
     persona: DatosPersona,
     userIdActual: string | null,
+    actor: AuthUser,
   ): Promise<string | null | undefined> {
     if (dto.cuenta) {
       const email = persona.correo.trim().toLowerCase();
@@ -172,11 +175,13 @@ export class TrabajadoresService {
             username: dto.cuenta.username,
             role: dto.cuenta.role,
             active: persona.estado,
+            administradorPrincipal: dto.cuenta.administradorPrincipal,
             // Sin contraseña nueva se queda con la que tenía: cambiarle el rol a alguien no
             // tiene por qué obligar a resetearle la clave.
             ...(dto.cuenta.password ? { password: dto.cuenta.password } : {}),
           },
           tx,
+          actor,
         );
         return undefined;
       }
@@ -192,8 +197,10 @@ export class TrabajadoresService {
           password: dto.cuenta.password,
           role: dto.cuenta.role,
           active: persona.estado,
+          administradorPrincipal: dto.cuenta.administradorPrincipal,
         },
         tx,
+        actor,
       );
       return creada.id;
     }
@@ -207,7 +214,7 @@ export class TrabajadoresService {
     }
 
     if (dto.estado !== undefined && userIdActual) {
-      await this.users.update(userIdActual, { active: dto.estado }, tx);
+      await this.users.update(userIdActual, { active: dto.estado }, tx, actor);
     }
     return undefined;
   }
@@ -311,6 +318,7 @@ export class TrabajadoresService {
             // en el front de la que sacarlo.
             rolNombre: row.user.role.nombre,
             active: row.user.active,
+            administradorPrincipal: row.user.administradorPrincipal,
           }
         : null,
     };

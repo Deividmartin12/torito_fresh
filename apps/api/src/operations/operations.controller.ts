@@ -232,8 +232,8 @@ export class OperationsController {
   }
   @Permisos('metodosPago.ver')
   @Get('payment-method-categories')
-  paymentMethodCategories() {
-    return this.operations.paymentMethodCategories();
+  paymentMethodCategories(@CurrentUser() user: AuthUser) {
+    return this.operations.paymentMethodCategories(user);
   }
   @Permisos('metodosPago.crearPropio')
   @Post('payment-methods')

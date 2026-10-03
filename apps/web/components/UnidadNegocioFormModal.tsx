@@ -159,8 +159,9 @@ export function UnidadNegocioFormModal({ editando, onClose, onSaved }: Props) {
         ) : (
           <p className={`${formHintClass} ${fieldWideClass}`}>
             Registra lo que vende y lo que gasta, nada más. Sus ventas no descuentan stock ni
-            generan kardex, y no verá Producción, Lotes, Almacenes ni Kardex. La utilidad se estima
-            con el costo de referencia de cada producto.
+            generan kardex. Sus usuarios solo pueden consultar y registrar en esta unidad, sin
+            acceder a ventas, gastos, clientes ni cobros de las demás. No verá Producción, Lotes,
+            Almacenes ni Kardex. La utilidad se estima con el costo de referencia de cada producto.
           </p>
         )}
 

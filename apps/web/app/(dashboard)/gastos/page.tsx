@@ -685,18 +685,6 @@ export default function GastosPage() {
                 />
               </label>
               <label>
-                <span className={fieldLabelClass}>Método de pago (opcional)</span>
-                <SearchableSelect
-                  value={form.metodoPagoId ?? ''}
-                  onChange={(value) => setForm((current) => ({ ...current, metodoPagoId: value }))}
-                  options={metodos.map((item) => ({
-                    value: item.id,
-                    label: paymentMethodOptionLabel(item),
-                  }))}
-                  placeholder="Con qué se pagó"
-                />
-              </label>
-              <label>
                 <span className={fieldLabelClass}>Categoría</span>
                 <SearchableSelect
                   value={form.categoriaId}
@@ -759,22 +747,35 @@ export default function GastosPage() {
                   </small>
                 </label>
               ) : null}
-              <label className={fieldWideClass}>
-                <span className={fieldLabelClass}>Concepto (opcional)</span>
-                <input
-                  className={controlClass}
-                  maxLength={200}
-                  value={form.concepto}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, concepto: event.target.value }))
-                  }
-                  placeholder="Ej. Pago de electricidad"
-                />
-              </label>
               <details className={`production-advanced ${fieldWideClass}`}>
-                <summary>Opciones avanzadas: proveedor y comprobante</summary>
-                <p>Complétalas solo si el gasto está ligado a un proveedor o a un comprobante.</p>
+                <summary>Opciones adicionales</summary>
                 <div className="production-inputs">
+                  <label>
+                    <span className={fieldLabelClass}>Método de pago (opcional)</span>
+                    <SearchableSelect
+                      value={form.metodoPagoId ?? ''}
+                      onChange={(value) =>
+                        setForm((current) => ({ ...current, metodoPagoId: value }))
+                      }
+                      options={metodos.map((item) => ({
+                        value: item.id,
+                        label: paymentMethodOptionLabel(item),
+                      }))}
+                      placeholder="Con qué se pagó"
+                    />
+                  </label>
+                  <label>
+                    <span className={fieldLabelClass}>Concepto (opcional)</span>
+                    <input
+                      className={controlClass}
+                      maxLength={200}
+                      value={form.concepto}
+                      onChange={(event) =>
+                        setForm((current) => ({ ...current, concepto: event.target.value }))
+                      }
+                      placeholder="Ej. Pago de electricidad"
+                    />
+                  </label>
                   <label>
                     <span className={fieldLabelClass}>Proveedor (opcional)</span>
                     <SearchableSelect

@@ -6,10 +6,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { PeriodFilter, PeriodKind } from '../../../components/PeriodFilter';
 import { useUnidad } from '../../../components/UnidadProvider';
-import {
-  ComparisonBarChart,
-  MarginChart,
-} from '../../../components/charts/AnalyticsCharts';
+import { ComparisonBarChart, MarginChart } from '../../../components/charts/AnalyticsCharts';
 import { StatCard } from '../../../components/dashboard/StatCard';
 import { StatHero } from '../../../components/dashboard/StatHero';
 import { axisCaption, buildChartSeries, pickAxis } from '../../../lib/chart-axis';
@@ -118,6 +115,7 @@ export function AdminDashboard() {
               value={moneda(analytics?.summary.expenses)}
               detail="Egresos registrados"
               tone="amber"
+              invertir
               change={
                 anterior
                   ? variacion(analytics?.summary.expenses ?? 0, anterior.expenses)

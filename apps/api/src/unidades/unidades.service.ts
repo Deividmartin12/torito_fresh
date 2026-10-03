@@ -1,11 +1,13 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AuthUser } from '../common/auth-user';
+import { puedeElegirUnidad } from '../common/unit-context';
 import { nextSequentialCode } from '../common/next-code';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -44,14 +46,16 @@ export class UnidadesService {
   /**
    * Las unidades que el actor puede elegir en el selector de reportes.
    *
-   * Un ADMIN las ve todas (más la opción de consolidado, que arma el front). Cualquier otro
-   * rol ve solo la suya: el selector le queda fijo y el API igual le rechazaría otra.
+   * El administrador principal las ve todas. Las demás cuentas reciben solo la propia,
+   * aunque tengan un rol con acceso total o su unidad lleve inventario.
    */
   async propias(actor: AuthUser) {
+    const puedeElegir = puedeElegirUnidad(actor);
+    if (!puedeElegir && !actor.unidadNegocioId) return [];
     const rows = await this.prisma.unidadNegocio.findMany({
       where: {
         estado: true,
-        ...(actor.role === 'ADMIN'
+        ...(puedeElegir
           ? {}
           : { id: actor.unidadNegocioId ? BigInt(actor.unidadNegocioId) : undefined }),
       },
@@ -103,6 +107,9 @@ export class UnidadesService {
 
   /** Guarda la elección. Lista vacía = todas, que es como se borra la preferencia. */
   async guardarVisibles(actor: AuthUser, dto: UnidadesVisiblesDto) {
+    if (!puedeElegirUnidad(actor)) {
+      throw new ForbiddenException('Solo puedes trabajar en tu propia unidad de negocio');
+    }
     const pedidas = [...new Set(dto.unidades.map((id) => id.trim()).filter(Boolean))];
     const ids: bigint[] = [];
     for (const id of pedidas) {

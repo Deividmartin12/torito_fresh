@@ -7,7 +7,7 @@ import { createParamDecorator, ExecutionContext } from '@nestjs/common';
  * handlers que ahora filtran por unidad. El valor es solo una intención: quién puede pedir
  * qué lo decide `resolverAlcanceUnidad` en el servicio, nunca el controlador.
  *
- * Admite el valor especial `todas` (ver `UNIDAD_TODAS`), reservado para el ADMIN.
+ * Admite el valor especial `todas` (ver `UNIDAD_TODAS`), reservado al administrador principal.
  */
 export const UnidadQuery = createParamDecorator(
   (_: unknown, ctx: ExecutionContext): string | undefined => {

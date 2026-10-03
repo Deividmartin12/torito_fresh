@@ -183,7 +183,14 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
   const [payMoreOpen, setPayMoreOpen] = useState(false);
 
   useEffect(() => {
-    Promise.all([getOperationCatalogs(), getOperationStock(), getOperationalPaymentMethods()])
+    const catalogos = getOperationCatalogs();
+    Promise.all([
+      catalogos,
+      catalogos.then((datos) =>
+        datos.unidadEscritura?.controlaInventario === false ? [] : getOperationStock(),
+      ),
+      getOperationalPaymentMethods(),
+    ])
       .then(async ([catalogData, stockData, methods]) => {
         setCatalogs(catalogData);
         setStock(stockData);

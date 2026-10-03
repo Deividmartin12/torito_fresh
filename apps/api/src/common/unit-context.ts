@@ -43,11 +43,23 @@ type ClienteTrabajador = {
 /**
  * Lo que hace falta saber del actor para resolver su alcance.
  *
- * Lleva `accesoTotal` y `permisos` porque quién puede pararse en OTRA unidad ya no se deduce
- * del rol sino del permiso `unidades.elegir`. Mientras era `role !== 'ADMIN'`, un rol creado
- * desde el panel quedaba siempre encerrado en su propia unidad aunque se le marcara todo.
+ * El acceso a otras unidades depende de la marca de administrador principal de la cuenta.
+ * Los permisos del rol definen las acciones dentro de ese alcance.
  */
-type ActorUnidad = Pick<AuthUser, 'accesoTotal' | 'permisos' | 'unidadNegocioId' | 'userId'>;
+type ActorUnidad = Pick<
+  AuthUser,
+  | 'accesoTotal'
+  | 'permisos'
+  | 'unidadNegocioId'
+  | 'userId'
+  | 'controlaInventario'
+  | 'administradorPrincipal'
+>;
+
+/** Solo una cuenta marcada como administrador principal puede elegir otras unidades. */
+export function puedeElegirUnidad(actor: ActorUnidad): boolean {
+  return actor.administradorPrincipal === true && tienePermiso(actor, 'unidades.elegir');
+}
 
 /**
  * Id de la unidad Principal. Se cachea en memoria porque es una fila que se crea en la
@@ -138,7 +150,7 @@ async function unidadDestino(
   const solicitada = unidadSolicitada?.toString().trim();
   const propia = actor.unidadNegocioId ? BigInt(actor.unidadNegocioId) : null;
 
-  if (!tienePermiso(actor, 'unidades.elegir')) {
+  if (!puedeElegirUnidad(actor)) {
     if (!propia) throw new ForbiddenException(SIN_TRABAJADOR_VINCULADO);
     return propia;
   }
@@ -182,7 +194,7 @@ async function unidadActivaOFalla(db: ClienteUnidad, id: bigint): Promise<bigint
 /**
  * Las unidades que este usuario eligió mirar, en Configuración › Unidades que veo.
  *
- * Sin filas guardadas devuelve `todas`, que es el estado por defecto de toda cuenta: así una
+ * Sin filas guardadas devuelve `todas`, el valor por defecto de un administrador principal: una
  * unidad creada después queda incluida sola, en vez de faltar sin que nadie se entere.
  */
 export async function alcanceGuardado(
@@ -201,10 +213,10 @@ export async function alcanceGuardado(
 /**
  * Qué unidades puede LEER el actor.
  *
- * - Sin el permiso `unidades.elegir`: siempre la suya, se pida lo que se pida.
- * - Con el permiso y sin parámetro: lo que tenga guardado en Configuración (sin nada, todas).
- * - Con el permiso y `todas`: sin filtro, el consolidado.
- * - Con el permiso y un id: se valida que la unidad exista.
+ * - Sin la marca de administrador principal: siempre la propia.
+ * - Administrador principal sin parámetro: su selección guardada (sin nada, todas).
+ * - Administrador principal con `todas`: sin filtro, el consolidado.
+ * - Administrador principal con un id: se valida que la unidad exista.
  *
  * El parámetro sigue existiendo para las pantallas que necesitan mirar una unidad concreta sin
  * cambiarle la preferencia a nadie; la elección de fondo vive en la base.
@@ -216,7 +228,7 @@ export async function resolverAlcanceUnidad(
 ): Promise<AlcanceUnidad> {
   const solicitada = unidadSolicitada?.toString().trim();
 
-  if (!tienePermiso(actor, 'unidades.elegir')) {
+  if (!puedeElegirUnidad(actor)) {
     // Se IGNORA lo pedido en vez de rechazarlo: quien no elige unidad no la elige, y
     // un parámetro suelto solo puede venir de una pantalla que lo arrastró. Devolver la suya
     // no filtra nada, es el mismo valor que ya correspondía.

@@ -23,6 +23,9 @@ const deltaToneClass = {
  * Mini-tarjeta de indicador: el ícono en su cuadrito de color, la cifra grande, la etiqueta
  * y la variación contra el período anterior. La usan los dos paneles y las cabeceras de
  * /ventas y /gastos, por eso vive acá y no dentro de la ruta del panel.
+ *
+ * Con `invertir`, subir se pinta rojo y bajar verde: para indicadores donde subir es malo
+ * (gastos). La flecha sigue la dirección del número; el color dice si es bueno o malo.
  */
 export function StatCard({
   icon,
@@ -33,6 +36,7 @@ export function StatCard({
   change,
   changeCaption,
   href,
+  invertir = false,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -42,9 +46,25 @@ export function StatCard({
   change?: Variacion;
   changeCaption?: string;
   href?: string;
+  invertir?: boolean;
 }) {
   // "na" es el caso sin base de comparación: no se pinta ni verde ni rojo.
   const direccion = change && change.direccion !== 'na' ? change.direccion : 'flat';
+  // Con `invertir` el bueno/malo se da vuelta, pero la flecha no: subir sigue siendo subir.
+  const sube = direccion === 'up';
+  const baja = direccion === 'down';
+  const esBueno = invertir ? baja : sube;
+  const esMalo = invertir ? sube : baja;
+  const deltaClass = esBueno
+    ? deltaToneClass.up
+    : esMalo
+      ? deltaToneClass.down
+      : deltaToneClass.flat;
+  const flechaClass = esBueno
+    ? 'text-status-green-text'
+    : esMalo
+      ? 'text-status-red-text'
+      : 'text-muted';
   // El "vs. el mes anterior" solo acompaña a un porcentaje. Junto a "nuevo" o a "—" sobra:
   // esas dos formas ya dicen que no había con qué comparar.
   const pie = change?.texto.endsWith('%') ? changeCaption : undefined;
@@ -56,19 +76,15 @@ export function StatCard({
         >
           {icon}
         </span>
-        {change && change.direccion === 'up' ? (
-          <TrendingUp className="text-status-green-text" size={16} />
-        ) : null}
-        {change && change.direccion === 'down' ? (
-          <TrendingDown className="text-status-red-text" size={16} />
-        ) : null}
+        {change && sube ? <TrendingUp className={flechaClass} size={16} /> : null}
+        {change && baja ? <TrendingDown className={flechaClass} size={16} /> : null}
       </div>
       <strong className="overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(20px,5.5vw,26px)] font-bold leading-[1.2] text-fg">
         <CifraAnimada valor={value} />
       </strong>
       <span className="text-xs text-muted">{label}</span>
       {change ? (
-        <span className={`text-xs font-semibold ${deltaToneClass[direccion]}`}>
+        <span className={`text-xs font-semibold ${deltaClass}`}>
           {change.texto}
           {pie ? ` ${pie}` : ''}
         </span>

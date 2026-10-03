@@ -52,7 +52,15 @@ export async function exigirTrabajadorId(
  */
 export async function resolverTrabajadorAutor(
   db: ClienteTrabajador,
-  actor: Pick<AuthUser, 'userId' | 'accesoTotal' | 'permisos'>,
+  actor: Pick<
+    AuthUser,
+    | 'userId'
+    | 'accesoTotal'
+    | 'permisos'
+    | 'controlaInventario'
+    | 'unidadNegocioId'
+    | 'administradorPrincipal'
+  >,
   trabajadorIdSolicitado?: string | number | null,
 ): Promise<bigint> {
   const solicitado = trabajadorIdSolicitado?.toString().trim();
@@ -72,7 +80,13 @@ export async function resolverTrabajadorAutor(
   }
 
   const trabajador = await db.trabajador.findFirst({
-    where: { id, estado: true },
+    where: {
+      id,
+      estado: true,
+      ...(actor.administradorPrincipal !== true
+        ? { unidadNegocioId: actor.unidadNegocioId ? BigInt(actor.unidadNegocioId) : -1n }
+        : {}),
+    },
     select: { id: true },
   });
   if (!trabajador) {
