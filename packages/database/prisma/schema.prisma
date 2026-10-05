@@ -87,6 +87,8 @@ model User {
   createdOrders          Order[]                @relation("CreatedOrders")
   containerMoves         ContainerMovement[]
   trabajador             Trabajador?
+  metodoPagoVentaId      BigInt?                @map("metodo_pago_venta_id")
+  metodoPagoVenta        MetodoPago?            @relation("MetodoPagoVentaPredeterminado", fields: [metodoPagoVentaId], references: [id], onDelete: SetNull)
   // Selección del administrador principal. Sin filas = todas (ver UsuarioUnidadVisible).
   unidadesVisibles       UsuarioUnidadVisible[]
   createdAt              DateTime               @default(now()) @map("created_at")
@@ -220,6 +222,7 @@ model UnidadNegocio {
   controlaInventario Boolean  @default(true) @map("controla_inventario")
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
+  cuentasCaja        CuentaCaja[]
 
   // Las únicas seis tablas que llevan la columna. El resto se filtra por relación:
   // CuentaCobrar y SaldoFavorCliente por cliente, PagoCliente por cuentaCobrar.venta,
@@ -274,6 +277,7 @@ model Trabajador {
   bidonesRotos          BidonRoto[]
   conteosInventario     ConteoInventario[]
   metodosPago           MetodoPago[]
+  movimientosCaja       MovimientoCaja[]
 
   @@index([unidadNegocioId])
   @@map("trabajador")
@@ -577,10 +581,50 @@ model MetodoPago {
   trabajador   Trabajador?          @relation(fields: [trabajadorId], references: [id])
   pagosCliente PagoCliente[]
   gastos       Gasto[]
+  cuentasCaja  CuentaCaja[]
+  usuariosPredeterminado User[] @relation("MetodoPagoVentaPredeterminado")
 
   @@index([trabajadorId, estado])
   @@index([categoriaId])
   @@map("metodo_pago")
+}
+
+model CuentaCaja {
+  id              BigInt           @id @default(autoincrement())
+  unidadNegocioId  BigInt           @map("unidad_negocio_id")
+  metodoPagoId    BigInt           @map("metodo_pago_id")
+  saldoInicial    Decimal?         @map("saldo_inicial") @db.Decimal(12, 2)
+  fechaApertura   DateTime?        @map("fecha_apertura")
+  version         Int              @default(0)
+  createdAt       DateTime         @default(now()) @map("created_at")
+  unidadNegocio   UnidadNegocio    @relation(fields: [unidadNegocioId], references: [id])
+  metodoPago      MetodoPago       @relation(fields: [metodoPagoId], references: [id])
+  movimientos     MovimientoCaja[]
+
+  @@unique([unidadNegocioId, metodoPagoId])
+  @@map("cuenta_caja")
+}
+
+model MovimientoCaja {
+  id              BigInt      @id @default(autoincrement())
+  cuentaId        BigInt      @map("cuenta_id")
+  tipo            String      @db.VarChar(30)
+  importe         Decimal     @db.Decimal(12, 2)
+  fecha           DateTime
+  registradoAt    DateTime    @default(now()) @map("registrado_at")
+  trabajadorId    BigInt?     @map("trabajador_id")
+  descripcion     String      @db.VarChar(500)
+  // Referencias sin FK: el historial sobrevive a borrar/recrear cobros al corregir una venta.
+  fuenteTipo      String?     @map("fuente_tipo") @db.VarChar(30)
+  fuenteId        BigInt?     @map("fuente_id")
+  ventaId         BigInt?     @map("venta_id")
+  claveOperacion  String?     @unique @map("clave_operacion") @db.VarChar(100)
+  cuenta          CuentaCaja  @relation(fields: [cuentaId], references: [id])
+  trabajador      Trabajador? @relation(fields: [trabajadorId], references: [id])
+
+  @@index([cuentaId, fecha, id])
+  @@index([fuenteTipo, fuenteId])
+  @@map("movimiento_caja")
 }
 
 model Almacen {

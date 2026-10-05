@@ -29,6 +29,8 @@ import { useUnidad } from '../../../components/UnidadProvider';
 import { Badge } from '../../../components/ui/Badge';
 import { Button, buttonClass } from '../../../components/ui/Button';
 import {
+  checkboxFieldClass,
+  checkboxInputClass,
   controlClass,
   fieldErrorClass,
   fieldHintClass,
@@ -52,6 +54,7 @@ import {
   getExpenseCategories,
   getExpenseProveedores,
   getExpenses,
+  getExpense,
   updateExpense,
 } from '../../../lib/expenses';
 import { paymentMethodOptionLabel } from '../../../lib/payment-methods';
@@ -100,6 +103,22 @@ export default function GastosPage() {
   const puedeCrearTrabajador = puede(permisos, 'trabajadores.administrar');
   const puedeCrearCategoria = puede(permisos, 'gastos.categorias.crear');
   const puedeAnular = puede(permisos, 'gastos.anular');
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get('gastoId');
+    if (!id || !puede(permisos, 'gastos.ver')) return;
+    let active = true;
+    void getExpense(id)
+      .then((gasto) => {
+        if (active) setDetail(gasto);
+      })
+      .catch((error) => {
+        if (active)
+          toast.error(error instanceof Error ? error.message : 'No se pudo abrir el gasto');
+      });
+    return () => {
+      active = false;
+    };
+  }, [permisos]);
 
   // Cinco consultas independientes: con React Query cada una aísla su propio error de las
   // demás, así que no hace falta `cargarParcial` acá (una que falle no apaga el formulario
@@ -237,6 +256,10 @@ export default function GastosPage() {
     }
     if (!form.categoriaId) {
       toast.error('Selecciona la categoría del gasto.');
+      return;
+    }
+    if (!editing && !form.metodoPagoId) {
+      toast.error('Selecciona con qué método se pagó el gasto.');
       return;
     }
     const esPago = esPagoTrabajador(nombreCategoria(form.categoriaId));
@@ -470,16 +493,11 @@ export default function GastosPage() {
           />
         </label>
         <Button variant="secondary" type="button" onClick={() => setFiltersOpen(true)}>
-          <SlidersHorizontal size={16} /> Filtros{category !== 'Todas' ? ` (${category})` : ''}
+          <SlidersHorizontal size={16} /> Filtros
+          {category !== 'Todas' || mostrarAnulados
+            ? ` (${[category !== 'Todas' ? category : null, mostrarAnulados ? 'Revertidos' : null].filter(Boolean).join(', ')})`
+            : ''}
         </Button>
-        <label className="flex min-h-[44px] cursor-pointer items-center gap-2 text-[13px] text-muted">
-          <input
-            type="checkbox"
-            checked={mostrarAnulados}
-            onChange={(event) => setMostrarAnulados(event.target.checked)}
-          />
-          Ver revertidos
-        </label>
       </div>
       {loading ? (
         <div className="table-loading" role="status">
@@ -511,6 +529,7 @@ export default function GastosPage() {
                   onClick={() => {
                     setSearch('');
                     setCategory('Todas');
+                    setMostrarAnulados(false);
                   }}
                 >
                   Limpiar filtros
@@ -553,12 +572,24 @@ export default function GastosPage() {
                   ))}
                 </select>
               </label>
+              <label className={`${checkboxFieldClass} ${fieldWideClass}`}>
+                <input
+                  className={checkboxInputClass}
+                  type="checkbox"
+                  checked={mostrarAnulados}
+                  onChange={(event) => setMostrarAnulados(event.target.checked)}
+                />
+                <span className="text-[13px] font-medium">Ver revertidos</span>
+              </label>
               <Button
                 variant="secondary"
                 className={fieldWideClass}
                 type="button"
-                onClick={() => setCategory('Todas')}
-                disabled={category === 'Todas'}
+                onClick={() => {
+                  setCategory('Todas');
+                  setMostrarAnulados(false);
+                }}
+                disabled={category === 'Todas' && !mostrarAnulados}
               >
                 Limpiar filtros
               </Button>
@@ -747,23 +778,25 @@ export default function GastosPage() {
                   </small>
                 </label>
               ) : null}
+              <label className={fieldWideClass}>
+                <span className={fieldLabelClass}>Método de pago{editing ? '' : ' *'}</span>
+                <SearchableSelect
+                  value={form.metodoPagoId ?? ''}
+                  onChange={(value) => setForm((current) => ({ ...current, metodoPagoId: value }))}
+                  options={metodos.map((item) => ({
+                    value: item.id,
+                    label: paymentMethodOptionLabel(item),
+                  }))}
+                  placeholder="Con qué se pagó"
+                  required={!editing}
+                />
+                <small className={fieldHintClass}>
+                  Este importe se descontará de la cuenta del método elegido en Caja.
+                </small>
+              </label>
               <details className={`production-advanced ${fieldWideClass}`}>
                 <summary>Opciones adicionales</summary>
                 <div className="production-inputs">
-                  <label>
-                    <span className={fieldLabelClass}>Método de pago (opcional)</span>
-                    <SearchableSelect
-                      value={form.metodoPagoId ?? ''}
-                      onChange={(value) =>
-                        setForm((current) => ({ ...current, metodoPagoId: value }))
-                      }
-                      options={metodos.map((item) => ({
-                        value: item.id,
-                        label: paymentMethodOptionLabel(item),
-                      }))}
-                      placeholder="Con qué se pagó"
-                    />
-                  </label>
                   <label>
                     <span className={fieldLabelClass}>Concepto (opcional)</span>
                     <input

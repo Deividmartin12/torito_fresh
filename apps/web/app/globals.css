@@ -740,6 +740,46 @@ button {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
 }
+.caja-amount-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  min-width: 0;
+  padding: 0 13px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+.caja-amount-field:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.caja-amount-field > span {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: 16px;
+}
+
+.caja-amount-field > input,
+.caja-amount-field > input:focus {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+  outline: 0;
+  box-shadow: none;
+}
+
 .field-wide {
   grid-column: 1 / -1;
 }
@@ -2575,27 +2615,32 @@ html[data-theme='dark'] .stat-hero :where(strong, span) {
 }
 
 .stat-card {
+  container-type: inline-size;
   display: grid;
-  align-content: start;
-  gap: 3px;
-  border: 1px solid var(--border);
-  border-radius: var(--ui-radius);
+  grid-template-rows: auto minmax(52px, 1fr) auto;
+  min-width: 0;
+  min-height: 176px;
+  gap: 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-container-lg);
   background: var(--surface);
-  padding: 14px;
+  padding: 16px 24px;
   color: inherit;
   text-decoration: none;
 }
 
 .stat-card-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 8px;
+  gap: 12px;
+  min-height: 38px;
 }
 
 /* El ícono va dentro de un cuadrito con fondo pastel del color del indicador. */
 .stat-card-icon {
   display: grid;
+  flex: none;
   width: 38px;
   height: 38px;
   place-items: center;
@@ -2624,42 +2669,77 @@ html[data-theme='dark'] .stat-hero :where(strong, span) {
   color: var(--chart-4);
 }
 
-.stat-card-trend {
-  color: var(--text-muted);
-}
-
 .stat-card-value {
-  overflow: hidden;
+  display: flex;
+  align-items: center;
+  min-width: 0;
   color: var(--text);
-  font-size: clamp(20px, 5.5vw, 26px);
-  font-weight: 700;
-  line-height: 1.2;
-  text-overflow: ellipsis;
+  font-size: min(36px, 16cqi, calc(150cqi / var(--stat-value-length, 8)));
+  font-weight: 600 !important;
+  line-height: 1.1;
   white-space: nowrap;
 }
 
-.stat-card-label {
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.stat-card-delta {
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.stat-card-delta-up,
-.stat-card-trend-up {
+.stat-card-value-green {
   color: var(--status-green-text);
 }
 
-.stat-card-delta-down,
-.stat-card-trend-down {
+.stat-card-value-red {
   color: var(--status-red-text);
 }
 
-.stat-card-delta-flat {
+.stat-card-label {
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.stat-card-footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 28px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
   color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.stat-card-caption {
+  overflow-wrap: anywhere;
+}
+
+.stat-card-delta {
+  grid-column: 2;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.stat-card-trend {
+  display: grid;
+  grid-column: 3;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  color: var(--text-muted);
+}
+
+.stat-card-trend svg {
+  width: 100%;
+  height: 100%;
+}
+
+.stat-card-trend-positive {
+  color: var(--status-green-text);
+}
+
+.stat-card-trend-negative {
+  color: var(--status-red-text);
 }
 
 .stat-card-link {
@@ -2668,6 +2748,47 @@ html[data-theme='dark'] .stat-hero :where(strong, span) {
 
 .stat-card-link:hover {
   transform: translateY(-2px);
+}
+
+.stat-card-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+@container (max-width: 220px) {
+  .stat-card-head {
+    gap: 8px;
+  }
+
+  .stat-card-label {
+    font-size: 14px;
+  }
+
+  .stat-card-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+  }
+
+  .stat-card-footer {
+    gap: 6px;
+    font-size: 11px;
+  }
+
+  .stat-card-trend {
+    width: 14px;
+    height: 14px;
+  }
+}
+
+@media (max-width: 700px) {
+  .stat-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .stat-card {
+    padding: 16px 20px;
+  }
 }
 
 .panel-card {
@@ -3083,6 +3204,12 @@ a.entity-row:hover {
   }
 }
 
+@media (min-width: 1024px) and (max-width: 1100px) {
+  .stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .business-chart-card {
   /* Contenedor de consulta: las marcas del eje X esconden su línea de contexto (el nombre del
      día, el número de semana) cuando la tarjeta se hace angosta y dejan solo la fecha. */
@@ -3165,6 +3292,208 @@ a.entity-row:hover {
 .line-chart-wrap {
   width: 100%;
   overflow-x: auto;
+}
+
+.sales-expenses-card {
+  container-type: inline-size;
+  margin-bottom: 12px;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--surface);
+  padding: 22px 24px;
+}
+.sales-expenses-card h2 {
+  margin: 0 0 16px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+.sales-expenses-legends {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+}
+.sales-expenses-legend {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+}
+.sales-expenses-legend::before {
+  content: '';
+  width: 20px;
+  border-top: 3px solid currentColor;
+}
+.sales-expenses-change {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+.sales-expenses-caption {
+  margin: 20px 0 12px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.sales-expenses-chart {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: 12px;
+  /* Separa la primera marca del eje Y de la leyenda. */
+  margin-top: 22px;
+  padding-bottom: 40px;
+}
+.sales-expenses-y {
+  position: relative;
+  width: 88px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.sales-expenses-y > span {
+  position: absolute;
+  right: 0;
+  transform: translateY(-50%);
+  white-space: nowrap;
+}
+.sales-expenses-plot {
+  position: relative;
+  min-width: 0;
+  height: 200px;
+}
+.sales-expenses-plot > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.sales-expenses-grid {
+  stroke: var(--border);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  stroke-dasharray: 4 4;
+}
+.sales-series {
+  color: var(--chart-1);
+}
+.expenses-series {
+  color: var(--chart-3);
+}
+.sales-expenses-legend.expenses-series,
+.sales-expenses-tooltip .expenses-series {
+  color: var(--text-muted);
+}
+.sales-expenses-line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+.sales-expenses-fill {
+  fill: currentColor;
+  fill-opacity: 0.16;
+}
+.sales-expenses-fill.expenses-series {
+  fill-opacity: 0.22;
+}
+.sales-expenses-x {
+  position: relative;
+  margin-top: 12px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.sales-expenses-x > span {
+  position: absolute;
+  text-align: center;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.sales-expenses-x > span:first-child {
+  transform: none;
+  text-align: left;
+}
+.sales-expenses-x > span:last-child {
+  transform: translateX(-100%);
+  text-align: right;
+}
+.sales-expenses-x small {
+  display: block;
+  font-size: 10px;
+}
+.sales-expenses-tick-mobile {
+  display: none;
+}
+.sales-expenses-x > span:only-child {
+  transform: translateX(-50%);
+  text-align: center;
+}
+.sales-expenses-point {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  transform: translateX(-50%);
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: crosshair;
+}
+.sales-expenses-point:first-of-type {
+  transform: none;
+}
+.sales-expenses-point:last-of-type {
+  transform: translateX(-100%);
+}
+.sales-expenses-point:only-of-type {
+  transform: translateX(-50%);
+}
+.sales-expenses-point:focus-visible {
+  outline: 2px solid var(--chart-1);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+.sales-expenses-tooltip {
+  position: absolute;
+  top: 8px;
+  z-index: 1;
+  transform: translateX(-50%);
+  display: grid;
+  gap: 4px;
+  width: max-content;
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  padding: 9px 12px;
+  box-shadow: 0 4px 16px #0001;
+  font-size: 11px;
+  pointer-events: none;
+}
+.sales-expenses-tooltip b {
+  color: var(--text-muted);
+  white-space: normal;
+}
+@container (max-width: 520px) {
+  .sales-expenses-chart {
+    column-gap: 8px;
+  }
+  .sales-expenses-y {
+    width: 76px;
+    font-size: 10px;
+  }
+  .sales-expenses-plot {
+    height: 180px;
+  }
+  .sales-expenses-tick-desktop {
+    display: none;
+  }
+  .sales-expenses-tick-mobile {
+    display: block;
+  }
+  .sales-expenses-tooltip {
+    left: 50% !important;
+  }
 }
 
 .line-chart {
@@ -3483,67 +3812,12 @@ a.entity-row:hover {
   align-items: flex-end !important;
 }
 
-/* Resumen diario: el filtro de rango se presenta sin una tarjeta exterior. */
 .summary-filters {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  grid-template-rows: auto auto;
-  column-gap: 12px;
-  row-gap: 12px;
-  align-items: center;
-  margin: 16px 0 14px;
-}
-
-/* Los pasos se disuelven para que el navegador de fechas (dentro de PeriodFilter)
-   quede en la columna derecha ocupando el alto de las dos filas. */
-.summary-filter-step {
-  display: contents;
-}
-
-.summary-filter-step:first-child .period-filter {
-  display: contents;
-}
-
-.summary-filter-step:first-child .summary-filter-label {
-  grid-column: 1;
-  grid-row: 1;
-}
-
-.summary-filter-step:first-child .period-filter-rail {
-  grid-column: 2;
-  grid-row: 1;
-  min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.summary-filter-step:first-child .period-filter-rail::-webkit-scrollbar {
-  display: none;
-}
-
-.summary-filter-step:first-child .period-filter-sep {
-  display: none;
-}
-
-.summary-filter-step:first-child .period-nav {
-  grid-column: 3;
-  grid-row: 1 / span 2;
-  align-self: stretch;
   display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
   align-items: center;
-  margin-left: 4px;
-  border-left: 1px solid var(--border);
-  padding-left: 16px;
-}
-
-.summary-filter-step:last-child .summary-filter-label {
-  grid-column: 1;
-  grid-row: 2;
-}
-
-.summary-filter-step:last-child .segmented {
-  grid-column: 2;
-  grid-row: 2;
+  margin: 0 0 14px;
 }
 
 .summary-filter-label {
@@ -3943,15 +4217,6 @@ a.entity-row:hover {
   }
 }
 
-/* PeriodFilter trae sus propios márgenes; adentro de la tarjeta de filtros sobran. */
-.summary-filters .period-filter {
-  margin: 0;
-  border: 0;
-  background: transparent;
-  padding: 0;
-  box-shadow: none;
-}
-
 .summary-readout {
   display: flex;
   align-items: center;
@@ -4149,21 +4414,81 @@ a.entity-row:hover {
   display: flex;
   height: 300px;
   align-items: stretch;
-  gap: 9px;
   overflow-x: auto;
   border-bottom: 1px solid var(--border);
   padding: 8px 5px 0;
+}
+/* El cuerpo crece con las columnas para que las líneas de fondo cubran todo el
+   ancho con scroll, no solo lo visible. */
+.comparison-chart-body {
+  position: relative;
+  display: flex;
+  flex: 1 0 auto;
+  gap: 9px;
+  width: max-content;
+  min-width: 100%;
+  align-items: stretch;
 }
 .comparison-column {
   display: grid;
   min-width: 34px;
   flex: 1;
-  grid-template-rows: 1fr auto;
+  grid-template-rows: 1fr 24px;
   gap: 7px;
 }
 .comparison-chart-labeled .comparison-column {
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto 1fr 24px;
   min-width: 68px;
+}
+/* Eje Y fijo como en Evolución: va fuera del scroll horizontal, con las mismas
+   fracciones que las líneas de fondo (arriba el padding del chart; abajo la fila
+   de etiquetas + el gap + el borde: 24 + 7 + 1). */
+.comparison-chart-wrap {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px;
+  align-items: stretch;
+}
+.comparison-y-axis {
+  position: relative;
+  margin: 8px 0 32px;
+  min-width: 40px;
+  color: var(--text-muted);
+  font-size: 9px;
+  text-align: right;
+  white-space: nowrap;
+}
+.comparison-chart-wrap:has(.comparison-chart-labeled) .comparison-y-axis {
+  /* La fila de importes sobre las barras (~27px) achica el área de dibujo. */
+  margin-top: 35px;
+}
+.comparison-y-axis span {
+  position: absolute;
+  right: 0;
+  transform: translateY(-50%);
+}
+.comparison-y-axis span:first-child {
+  transform: translateY(0);
+}
+.comparison-y-axis span:last-child {
+  transform: translateY(-100%);
+}
+.comparison-gridlines {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 31px;
+  left: 0;
+  pointer-events: none;
+}
+.comparison-chart-labeled .comparison-gridlines {
+  top: 27px;
+}
+.comparison-gridlines span {
+  position: absolute;
+  right: 0;
+  left: 0;
+  border-top: 1px dashed var(--border);
 }
 .comparison-values {
   display: flex;
@@ -4200,6 +4525,7 @@ a.entity-row:hover {
   background: var(--chart-3);
 }
 .comparison-column > small {
+  align-self: center;
   color: var(--text-muted);
   font-size: 9px;
   text-align: center;
@@ -4253,31 +4579,242 @@ a.entity-row:hover {
 .analytics-ranking small {
   grid-column: 2;
 }
-.margin-area-chart {
+.margin-chart-card {
+  container-type: inline-size;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-container-lg);
+  background: var(--surface);
+  padding: 20px 24px;
+}
+.margin-chart-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+}
+.margin-chart-head h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.margin-chart-head p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.margin-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  font-size: 11px;
+}
+.margin-chart-legend > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.margin-chart-legend > span::before {
+  content: '';
+  width: 16px;
+  border-top: 2px solid currentColor;
+}
+.margin-positive {
   color: var(--chart-2);
 }
-.chart-zero-line {
-  stroke: var(--border-strong);
+.margin-negative {
+  color: var(--status-red-text);
+}
+.margin-neutral {
+  color: var(--text-muted);
+}
+.margin-chart-body {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 14px;
+  margin-top: 18px;
+  padding-bottom: 40px;
+}
+.margin-chart-y {
+  position: relative;
+  min-width: 64px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.margin-chart-y > span {
+  position: absolute;
+  right: 0;
+  transform: translateY(-50%);
+  white-space: nowrap;
+}
+.margin-chart-y-measure {
+  display: grid;
+  height: 0;
+  visibility: hidden;
+  white-space: nowrap;
+}
+.margin-chart-y-measure > span {
+  grid-area: 1 / 1;
+}
+.margin-chart-zero-label {
+  color: var(--text);
+  font-weight: 600;
+}
+.margin-chart-plot {
+  position: relative;
+  height: 220px;
+  min-width: 0;
+}
+.margin-chart-plot > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.margin-chart-grid,
+.margin-chart-zero {
+  stroke: var(--border);
   stroke-width: 1;
-  stroke-dasharray: 3 4;
+  vector-effect: non-scaling-stroke;
+  stroke-dasharray: 4 4;
 }
-.margin-area-fill {
-  color: var(--chart-2);
+.margin-chart-zero {
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+  stroke-dasharray: none;
 }
-.margin-area-line {
-  stroke: var(--chart-2);
+.margin-chart-fill {
+  fill: currentColor;
+  fill-opacity: 0.1;
 }
-.margin-area-line.negative {
-  stroke: #c52e49;
+.margin-chart-line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
-.margin-area-fill.negative {
-  color: #c52e49;
+.margin-chart-point {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: crosshair;
 }
-.margin-area-dot {
-  fill: var(--chart-2);
+.margin-chart-point:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 4px;
 }
-.margin-area-dot.negative {
-  fill: #c52e49;
+.margin-chart-dot {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  transform: translate(-50%, -50%);
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  background: currentColor;
+}
+.margin-chart-point.is-active .margin-chart-dot {
+  width: 11px;
+  height: 11px;
+  border-color: currentColor;
+  background: var(--surface);
+}
+.margin-chart-cursor {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px dashed var(--text-muted);
+  pointer-events: none;
+}
+.margin-chart-tooltip {
+  position: absolute;
+  top: 8px;
+  z-index: 1;
+  transform: translateX(-50%);
+  display: grid;
+  gap: 6px;
+  width: max-content;
+  max-width: 100%;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 10px 12px;
+  box-shadow: var(--shadow-flyout);
+  pointer-events: none;
+}
+.margin-chart-tooltip > span {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.margin-chart-tooltip > strong {
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+.margin-chart-x {
+  position: relative;
+  margin-top: 12px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.margin-chart-x > span {
+  position: absolute;
+  transform: translateX(-50%);
+  text-align: center;
+  white-space: nowrap;
+}
+.margin-chart-x > span:first-child {
+  transform: none;
+  text-align: left;
+}
+.margin-chart-x > span:last-child {
+  transform: translateX(-100%);
+  text-align: right;
+}
+.margin-chart-x > span:only-child {
+  transform: translateX(-50%);
+  text-align: center;
+}
+.margin-chart-x small {
+  display: block;
+  font-size: 10px;
+}
+.margin-tick-mobile {
+  display: none;
+}
+.margin-chart-empty {
+  margin: 24px 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
+}
+@container (max-width: 520px) {
+  .margin-chart-head {
+    gap: 10px;
+  }
+  .margin-chart-body {
+    gap: 8px;
+  }
+  .margin-chart-y {
+    min-width: 56px;
+    font-size: 10px;
+  }
+  .margin-tick-desktop {
+    display: none;
+  }
+  .margin-tick-mobile {
+    display: block;
+  }
+  .margin-chart-tooltip {
+    left: 50% !important;
+  }
 }
 .demand-heatmap {
   display: grid;
@@ -4391,15 +4928,27 @@ html[data-theme='dark'] .stock-report-alert {
   }
   .comparison-chart {
     min-width: 0;
-    gap: 5px;
     overflow-x: auto;
+  }
+
+  .comparison-chart-body {
+    gap: 5px;
+  }
+
+  /* Sin la fila de importes el área de dibujo vuelve a empezar arriba. */
+  .comparison-chart-wrap:has(.comparison-chart-labeled) .comparison-y-axis {
+    margin-top: 8px;
+  }
+
+  .comparison-chart-labeled .comparison-gridlines {
+    top: 0;
   }
 
   .comparison-column,
   .comparison-chart-labeled .comparison-column {
     min-width: 26px;
     /* Los importes están ocultos: quedan solo las barras y las fechas. */
-    grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-rows: minmax(0, 1fr) 24px;
   }
 
   .comparison-values {
@@ -8775,43 +9324,6 @@ input[type='radio'] {
   /* Cifras de KPI: a 26px dos tarjetas por fila se desbordan en 320px. */
   .summary-glass strong {
     font-size: 20px !important;
-  }
-
-  /* En angosto se apila: período, fechas, agrupar. */
-  .summary-filters {
-    grid-template-columns: auto minmax(0, 1fr);
-    grid-template-rows: auto auto auto;
-    row-gap: 10px;
-  }
-
-  .summary-filter-step:first-child .summary-filter-label {
-    grid-column: 1;
-    grid-row: 1;
-  }
-
-  .summary-filter-step:first-child .period-filter-rail {
-    grid-column: 2;
-    grid-row: 1;
-  }
-
-  .summary-filter-step:first-child .period-nav {
-    grid-column: 1 / span 2;
-    grid-row: 2;
-    margin-left: 0;
-    border-left: 0;
-    border-top: 1px solid var(--border);
-    padding-left: 0;
-    padding-top: 10px;
-  }
-
-  .summary-filter-step:last-child .summary-filter-label {
-    grid-column: 1;
-    grid-row: 3;
-  }
-
-  .summary-filter-step:last-child .segmented {
-    grid-column: 2;
-    grid-row: 3;
   }
 }
 

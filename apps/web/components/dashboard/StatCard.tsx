@@ -1,31 +1,13 @@
 import Link from 'next/link';
 import { TrendingDown, TrendingUp } from 'lucide-react';
+import type { CSSProperties, ReactNode } from 'react';
 import { Variacion } from '../../lib/format';
 import { CifraAnimada } from '../ui/CifraAnimada';
 
 export type StatTone = 'blue' | 'green' | 'amber' | 'red' | 'violet';
 
-const iconToneClass: Record<StatTone, string> = {
-  blue: 'bg-status-blue-bg text-status-blue-text',
-  green: 'bg-status-green-bg text-status-green-text',
-  amber: 'bg-status-amber-bg text-status-amber-text',
-  red: 'bg-status-red-bg text-status-red-text',
-  violet: 'bg-accent-soft text-chart-4',
-};
-
-const deltaToneClass = {
-  up: 'text-status-green-text',
-  down: 'text-status-red-text',
-  flat: 'text-muted',
-};
-
 /**
- * Mini-tarjeta de indicador: el ícono en su cuadrito de color, la cifra grande, la etiqueta
- * y la variación contra el período anterior. La usan los dos paneles y las cabeceras de
- * /ventas y /gastos, por eso vive acá y no dentro de la ruta del panel.
- *
- * Con `invertir`, subir se pinta rojo y bajar verde: para indicadores donde subir es malo
- * (gastos). La flecha sigue la dirección del número; el color dice si es bueno o malo.
+ * Con `invertir`, subir es desfavorable y bajar favorable, como en los gastos.
  */
 export function StatCard({
   icon,
@@ -33,74 +15,86 @@ export function StatCard({
   value,
   detail,
   tone,
+  valueTone,
   change,
   changeCaption,
   href,
   invertir = false,
 }: {
-  icon: React.ReactNode;
+  icon: ReactNode;
   label: string;
-  value: React.ReactNode;
+  value: ReactNode;
   detail?: string;
   tone: StatTone;
+  valueTone?: 'green' | 'red';
   change?: Variacion;
   changeCaption?: string;
   href?: string;
   invertir?: boolean;
 }) {
-  // "na" es el caso sin base de comparación: no se pinta ni verde ni rojo.
   const direccion = change && change.direccion !== 'na' ? change.direccion : 'flat';
-  // Con `invertir` el bueno/malo se da vuelta, pero la flecha no: subir sigue siendo subir.
   const sube = direccion === 'up';
   const baja = direccion === 'down';
+
   const esBueno = invertir ? baja : sube;
   const esMalo = invertir ? sube : baja;
-  const deltaClass = esBueno
-    ? deltaToneClass.up
+  const ChangeIcon = sube ? TrendingUp : baja ? TrendingDown : null;
+
+  const status = esBueno ? 'positive' : esMalo ? 'negative' : 'neutral';
+  const statusLabel = esBueno
+    ? 'Variación favorable'
     : esMalo
-      ? deltaToneClass.down
-      : deltaToneClass.flat;
-  const flechaClass = esBueno
-    ? 'text-status-green-text'
-    : esMalo
-      ? 'text-status-red-text'
-      : 'text-muted';
-  // El "vs. el mes anterior" solo acompaña a un porcentaje. Junto a "nuevo" o a "—" sobra:
-  // esas dos formas ya dicen que no había con qué comparar.
-  const pie = change?.texto.endsWith('%') ? changeCaption : undefined;
+      ? 'Variación desfavorable'
+      : change?.direccion === 'na'
+        ? 'Sin base de comparación'
+        : 'Sin variación';
+  const caption = change?.texto.endsWith('%')
+    ? (changeCaption ?? 'vs. el período anterior')
+    : detail;
+  const valueLength =
+    typeof value === 'string' || typeof value === 'number' ? String(value).length : 8;
   const content = (
     <>
-      <div className="mb-2 flex items-center justify-between">
-        <span
-          className={`grid h-[38px] w-[38px] place-items-center rounded-xl ${iconToneClass[tone]}`}
-        >
+      <div className="stat-card-head">
+        <span className="stat-card-label" title={detail}>
+          {label}
+        </span>
+        <span className="stat-card-icon" aria-hidden="true">
           {icon}
         </span>
-        {change && sube ? <TrendingUp className={flechaClass} size={16} /> : null}
-        {change && baja ? <TrendingDown className={flechaClass} size={16} /> : null}
       </div>
-      <strong className="overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(20px,5.5vw,26px)] font-bold leading-[1.2] text-fg">
+      <strong
+        className={`stat-card-value${valueTone ? ` stat-card-value-${valueTone}` : ''}`}
+        style={{ '--stat-value-length': Math.max(valueLength, 1) } as CSSProperties}
+      >
         <CifraAnimada valor={value} />
       </strong>
-      <span className="text-xs text-muted">{label}</span>
-      {change ? (
-        <span className={`text-xs font-semibold ${deltaClass}`}>
-          {change.texto}
-          {pie ? ` ${pie}` : ''}
-        </span>
-      ) : detail ? (
-        <span className="text-xs text-muted">{detail}</span>
+      {change || detail ? (
+        <div className="stat-card-footer">
+          {caption ? <span className="stat-card-caption">{caption}</span> : null}
+          {change ? (
+            <>
+              <span className="stat-card-delta">{change.texto}</span>
+              {ChangeIcon ? (
+                <span
+                  className={`stat-card-trend stat-card-trend-${status}`}
+                  role="img"
+                  aria-label={statusLabel}
+                  title={statusLabel}
+                >
+                  <ChangeIcon size={16} aria-hidden="true" />
+                </span>
+              ) : null}
+            </>
+          ) : null}
+        </div>
       ) : null}
     </>
   );
 
-  const className =
-    'grid content-start gap-[3px] rounded-ui border border-line bg-surface p-3.5 text-inherit no-underline';
+  const className = `stat-card stat-card-${tone}`;
   return href ? (
-    <Link
-      className={`${className} transition-transform duration-[120ms] ease hover:-translate-y-0.5`}
-      href={href}
-    >
+    <Link className={`${className} stat-card-link`} href={href}>
       {content}
     </Link>
   ) : (

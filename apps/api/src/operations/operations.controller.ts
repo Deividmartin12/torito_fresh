@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
 } from '@nestjs/common';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -22,6 +23,7 @@ import {
   CreateProductTypeDto,
   CreateReturnDto,
   RegisterOperationalPaymentDto,
+  SaveSalePreferencesDto,
   UpdateLoteDto,
   UpdateOperationalProductDto,
   UpdateOperationalSaleDto,
@@ -223,6 +225,18 @@ export class OperationsController {
     @UnidadQuery() unidad?: string,
   ) {
     return this.operations.createReturn(type, dto, user, unidad);
+  }
+
+  @Permisos('ventas.registrar')
+  @Get('sale-preferences')
+  salePreferences(@CurrentUser() user: AuthUser) {
+    return this.operations.salePreferences(user);
+  }
+
+  @Permisos('ventas.registrar')
+  @Put('sale-preferences')
+  saveSalePreferences(@CurrentUser() user: AuthUser, @Body() dto: SaveSalePreferencesDto) {
+    return this.operations.saveSalePreferences(user, dto);
   }
 
   @Permisos('metodosPago.ver')

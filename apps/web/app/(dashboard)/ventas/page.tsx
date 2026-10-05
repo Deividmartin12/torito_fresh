@@ -21,20 +21,24 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { DataTable, DataTableColumn } from '../../../components/DataTable';
 import { StatCard } from '../../../components/dashboard/StatCard';
+import { StatHero } from '../../../components/dashboard/StatHero';
 import { AnnulSaleModal } from '../../../components/operations/AnnulSaleModal';
 import { OperationDetailDialog } from '../../../components/operations/OperationDetailDialog';
 import { RegisterCollectionModal } from '../../../components/operations/RegisterCollectionModal';
 import { SaleReceipt } from '../../../components/operations/SaleReceipt';
-import { PeriodFilter } from '../../../components/PeriodFilter';
+import { PeriodFilter, PeriodKind } from '../../../components/PeriodFilter';
 import { useUnidad } from '../../../components/UnidadProvider';
 import { Badge } from '../../../components/ui/Badge';
 import { buttonClass } from '../../../components/ui/Button';
 import { IconButton } from '../../../components/ui/IconButton';
-import { fechaHora, moneda } from '../../../lib/format';
+import { fechaHora, moneda, variacion } from '../../../lib/format';
+import { getBusinessDashboard } from '../../../lib/dashboard';
+import { buildChartSeries, buildSalesChartSeries, pickAxis } from '../../../lib/chart-axis';
 import {
   getOperationalAccounts,
   getOperationalPaymentMethods,
   getSales,
+  getSale,
   OperationalAccount,
   OperationalPaymentMethod,
   Sale,
@@ -67,6 +71,7 @@ export default function VentasPage() {
   const [pago, setPago] = useState('Todos');
   const [rango, setRango] = useState<{ from: string; to: string } | null>(null);
   const [etiquetaPeriodo, setEtiquetaPeriodo] = useState('');
+  const [periodo, setPeriodo] = useState<PeriodKind>('month');
   const [detalle, setDetalle] = useState<Sale | null>(null);
   const [boleta, setBoleta] = useState<Sale | null>(null);
   const [cobrarAccount, setCobrarAccount] = useState<OperationalAccount | null>(null);
@@ -85,8 +90,38 @@ export default function VentasPage() {
     enabled: Boolean(rango),
   });
   const ventas = ventasQuery.data ?? [];
+  const dashboardQuery = useQuery({
+    queryKey: ['business-dashboard', rango?.from, rango?.to, unidad],
+    queryFn: () => getBusinessDashboard(rango!.from, rango!.to, true),
+    enabled: Boolean(rango) && puede(permisos, 'reportes.ver'),
+  });
+  const analytics = puede(permisos, 'reportes.ver') ? dashboardQuery.data?.analytics : undefined;
+  const axis = pickAxis(periodo, rango?.from ?? '', rango?.to ?? '');
+  const salesSeries = useMemo(
+    () =>
+      analytics
+        ? buildChartSeries(analytics, rango?.from ?? '', rango?.to ?? '', axis)
+        : buildSalesChartSeries(ventas, rango?.from ?? '', rango?.to ?? '', axis),
+    [analytics, ventas, rango, axis],
+  );
   const loading = ventasQuery.isPending;
   const load = ventasQuery.refetch;
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get('ventaId');
+    if (!id || !puede(permisos, 'ventas.ver')) return;
+    let active = true;
+    void getSale(id)
+      .then((sale) => {
+        if (active) setDetalle(sale);
+      })
+      .catch((error) => {
+        if (active)
+          toast.error(error instanceof Error ? error.message : 'No se pudo abrir la venta');
+      });
+    return () => {
+      active = false;
+    };
+  }, [permisos]);
   useEffect(() => {
     if (ventasQuery.error) {
       toast.error(
@@ -116,10 +151,14 @@ export default function VentasPage() {
   const porCobrarTotal = receivables.reduce((sum, item) => sum + item.saldo, 0);
   const vencidasCount = receivables.filter((item) => item.estado === 'VENCIDA').length;
 
-  const handlePeriod = useCallback((from: string, to: string, meta: { label: string }) => {
-    setRango({ from, to });
-    setEtiquetaPeriodo(meta.label);
-  }, []);
+  const handlePeriod = useCallback(
+    (from: string, to: string, meta: { label: string; period: PeriodKind }) => {
+      setRango({ from, to });
+      setEtiquetaPeriodo(meta.label);
+      setPeriodo(meta.period);
+    },
+    [],
+  );
 
   // El período se aplica en el servidor (incluido `to`); aquí solo se refina por tipo de
   // pago y texto, y DataTable pagina el rango ya acotado.
@@ -316,6 +355,33 @@ export default function VentasPage() {
       </div>
 
       <PeriodFilter defaultPeriod="month" onChange={handlePeriod} />
+
+      {analytics || !loading ? (
+        <StatHero
+          label={`Ventas${etiquetaPeriodo ? ` · ${etiquetaPeriodo}` : ''}`}
+          value={moneda(
+            analytics?.summary.sales ??
+              ventas
+                .filter((sale) => sale.estado === 'CONFIRMADA' && !sale.anulada)
+                .reduce((sum, sale) => sum + sale.totalNeto, 0),
+          )}
+          change={
+            analytics?.previous
+              ? variacion(analytics.summary.sales, analytics.previous.sales)
+              : undefined
+          }
+          changeCaption={
+            {
+              day: 'vs. el día anterior',
+              week: 'vs. la semana anterior',
+              month: 'vs. el mes anterior',
+              year: 'vs. el año anterior',
+              custom: 'vs. el período anterior',
+            }[periodo]
+          }
+          series={salesSeries.map((row) => row.sales)}
+        />
+      ) : null}
 
       <div className="module-tools operations-filters">
         <label className="pill-search">

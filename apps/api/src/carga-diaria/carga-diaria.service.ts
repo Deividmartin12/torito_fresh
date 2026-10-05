@@ -2,6 +2,7 @@ import { BadRequestException, HttpException, Injectable, Logger } from '@nestjs/
 import { createHash } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { AuthUser, tienePermiso } from '../common/auth-user';
+import { sincronizarGastoCaja } from '../common/caja-ledger';
 import { etiquetaMetodoPago } from '../common/payment-method-label';
 import { CATEGORIA_GASTOS_DEL_DIA } from '../common/expense-categories';
 import { limaTodayKey } from '../common/receivables';
@@ -542,6 +543,7 @@ export class CargaDiariaService {
             'Este gasto fue revertido desde Gastos. Vuelve a cargarlo desde esta pantalla.',
           );
         await tx.gasto.update({ where: { id: real.id }, data: { monto: gastoEntrada } });
+        await sincronizarGastoCaja(tx, real.id);
         await tx.registroDiario.update({
           where: { id: gasto.id },
           data: { monto: gastoEntrada, partes: dia.gastos ?? [gastoEntrada, 0] },

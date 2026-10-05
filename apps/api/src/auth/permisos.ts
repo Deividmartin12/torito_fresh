@@ -75,7 +75,7 @@ export const CATALOGO_PERMISOS: GrupoPermisos[] = [
         clave: 'gastos.registrar',
         etiqueta: 'Registrar y corregir gastos',
         descripcion: 'Dar de alta un gasto y corregir uno ya cargado.',
-        implica: ['gastos.ver', 'proveedores.ver'],
+        implica: ['gastos.ver', 'proveedores.ver', 'metodosPago.ver'],
         // POST /expenses, PATCH /expenses/:id
       },
       {
@@ -317,6 +317,25 @@ export const CATALOGO_PERMISOS: GrupoPermisos[] = [
   {
     grupo: 'Caja y cuentas',
     permisos: [
+      {
+        clave: 'caja.ver',
+        etiqueta: 'Ver Caja y saldos',
+        descripcion:
+          'Consultar saldos y movimientos por método de pago en las unidades autorizadas.',
+      },
+      {
+        clave: 'caja.movimientos',
+        etiqueta: 'Registrar movimientos de Caja',
+        descripcion:
+          'Registrar aportes, depósitos, retiros y transferencias entre cuentas autorizadas.',
+        implica: ['caja.ver'],
+      },
+      {
+        clave: 'caja.ajustar',
+        etiqueta: 'Abrir y ajustar cuentas de Caja',
+        descripcion: 'Registrar el saldo inicial una vez y corregir diferencias con un motivo.',
+        implica: ['caja.ver'],
+      },
       {
         clave: 'cobranzas.ver',
         etiqueta: 'Ver las cuentas por cobrar',

@@ -60,6 +60,9 @@ export function getExpenses(from?: string, to?: string, incluirAnulados?: boolea
 export function createExpense(payload: CreateExpensePayload) {
   return api<Expense>('/expenses', { method: 'POST', body: JSON.stringify(payload) });
 }
+export function getExpense(id: string) {
+  return api<Expense>(`/expenses/${id}`);
+}
 export function updateExpense(id: string, payload: CreateExpensePayload) {
   return api<Expense>(`/expenses/${id}`, { method: 'PATCH', body: JSON.stringify(payload) });
 }

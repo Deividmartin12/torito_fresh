@@ -50,9 +50,9 @@ export class CreateExpenseDto {
   trabajadorId?: string;
 
   // Con qué se pagó. Debe ser un método global o del trabajador que lo registra.
-  @IsOptional()
   @IsString()
-  metodoPagoId?: string;
+  @Matches(/^[1-9]\d*$/, { message: 'Selecciona con qué método se pagó el gasto' })
+  metodoPagoId: string;
 
   // A quién se le paga. Obligatorio en la categoría "Pago a trabajador" y rechazado en
   // cualquier otra: ver `ExpensesService.resolverBeneficiario`.

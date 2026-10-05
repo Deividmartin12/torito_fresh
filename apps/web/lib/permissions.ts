@@ -19,6 +19,7 @@
  * valor, la clave del permiso del catálogo (`apps/api/src/auth/permisos.ts`).
  */
 const PERMISO_POR_RUTA: Record<string, string> = {
+  '/caja': 'caja.ver',
   '/dashboard': 'dashboard.ver',
   '/gastos': 'gastos.ver',
   // Consultar el catálogo forma parte de ver gastos. Crear, renombrar y eliminar siguen

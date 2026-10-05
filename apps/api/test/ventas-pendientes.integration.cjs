@@ -236,7 +236,7 @@ async function main() {
       cantidadPlanificada: 5,
       fechaPlanificada: '2026-09-30',
     },
-    { ...actor, accesoTotal: true },
+    { ...actor, accesoTotal: true, administradorPrincipal: true },
     String(secondUnit.id),
   );
   assert.equal((await read(separatedSale)).cantidadPendienteStock, 5);
@@ -360,7 +360,7 @@ async function main() {
   const noClient = await db.cliente.create({
     data: { nombreLegal: 'Puesto', unidadNegocioId: noInventory.id },
   });
-  const adminActor = { ...actor, accesoTotal: true };
+  const adminActor = { ...actor, accesoTotal: true, administradorPrincipal: true };
   const noSale = await operations.createSale(
     { ...dto(p7, 3, noWarehouse), clienteId: Number(noClient.id) },
     adminActor,

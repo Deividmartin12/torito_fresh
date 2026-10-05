@@ -4,6 +4,7 @@ import { X } from 'lucide-react';
 import { ForwardedRef, forwardRef, MouseEvent, ReactNode } from 'react';
 
 type ModalProps = {
+  'aria-label'?: string;
   onClose: () => void;
   /** Mientras hay un guardado en curso: bloquea el cierre por click afuera. El botón de la
    *  "x" queda a criterio de quien arma el header (normalmente también deshabilitado). */
@@ -18,7 +19,7 @@ type ModalProps = {
  *  para forzarlo a un único layout. El `ref` cae en el `<section>`, para el puñado de modales
  *  que manejan foco/Escape/scroll-lock a mano (los destructivos, sobre todo). */
 export const Modal = forwardRef(function Modal(
-  { onClose, closeDisabled = false, children, className = '' }: ModalProps,
+  { onClose, closeDisabled = false, children, className = '', 'aria-label': ariaLabel }: ModalProps,
   ref: ForwardedRef<HTMLElement>,
 ) {
   return (
@@ -31,6 +32,7 @@ export const Modal = forwardRef(function Modal(
       <section
         ref={ref}
         role="dialog"
+        aria-label={ariaLabel}
         aria-modal="true"
         tabIndex={-1}
         className={`max-h-[calc(100vh-32px)] w-full max-w-[690px] overflow-y-auto rounded-container-lg border border-line bg-surface ${className}`.trim()}

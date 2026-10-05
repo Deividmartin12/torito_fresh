@@ -185,6 +185,7 @@ const groups = [
     label: 'Caja y cuentas',
     icon: WalletCards,
     links: [
+      { href: '/caja', label: 'Caja', icon: WalletCards },
       { href: '/cobranzas', label: 'Cobranzas', icon: WalletCards },
       { href: '/metodos-pago', label: 'Métodos de pago', icon: CreditCard },
       {

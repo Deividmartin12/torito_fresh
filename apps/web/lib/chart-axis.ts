@@ -1,4 +1,5 @@
 import type { PeriodKind } from '../components/PeriodFilter';
+import type { Sale } from './operations';
 import {
   AnalyticsPeriod,
   BusinessAnalytics,
@@ -179,7 +180,7 @@ function monthSeries(rows: AnalyticsPeriod[], from: string, to: string): ChartPo
  * huecos y escribe las etiquetas del eje. Devuelve vacío mientras el filtro no publicó su rango.
  */
 export function buildChartSeries(
-  analytics: BusinessAnalytics | null,
+  analytics: Pick<BusinessAnalytics, 'daily' | 'monthly' | 'hourly'> | null,
   from: string,
   to: string,
   axis: AxisGranularity,
@@ -200,4 +201,48 @@ export function buildChartSeries(
         tooltip: `Año ${row.key}`,
       }));
   }
+}
+
+/** Serie de Ventas para quienes consultan ventas pero no tienen permiso de reportes. */
+export function buildSalesChartSeries(
+  sales: Sale[],
+  from: string,
+  to: string,
+  axis: AxisGranularity,
+): ChartPoint[] {
+  const daily = new Map<string, AnalyticsPeriod>();
+  const monthly = new Map<string, AnalyticsPeriod>();
+  const hourly = new Map<string, AnalyticsPeriod>();
+  const dayFormat = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Lima',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const hourFormat = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'America/Lima',
+    hour: '2-digit',
+    hourCycle: 'h23',
+  });
+  for (const sale of sales) {
+    if (sale.estado !== 'CONFIRMADA' || sale.anulada) continue;
+    const date = new Date(sale.fecha);
+    const day = dayFormat.format(date);
+    for (const [target, key] of [
+      [daily, day],
+      [monthly, day.slice(0, 7)],
+      [hourly, `${day}T${hourFormat.format(date)}`],
+    ] as const) {
+      const row = target.get(key) ?? emptyPeriod(key, key);
+      row.sales += sale.totalNeto;
+      row.orders += 1;
+      target.set(key, row);
+    }
+  }
+  return buildChartSeries(
+    { daily: [...daily.values()], monthly: [...monthly.values()], hourly: [...hourly.values()] },
+    from,
+    to,
+    axis,
+  );
 }

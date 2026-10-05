@@ -3,7 +3,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { CalendarClock, Check, History, Minus, Plus, Search, Zap } from 'lucide-react';
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Cliente } from '../../lib/clients';
 import { evaluarCredito, resumenCredito } from '../../lib/credito';
@@ -30,6 +30,8 @@ import { ClienteFormModal } from '../ClienteFormModal';
 import { SearchableSelect } from '../SearchableSelect';
 import { Button } from '../ui/Button';
 import { SaleReceipt } from './SaleReceipt';
+import { availableSaleDefault, getSalePreferences } from '../../lib/sale-preferences';
+import { SaleSettings } from './SaleSettings';
 
 /** Plazos de fiado que se ofrecen de un toque. Cualquier otro va por la venta completa. */
 const PLAZOS = [7, 15, 30];
@@ -61,6 +63,8 @@ export function QuickSaleForm() {
   // Cantidad por producto. Un producto fuera del mapa (o en cero) simplemente no se vende.
   const [cantidades, setCantidades] = useState<Record<string, number>>({});
   const [metodoPagoId, setMetodoPagoId] = useState('');
+  const [defaultMethodId, setDefaultMethodId] = useState<string | null>(null);
+  const defaultLoaded = useRef(false);
   const [fiado, setFiado] = useState(false);
   const [plazo, setPlazo] = useState(PLAZOS[0]);
   const [buscar, setBuscar] = useState('');
@@ -78,15 +82,22 @@ export function QuickSaleForm() {
   const cargar = useCallback(async () => {
     setCargando(true);
     const catalogos = getOperationCatalogs();
-    const [cat, pagos, existencias] = await cargarParcial([
+    const [cat, pagos, existencias, preferences] = await cargarParcial([
       catalogos,
       getOperationalPaymentMethods(),
       catalogos.then((datos) =>
         datos.unidadEscritura?.controlaInventario === false ? [] : getOperationStock(),
       ),
+      getSalePreferences(),
     ] as const);
     if (cat.valor) setCatalogs(cat.valor);
     if (pagos.valor) setMetodos(pagos.valor);
+    if (pagos.valor && !defaultLoaded.current) {
+      const id = availableSaleDefault(pagos.valor, preferences.valor?.metodoPagoId ?? null);
+      setDefaultMethodId(id || null);
+      setMetodoPagoId((current) => current || id);
+      defaultLoaded.current = true;
+    }
     if (existencias.valor) setStock(existencias.valor);
     setCargando(false);
     const error = cat.error ?? pagos.error;
@@ -191,7 +202,7 @@ export function QuickSaleForm() {
     setCantidades({});
     setClienteId('');
     setUltima(null);
-    setMetodoPagoId('');
+    setMetodoPagoId(availableSaleDefault(metodos, defaultMethodId));
     setFiado(false);
     setBuscar('');
     setVacios(0);
@@ -296,6 +307,13 @@ export function QuickSaleForm() {
 
   return (
     <div className="quick-sale">
+      <SaleSettings
+        methods={metodos}
+        onSaved={(id) => {
+          setDefaultMethodId(id);
+          if (!fiado) setMetodoPagoId(id ?? '');
+        }}
+      />
       <section className="mb-3 rounded-container-lg border border-line bg-surface p-4">
         <div className="mb-2.5 flex items-center justify-between gap-3">
           <h2 className="m-0 text-base text-fg">Cliente</h2>

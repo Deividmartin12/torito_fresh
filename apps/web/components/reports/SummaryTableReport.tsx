@@ -51,13 +51,23 @@ export function SummaryTableReport() {
     // Espera a que PeriodFilter publique su rango antes del primer pedido, para no mostrar
     // brevemente la ventana de 12 meses por defecto del backend.
     if (!from || !to) return;
+    let active = true;
     setLoading(true);
+    setAnalytics(null);
     getBusinessAnalytics(from, to)
-      .then(setAnalytics)
-      .catch((cause) =>
-        toast.error(cause instanceof Error ? cause.message : 'No se pudo calcular el resumen'),
-      )
-      .finally(() => setLoading(false));
+      .then((data) => {
+        if (active) setAnalytics(data);
+      })
+      .catch((cause) => {
+        if (!active) return;
+        toast.error(cause instanceof Error ? cause.message : 'No se pudo calcular el resumen');
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [from, to, unidad]);
 
   const changePeriod = useCallback((start: string, end: string, meta: { label: string }) => {
@@ -141,20 +151,15 @@ export function SummaryTableReport() {
         caption={unidadResumen ? `Alcance: ${unidadResumen}` : undefined}
       />
 
+      <PeriodFilter defaultPeriod="month" onChange={changePeriod} />
       <div className="summary-filters">
-        <div className="summary-filter-step">
-          <span className="summary-filter-label">Período</span>
-          <PeriodFilter onChange={changePeriod} />
-        </div>
-        <div className="summary-filter-step">
-          <span className="summary-filter-label">Agrupar por</span>
-          <Segmented
-            ariaLabel="Agrupar filas del resumen"
-            value={grouping}
-            onChange={(value) => setGrouping(value as Grouping)}
-            options={groupingOptions.map(({ value, label }) => ({ value, label }))}
-          />
-        </div>
+        <span className="summary-filter-label">Agrupar por</span>
+        <Segmented
+          ariaLabel="Agrupar filas del resumen"
+          value={grouping}
+          onChange={(value) => setGrouping(value as Grouping)}
+          options={groupingOptions.map(({ value, label }) => ({ value, label }))}
+        />
       </div>
 
       {from && to ? (

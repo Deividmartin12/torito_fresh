@@ -28,7 +28,7 @@ export function TransactionReport({ kind }: { kind: ReportKind }) {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [etiquetaPeriodo, setEtiquetaPeriodo] = useState('');
-  const [period, setPeriod] = useState<PeriodKind>('week');
+  const [period, setPeriod] = useState<PeriodKind>('month');
   const [loading, setLoading] = useState(true);
   // Solo dispara la recarga: la unidad viaja al API desde `api()`.
   const { clave: unidad, resumen: unidadResumen } = useUnidad();
@@ -37,7 +37,10 @@ export function TransactionReport({ kind }: { kind: ReportKind }) {
     // Se espera a que PeriodFilter publique su rango antes del primer pedido, para que el
     // reporte no muestre por un instante la ventana por defecto de 12 meses del backend.
     if (!from || !to) return;
+    let active = true;
     setLoading(true);
+    setAnalytics(null);
+    setPrevious(null);
     // El período comparativo se trae junto al actual para que cada KPI muestre su
     // variación (regla de la skill: nunca un valor sin contexto).
     const priorRange = previousPeriodRange(from, to);
@@ -46,15 +49,22 @@ export function TransactionReport({ kind }: { kind: ReportKind }) {
       getBusinessAnalytics(priorRange.from, priorRange.to),
     ])
       .then(([current, prior]) => {
+        if (!active) return;
         setAnalytics(current);
         setPrevious(prior);
       })
-      .catch((cause) =>
+      .catch((cause) => {
+        if (!active) return;
         toast.error(
           cause instanceof Error ? cause.message : 'No se pudieron calcular los indicadores',
-        ),
-      )
-      .finally(() => setLoading(false));
+        );
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [from, to, unidad]);
 
   const summary = analytics?.summary;
@@ -139,6 +149,7 @@ export function TransactionReport({ kind }: { kind: ReportKind }) {
         }`}
         caption={unidadResumen ? `Alcance: ${unidadResumen}` : undefined}
       />
+      <PeriodFilter defaultPeriod="month" onChange={changePeriod} />
       <section className="report-metrics">
         <ReportMetric
           label={sales ? 'Ventas netas' : 'Gastos registrados'}
@@ -188,7 +199,6 @@ export function TransactionReport({ kind }: { kind: ReportKind }) {
           ventas menos {moneda(summary?.expenses)} de gastos.
         </p>
       ) : null}
-      <PeriodFilter onChange={changePeriod} />
       {analytics?.costoProvisional && sales ? (
         <p className="report-note">
           Costo y margen provisionales: las unidades pendientes de cuadrar producción usan el costo

@@ -19,6 +19,13 @@ import { EsNombreLibre } from '../common/validators';
 
 export const ESTADOS_LOTE = ['ACTIVO', 'VENCIDO', 'AGOTADO', 'BLOQUEADO'] as const;
 
+export class SaveSalePreferencesDto {
+  @ValidateIf((_object, value) => value !== null)
+  @IsString()
+  @Matches(/^[1-9]\d{0,17}$/, { message: 'Selecciona un método de pago válido' })
+  metodoPagoId: string | null;
+}
+
 class OperationItemDto {
   @Type(() => Number)
   @IsInt()

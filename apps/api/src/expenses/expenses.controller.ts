@@ -43,6 +43,11 @@ export class ExpensesController {
     return this.expenses.categories();
   }
 
+  @Get(':id')
+  detail(@Param('id') id: string, @CurrentUser() actor: AuthUser, @UnidadQuery() unidad?: string) {
+    return this.expenses.detail(id, actor, unidad);
+  }
+
   // Crear es aditivo y el responsable de una unidad lo necesita: sin la categoría que le falta
   // no puede registrar su gasto. Renombrar o borrar sí queda arriba, porque eso toca los
   // gastos de todas las unidades.

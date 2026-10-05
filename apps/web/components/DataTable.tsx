@@ -25,6 +25,8 @@ type DataTableProps<T> = {
   getSearchText?: (row: T) => string;
   searchPlaceholder?: string;
   pageSize?: number;
+  /** Desactiva la paginación local cuando la página ya viene paginada por la API. */
+  pagination?: boolean;
   onRowClick?: (row: T) => void;
   rowClassName?: (row: T) => string;
 };
@@ -63,6 +65,7 @@ export function DataTable<T>({
   getSearchText,
   searchPlaceholder = 'Buscar en este listado',
   pageSize: initialPageSize = 10,
+  pagination = true,
   onRowClick,
   rowClassName,
 }: DataTableProps<T>) {
@@ -81,8 +84,10 @@ export function DataTable<T>({
   // Clamping en vez de resetear la página en cada cambio de filtro: si la
   // página actual deja de existir, cae sola a la última válida.
   const currentPage = Math.min(page, pages);
-  const paginated = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-  const showFooter = !loading && filtered.length > 0;
+  const paginated = pagination
+    ? filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+    : filtered;
+  const showFooter = pagination && !loading && filtered.length > 0;
 
   return (
     <div className="overflow-hidden rounded-ui border border-line bg-surface">

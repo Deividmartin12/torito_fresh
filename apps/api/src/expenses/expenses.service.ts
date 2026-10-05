@@ -1,3 +1,4 @@
+import { transaccionCaja, sincronizarGastoCaja } from '../common/caja-ledger';
 import {
   BadRequestException,
   ConflictException,
@@ -85,64 +86,80 @@ export class ExpensesService {
   }
 
   async create(dto: CreateExpenseDto, actor: AuthUser, unidad?: string) {
-    const date = new Date(`${dto.fecha.slice(0, 10)}T00:00:00-05:00`);
-    if (Number.isNaN(date.getTime()))
-      throw new BadRequestException('La fecha del gasto no es válida');
-    const today = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'America/Lima',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(new Date());
-    if (dto.fecha.slice(0, 10) > today)
-      throw new BadRequestException('La fecha del gasto no puede estar en el futuro');
+    return transaccionCaja(this.prisma, async (tx) => {
+      if (!dto.metodoPagoId?.trim())
+        throw new BadRequestException('Selecciona con qué método se pagó el gasto');
+      const date = new Date(`${dto.fecha.slice(0, 10)}T00:00:00-05:00`);
+      if (Number.isNaN(date.getTime()))
+        throw new BadRequestException('La fecha del gasto no es válida');
+      const today = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Lima',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date());
+      if (dto.fecha.slice(0, 10) > today)
+        throw new BadRequestException('La fecha del gasto no puede estar en el futuro');
 
-    const categoria = await this.findCategory(
-      dto.categoriaId,
-      'Selecciona una categoría de gasto registrada',
-    );
-    let proveedorId: bigint | undefined;
-    if (dto.proveedorId) {
-      const proveedor = await this.prisma.proveedor.findUnique({
-        where: { id: BigInt(dto.proveedorId) },
+      const categoria = await this.findCategory(
+        dto.categoriaId,
+        'Selecciona una categoría de gasto registrada',
+      );
+      let proveedorId: bigint | undefined;
+      if (dto.proveedorId) {
+        const proveedor = await tx.proveedor.findUnique({
+          where: { id: BigInt(dto.proveedorId) },
+        });
+        if (!proveedor) throw new BadRequestException('El proveedor seleccionado no existe');
+        proveedorId = proveedor.id;
+      }
+      const trabajadorId = await resolverTrabajadorAutor(this.prisma, actor, dto.trabajadorId);
+      // El gasto cae en la unidad que el usuario tiene elegida, no en la del trabajador que lo
+      // teclea. Solo se exige que coincidan cuando el admin lo registra a nombre de otro.
+      const unidadNegocioId = await resolverUnidadDeEscritura(this.prisma, {
+        actor,
+        unidadSolicitada: unidad,
+        atribuidaA: dto.trabajadorId ? trabajadorId : null,
       });
-      if (!proveedor) throw new BadRequestException('El proveedor seleccionado no existe');
-      proveedorId = proveedor.id;
-    }
-    const trabajadorId = await resolverTrabajadorAutor(this.prisma, actor, dto.trabajadorId);
-    // El gasto cae en la unidad que el usuario tiene elegida, no en la del trabajador que lo
-    // teclea. Solo se exige que coincidan cuando el admin lo registra a nombre de otro.
-    const unidadNegocioId = await resolverUnidadDeEscritura(this.prisma, {
-      actor,
-      unidadSolicitada: unidad,
-      atribuidaA: dto.trabajadorId ? trabajadorId : null,
+      const metodoPagoId = await this.validarMetodoDePago(dto.metodoPagoId, trabajadorId);
+      const unidadBeneficiario =
+        actor.administradorPrincipal &&
+        (await unidadControlaInventario(this.prisma, unidadNegocioId))
+          ? undefined
+          : unidadNegocioId;
+      const beneficiarioId = await this.resolverBeneficiario(
+        categoria.nombre,
+        dto.beneficiarioId,
+        unidadBeneficiario,
+      );
+      const row = await tx.gasto.create({
+        data: {
+          unidadNegocioId,
+          fecha: date,
+          concepto: dto.concepto?.trim() || null,
+          categoriaId: categoria.id,
+          monto: dto.monto,
+          comprobante: dto.comprobante?.trim() || null,
+          observaciones: dto.observaciones?.trim() || null,
+          trabajadorId,
+          beneficiarioId,
+          proveedorId,
+          metodoPagoId,
+        },
+        include: CON_RELACIONES,
+      });
+      await sincronizarGastoCaja(tx, row.id);
+      return this.view(row);
     });
-    const metodoPagoId = await this.validarMetodoDePago(dto.metodoPagoId, trabajadorId);
-    const unidadBeneficiario =
-      actor.administradorPrincipal && (await unidadControlaInventario(this.prisma, unidadNegocioId))
-        ? undefined
-        : unidadNegocioId;
-    const beneficiarioId = await this.resolverBeneficiario(
-      categoria.nombre,
-      dto.beneficiarioId,
-      unidadBeneficiario,
-    );
-    const row = await this.prisma.gasto.create({
-      data: {
-        unidadNegocioId,
-        fecha: date,
-        concepto: dto.concepto?.trim() || null,
-        categoriaId: categoria.id,
-        monto: dto.monto,
-        comprobante: dto.comprobante?.trim() || null,
-        observaciones: dto.observaciones?.trim() || null,
-        trabajadorId,
-        beneficiarioId,
-        proveedorId,
-        metodoPagoId,
-      },
+  }
+
+  async detail(id: string, actor: AuthUser, unidad?: string) {
+    const scope = await resolverAlcanceUnidad(this.prisma, actor, unidad);
+    const row = await this.prisma.gasto.findFirst({
+      where: { id: this.parseId(id), ...filtroUnidad(scope) },
       include: CON_RELACIONES,
     });
+    if (!row) throw new NotFoundException('Gasto no encontrado');
     return this.view(row);
   }
 
@@ -203,109 +220,114 @@ export class ExpensesService {
   }
 
   async update(id: string, dto: UpdateExpenseDto, actor: AuthUser, unidad?: string) {
-    const gastoId = this.parseId(id);
-    // Con la unidad activa: sin ella, un admin parado en un puesto satélite recibía "Gasto no
-    // encontrado" al editar un gasto de ese puesto, porque el alcance caía a la Principal.
-    const alcance = await resolverAlcanceUnidad(this.prisma, actor, unidad);
-    // Un gasto de otra unidad no es "prohibido", es inexistente.
-    const current = await this.prisma.gasto.findFirst({
-      where: { id: gastoId, ...filtroUnidad(alcance) },
-      include: { categoria: { select: { nombre: true } } },
-    });
-    if (!current) throw new NotFoundException('Gasto no encontrado');
-    if ((current as { estado?: string }).estado === 'ANULADO')
-      throw new ConflictException('Este gasto ya está revertido y no se puede corregir');
-
-    const data: Prisma.GastoUpdateInput = {};
-    if (dto.fecha !== undefined) {
-      const date = new Date(`${dto.fecha.slice(0, 10)}T00:00:00-05:00`);
-      if (Number.isNaN(date.getTime()))
-        throw new BadRequestException('La fecha del gasto no es válida');
-      const today = new Intl.DateTimeFormat('en-CA', {
-        timeZone: 'America/Lima',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-      }).format(new Date());
-      if (dto.fecha.slice(0, 10) > today)
-        throw new BadRequestException('La fecha del gasto no puede estar en el futuro');
-      data.fecha = date;
-    }
-    if (dto.concepto !== undefined) data.concepto = dto.concepto?.trim() || null;
-    let categoriaNueva: CategoriaRow | undefined;
-    if (dto.categoriaId !== undefined) {
-      categoriaNueva = await this.findCategory(
-        dto.categoriaId,
-        'Selecciona una categoría de gasto registrada',
-      );
-      data.categoria = { connect: { id: categoriaNueva.id } };
-    }
-    if (dto.monto !== undefined) data.monto = dto.monto;
-    if (dto.comprobante !== undefined) data.comprobante = dto.comprobante.trim() || null;
-    if (dto.observaciones !== undefined) data.observaciones = dto.observaciones.trim() || null;
-    if (dto.proveedorId !== undefined) {
-      if (dto.proveedorId) {
-        const proveedor = await this.prisma.proveedor.findUnique({
-          where: { id: BigInt(dto.proveedorId) },
-        });
-        if (!proveedor) throw new BadRequestException('El proveedor seleccionado no existe');
-        data.proveedor = { connect: { id: proveedor.id } };
-      } else {
-        data.proveedor = { disconnect: true };
-      }
-    }
-
-    // Reasignar quién registró el gasto solo lo puede un admin, y solo si lo pide
-    // explícitamente; si el DTO no trae `trabajadorId` se conserva el autor original.
-    const autorId = dto.trabajadorId
-      ? await resolverTrabajadorAutor(this.prisma, actor, dto.trabajadorId)
-      : current.trabajadorId;
-    if (dto.trabajadorId) {
-      // Editar no mueve el gasto de unidad —igual que una venta, que tampoco cambia de unidad
-      // al corregirla—, así que el trabajador nuevo tiene que ser de la unidad del gasto.
-      const autor = await this.prisma.trabajador.findFirst({
-        where: { id: autorId! },
-        select: { unidadNegocioId: true },
+    return transaccionCaja(this.prisma, async (tx) => {
+      const gastoId = this.parseId(id);
+      // Con la unidad activa: sin ella, un admin parado en un puesto satélite recibía "Gasto no
+      // encontrado" al editar un gasto de ese puesto, porque el alcance caía a la Principal.
+      const alcance = await resolverAlcanceUnidad(this.prisma, actor, unidad);
+      // Un gasto de otra unidad no es "prohibido", es inexistente.
+      const current = await tx.gasto.findFirst({
+        where: { id: gastoId, ...filtroUnidad(alcance) },
+        include: { categoria: { select: { nombre: true } } },
       });
-      if (autor?.unidadNegocioId !== current.unidadNegocioId) {
-        throw new BadRequestException('El trabajador seleccionado es de otra unidad de negocio');
+      if (!current) throw new NotFoundException('Gasto no encontrado');
+      if ((current as { estado?: string }).estado === 'ANULADO')
+        throw new ConflictException('Este gasto ya está revertido y no se puede corregir');
+
+      const data: Prisma.GastoUpdateInput = {};
+      if (dto.fecha !== undefined) {
+        const date = new Date(`${dto.fecha.slice(0, 10)}T00:00:00-05:00`);
+        if (Number.isNaN(date.getTime()))
+          throw new BadRequestException('La fecha del gasto no es válida');
+        const today = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'America/Lima',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        }).format(new Date());
+        if (dto.fecha.slice(0, 10) > today)
+          throw new BadRequestException('La fecha del gasto no puede estar en el futuro');
+        data.fecha = date;
       }
-      data.trabajador = { connect: { id: autorId! } };
-    }
+      if (dto.concepto !== undefined) data.concepto = dto.concepto?.trim() || null;
+      let categoriaNueva: CategoriaRow | undefined;
+      if (dto.categoriaId !== undefined) {
+        categoriaNueva = await this.findCategory(
+          dto.categoriaId,
+          'Selecciona una categoría de gasto registrada',
+        );
+        data.categoria = { connect: { id: categoriaNueva.id } };
+      }
+      if (dto.monto !== undefined) data.monto = dto.monto;
+      if (dto.comprobante !== undefined) data.comprobante = dto.comprobante.trim() || null;
+      if (dto.observaciones !== undefined) data.observaciones = dto.observaciones.trim() || null;
+      if (dto.proveedorId !== undefined) {
+        if (dto.proveedorId) {
+          const proveedor = await tx.proveedor.findUnique({
+            where: { id: BigInt(dto.proveedorId) },
+          });
+          if (!proveedor) throw new BadRequestException('El proveedor seleccionado no existe');
+          data.proveedor = { connect: { id: proveedor.id } };
+        } else {
+          data.proveedor = { disconnect: true };
+        }
+      }
 
-    if (dto.metodoPagoId !== undefined) {
-      const metodoPagoId = dto.metodoPagoId
-        ? await this.validarMetodoDePago(dto.metodoPagoId, autorId!)
-        : null;
-      data.metodoPago = metodoPagoId ? { connect: { id: metodoPagoId } } : { disconnect: true };
-    }
+      // Reasignar quién registró el gasto solo lo puede un admin, y solo si lo pide
+      // explícitamente; si el DTO no trae `trabajadorId` se conserva el autor original.
+      const autorId = dto.trabajadorId
+        ? await resolverTrabajadorAutor(this.prisma, actor, dto.trabajadorId)
+        : current.trabajadorId;
+      if (dto.trabajadorId) {
+        // Editar no mueve el gasto de unidad —igual que una venta, que tampoco cambia de unidad
+        // al corregirla—, así que el trabajador nuevo tiene que ser de la unidad del gasto.
+        const autor = await tx.trabajador.findFirst({
+          where: { id: autorId! },
+          select: { unidadNegocioId: true },
+        });
+        if (autor?.unidadNegocioId !== current.unidadNegocioId) {
+          throw new BadRequestException('El trabajador seleccionado es de otra unidad de negocio');
+        }
+        data.trabajador = { connect: { id: autorId! } };
+      }
 
-    // El beneficiario se recalcula siempre contra la categoría que queda vigente: si el
-    // gasto deja de ser "Pago a trabajador" hay que soltar al trabajador, y si pasa a serlo
-    // hay que exigirlo, aunque el body no toque el campo.
-    const categoriaVigente = categoriaNueva?.nombre ?? current.categoria.nombre;
-    const beneficiarioVigente =
-      dto.beneficiarioId !== undefined
-        ? dto.beneficiarioId
-        : (current.beneficiarioId?.toString() ?? undefined);
-    const unidadBeneficiario =
-      actor.administradorPrincipal &&
-      (await unidadControlaInventario(this.prisma, current.unidadNegocioId))
-        ? undefined
-        : current.unidadNegocioId;
-    const beneficiarioId = await this.resolverBeneficiario(
-      categoriaVigente,
-      beneficiarioVigente,
-      unidadBeneficiario,
-    );
-    data.beneficiario = beneficiarioId ? { connect: { id: beneficiarioId } } : { disconnect: true };
+      if (dto.metodoPagoId !== undefined) {
+        const metodoPagoId = dto.metodoPagoId
+          ? await this.validarMetodoDePago(dto.metodoPagoId, autorId!)
+          : null;
+        data.metodoPago = metodoPagoId ? { connect: { id: metodoPagoId } } : { disconnect: true };
+      }
 
-    const row = await this.prisma.gasto.update({
-      where: { id: gastoId },
-      data,
-      include: CON_RELACIONES,
+      // El beneficiario se recalcula siempre contra la categoría que queda vigente: si el
+      // gasto deja de ser "Pago a trabajador" hay que soltar al trabajador, y si pasa a serlo
+      // hay que exigirlo, aunque el body no toque el campo.
+      const categoriaVigente = categoriaNueva?.nombre ?? current.categoria.nombre;
+      const beneficiarioVigente =
+        dto.beneficiarioId !== undefined
+          ? dto.beneficiarioId
+          : (current.beneficiarioId?.toString() ?? undefined);
+      const unidadBeneficiario =
+        actor.administradorPrincipal &&
+        (await unidadControlaInventario(this.prisma, current.unidadNegocioId))
+          ? undefined
+          : current.unidadNegocioId;
+      const beneficiarioId = await this.resolverBeneficiario(
+        categoriaVigente,
+        beneficiarioVigente,
+        unidadBeneficiario,
+      );
+      data.beneficiario = beneficiarioId
+        ? { connect: { id: beneficiarioId } }
+        : { disconnect: true };
+
+      const row = await tx.gasto.update({
+        where: { id: gastoId },
+        data,
+        include: CON_RELACIONES,
+      });
+      await sincronizarGastoCaja(tx, row.id);
+      return this.view(row);
     });
-    return this.view(row);
   }
 
   /**
@@ -319,37 +341,40 @@ export class ExpensesService {
    * propia carga diaria.
    */
   async annul(id: string, dto: AnnulExpenseDto, actor: AuthUser, unidad?: string) {
-    const gastoId = this.parseId(id);
-    const alcance = await resolverAlcanceUnidad(this.prisma, actor, unidad);
-    const current = await this.prisma.gasto.findFirst({
-      where: { id: gastoId, ...filtroUnidad(alcance) },
-      include: { categoria: { select: { nombre: true } } },
+    return transaccionCaja(this.prisma, async (tx) => {
+      const gastoId = this.parseId(id);
+      const alcance = await resolverAlcanceUnidad(this.prisma, actor, unidad);
+      const current = await tx.gasto.findFirst({
+        where: { id: gastoId, ...filtroUnidad(alcance) },
+        include: { categoria: { select: { nombre: true } } },
+      });
+      if (!current) throw new NotFoundException('Gasto no encontrado');
+      if ((current as { estado?: string }).estado === 'ANULADO')
+        throw new BadRequestException('Este gasto ya está revertido.');
+      if (current.categoria.nombre === 'Gastos del día' || current.concepto === 'Gastos del día')
+        throw new ConflictException(
+          'Este gasto viene de la Carga diaria: reviertelo desde ahí para no descuadrar el total del día.',
+        );
+      const motivo = dto.motivo?.trim();
+      if (!motivo) throw new BadRequestException('Escribe por qué se revierte el gasto.');
+      const anuladoPorId = await resolverTrabajadorAutor(this.prisma, actor);
+      const row = await tx.gasto.update({
+        where: { id: gastoId },
+        data: {
+          estado: 'ANULADO',
+          motivoAnulacion: motivo.slice(0, 300),
+          observaciones:
+            dto.observaciones !== undefined
+              ? dto.observaciones.trim() || null
+              : current.observaciones,
+          anuladoPorId,
+          anuladoAt: new Date(),
+        },
+        include: CON_RELACIONES,
+      });
+      await sincronizarGastoCaja(tx, row.id);
+      return this.view(row);
     });
-    if (!current) throw new NotFoundException('Gasto no encontrado');
-    if ((current as { estado?: string }).estado === 'ANULADO')
-      throw new BadRequestException('Este gasto ya está revertido.');
-    if (current.categoria.nombre === 'Gastos del día' || current.concepto === 'Gastos del día')
-      throw new ConflictException(
-        'Este gasto viene de la Carga diaria: reviertelo desde ahí para no descuadrar el total del día.',
-      );
-    const motivo = dto.motivo?.trim();
-    if (!motivo) throw new BadRequestException('Escribe por qué se revierte el gasto.');
-    const anuladoPorId = await resolverTrabajadorAutor(this.prisma, actor);
-    const row = await this.prisma.gasto.update({
-      where: { id: gastoId },
-      data: {
-        estado: 'ANULADO',
-        motivoAnulacion: motivo.slice(0, 300),
-        observaciones:
-          dto.observaciones !== undefined
-            ? dto.observaciones.trim() || null
-            : current.observaciones,
-        anuladoPorId,
-        anuladoAt: new Date(),
-      },
-      include: CON_RELACIONES,
-    });
-    return this.view(row);
   }
 
   async categories() {

@@ -2,7 +2,15 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ClipboardList, Pencil, Save } from 'lucide-react';
-import { ClipboardEvent, KeyboardEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  ClipboardEvent,
+  KeyboardEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { toast } from 'sonner';
 import { PeriodFilter } from '../../../components/PeriodFilter';
 import { Badge } from '../../../components/ui/Badge';
@@ -451,6 +459,25 @@ export default function CargaDiariaPage() {
   // Si las columnas no entran, la grilla se desplaza en horizontal en vez de apretarlas.
   const anchoMinimo = 72 + columnas.length * 104 + 144 + (columnas.length + 1) * 8 + 24;
 
+  // El encabezado vive fuera del contenedor con scroll horizontal: si compartieran
+  // contenedor, el `overflow` anularía el sticky vertical y el encabezado se iría con la
+  // página. Se sincroniza por JS para que acompañe el desplazamiento lateral.
+  const encabezadoRef = useRef<HTMLDivElement>(null);
+  const cuerpoRef = useRef<HTMLDivElement>(null);
+  const sincronizarEncabezado = useCallback(() => {
+    if (encabezadoRef.current && cuerpoRef.current) {
+      encabezadoRef.current.scrollLeft = cuerpoRef.current.scrollLeft;
+    }
+  }, []);
+  useEffect(() => {
+    sincronizarEncabezado();
+    const cuerpo = cuerpoRef.current;
+    if (!cuerpo || typeof ResizeObserver === 'undefined') return;
+    const observador = new ResizeObserver(sincronizarEncabezado);
+    observador.observe(cuerpo);
+    return () => observador.disconnect();
+  }, [sincronizarEncabezado, columnas.length]);
+
   return (
     <div className="module-page operations-list-page !pb-44">
       <div className="operation-list-head">
@@ -513,164 +540,178 @@ export default function CargaDiariaPage() {
         </div>
       ) : (
         <div
-          className="grid gap-2 tablet:gap-0 tablet:overflow-x-auto tablet:rounded-container-lg tablet:border tablet:border-line tablet:bg-surface"
+          className="grid gap-2 tablet:gap-0 tablet:rounded-container-lg tablet:border tablet:border-line tablet:bg-surface"
           style={{
             ['--carga-columnas' as string]: plantilla,
             ['--carga-ancho' as string]: `${anchoMinimo}px`,
           }}
         >
-          <div className="hidden border-b border-line bg-surface-soft px-3 py-2.5 text-[11px] font-semibold uppercase text-muted tablet:grid tablet:min-w-[var(--carga-ancho)] tablet:gap-2 tablet:[grid-template-columns:var(--carga-columnas)]">
-            <span className="tablet:sticky tablet:left-0 tablet:z-[1] tablet:-ml-3 tablet:bg-surface-soft tablet:pl-3">
-              Día
-            </span>
-            {columnas.map((columna) => (
-              <span key={columna.clave} className="text-right">
-                {columna.titulo}
-                {columna.tipo === 'monto' ? ' (S/)' : ''}
+          {/* Encabezado fijo al bajar (bajo el header del admin) y sincronizado al ir de
+              costado. Vive fuera del scroll horizontal porque ese `overflow` anularía el
+              sticky vertical. */}
+          <div
+            ref={encabezadoRef}
+            className="hidden border-b border-line bg-surface-soft tablet:sticky tablet:top-16 tablet:z-10 tablet:block tablet:overflow-hidden tablet:rounded-t-container-lg"
+          >
+            <div className="px-3 py-2.5 text-[11px] font-semibold uppercase text-muted tablet:grid tablet:min-w-[var(--carga-ancho)] tablet:gap-2 tablet:[grid-template-columns:var(--carga-columnas)]">
+              <span className="tablet:sticky tablet:left-0 tablet:z-[1] tablet:-ml-3 tablet:bg-surface-soft tablet:pl-3">
+                Día
               </span>
-            ))}
-            <span className="text-right">Estado</span>
+              {columnas.map((columna) => (
+                <span key={columna.clave} className="text-right">
+                  {columna.titulo}
+                  {columna.tipo === 'monto' ? ' (S/)' : ''}
+                </span>
+              ))}
+              <span className="text-right">Estado</span>
+            </div>
           </div>
 
-          {dias.map((fecha, fila) => {
-            const registradoDia = registradosPorDia.get(fecha);
-            const borrador = borradores[fecha];
-            const error = errores[fecha];
-            const editando = Boolean(ediciones[fecha]);
-            const cargados = columnas.filter((columna) => registrado(registradoDia, columna));
-            const { dia, numero } = etiquetaDia(fecha);
-            const finDeSemana = dia.startsWith('Sá') || dia.startsWith('Do');
-            return (
-              <div
-                key={fecha}
-                className={`grid grid-cols-2 gap-2 rounded-ui border border-line bg-surface p-3 tablet:min-w-[var(--carga-ancho)] tablet:items-center tablet:rounded-none tablet:border-0 tablet:border-b tablet:px-3 tablet:py-1.5 tablet:[grid-template-columns:var(--carga-columnas)] tablet:last:border-b-0 ${
-                  error ? 'border-status-red-text' : ''
-                }`}
-              >
-                {/* La fecha queda fija a la izquierda al desplazar la grilla en horizontal. */}
-                <div className="col-span-2 flex items-baseline gap-1.5 tablet:sticky tablet:left-0 tablet:z-[1] tablet:col-span-1 tablet:-ml-3 tablet:self-stretch tablet:items-center tablet:bg-surface tablet:pl-3">
-                  <strong className="text-[15px] tabular-nums text-fg">{numero}</strong>
-                  <span className={`text-xs ${finDeSemana ? 'text-accent' : 'text-muted'}`}>
-                    {dia}
-                  </span>
-                </div>
-
-                {columnas.map((columna, col) => {
-                  const hecho = registrado(registradoDia, columna);
-                  const entero = columna.tipo === 'cantidad';
-                  return (
-                    <label key={columna.clave} className="min-w-0">
-                      <span className={`${fieldLabelClass} tablet:hidden`}>
-                        {columna.titulo}
-                        {entero ? '' : ' (S/)'}
-                      </span>
-                      {hecho && (!editando || ('historico' in columna && columna.historico)) ? (
-                        <span
-                          className="flex h-10 items-center justify-end truncate rounded-full bg-surface-soft px-3 text-[13px] tabular-nums text-fg"
-                          title={hecho.detalle}
-                        >
-                          {hecho.texto}
-                        </span>
-                      ) : (
-                        <input
-                          className={`${controlClass} text-right tabular-nums`}
-                          data-celda={`${fila}-${col}`}
-                          inputMode={entero ? 'numeric' : 'decimal'}
-                          autoComplete="off"
-                          placeholder="—"
-                          value={borrador?.[columna.clave] ?? ''}
-                          onChange={(event) =>
-                            escribir(
-                              fecha,
-                              columna.clave,
-                              filtrarTecleo(event.target.value, entero),
-                            )
-                          }
-                          onKeyDown={(event) => navegar(event, fila, col)}
-                          onPaste={(event) => pegar(event, fila, col)}
-                          onFocus={(event) => event.target.select()}
-                          aria-label={`${columna.titulo} del ${numero} (${dia})`}
-                          disabled={guardando || !editable(fecha, columna)}
-                        />
-                      )}
-                      {columna.clave === 'gasto2' ? (
-                        <small className="block pt-1 text-right text-xs text-muted">
-                          Total:{' '}
-                          {moneda(
-                            (!editando ? registradoDia?.gasto?.monto : undefined) ??
-                              (Math.round((Number(borrador?.gasto1) || 0) * 100) +
-                                Math.round((Number(borrador?.gasto2) || 0) * 100)) /
-                                100,
-                          )}
-                        </small>
-                      ) : null}
-                      {columna.clave === 'produccion2' ? (
-                        <small className="block pt-1 text-right text-xs text-muted">
-                          Total:{' '}
-                          {(!editando ? registradoDia?.produccion?.cantidad : undefined) ??
-                            (Number(borrador?.produccion1) || 0) +
-                              (Number(borrador?.produccion2) || 0)}{' '}
-                          bidones
-                        </small>
-                      ) : null}
-                    </label>
-                  );
-                })}
-
-                <div className="col-span-2 flex flex-col items-end gap-1.5 tablet:col-span-1">
-                  {error ? (
-                    <span className="text-right text-xs text-[#c52e49] dark:text-[#ff9db2]">
-                      {error}
+          <div
+            ref={cuerpoRef}
+            onScroll={sincronizarEncabezado}
+            className="grid gap-2 tablet:block tablet:gap-0 tablet:overflow-x-auto tablet:rounded-b-container-lg"
+          >
+            {dias.map((fecha, fila) => {
+              const registradoDia = registradosPorDia.get(fecha);
+              const borrador = borradores[fecha];
+              const error = errores[fecha];
+              const editando = Boolean(ediciones[fecha]);
+              const cargados = columnas.filter((columna) => registrado(registradoDia, columna));
+              const { dia, numero } = etiquetaDia(fecha);
+              const finDeSemana = dia.startsWith('Sá') || dia.startsWith('Do');
+              return (
+                <div
+                  key={fecha}
+                  className={`grid grid-cols-2 gap-2 rounded-ui border border-line bg-surface p-3 tablet:min-w-[var(--carga-ancho)] tablet:items-center tablet:rounded-none tablet:border-0 tablet:border-b tablet:px-3 tablet:py-1.5 tablet:[grid-template-columns:var(--carga-columnas)] tablet:last:border-b-0 ${
+                    error ? 'border-status-red-text' : ''
+                  }`}
+                >
+                  {/* La fecha queda fija a la izquierda al desplazar la grilla en horizontal. */}
+                  <div className="col-span-2 flex items-baseline gap-1.5 tablet:sticky tablet:left-0 tablet:z-[1] tablet:col-span-1 tablet:-ml-3 tablet:self-stretch tablet:items-center tablet:bg-surface tablet:pl-3">
+                    <strong className="text-[15px] tabular-nums text-fg">{numero}</strong>
+                    <span className={`text-xs ${finDeSemana ? 'text-accent' : 'text-muted'}`}>
+                      {dia}
                     </span>
-                  ) : editando ? (
-                    <Badge tone="amber">Editando</Badge>
-                  ) : cargados.length === columnas.length ? (
-                    <Badge tone="green">Registrado</Badge>
-                  ) : cargados.length ? (
-                    <Badge tone="blue">Parcial</Badge>
-                  ) : borrador ? (
-                    <Badge tone="amber">Por guardar</Badge>
-                  ) : (
-                    <span className="text-xs text-muted">—</span>
-                  )}
-                  {editando ? (
-                    <>
-                      <Button
-                        disabled={guardando}
-                        onClick={() => void guardar(fecha)}
-                        aria-label={`Guardar cambios del ${fecha}`}
-                      >
-                        <Save size={14} /> Guardar cambios
-                      </Button>
+                  </div>
+
+                  {columnas.map((columna, col) => {
+                    const hecho = registrado(registradoDia, columna);
+                    const entero = columna.tipo === 'cantidad';
+                    return (
+                      <label key={columna.clave} className="min-w-0">
+                        <span className={`${fieldLabelClass} tablet:hidden`}>
+                          {columna.titulo}
+                          {entero ? '' : ' (S/)'}
+                        </span>
+                        {hecho && (!editando || ('historico' in columna && columna.historico)) ? (
+                          <span
+                            className="flex h-10 items-center justify-end truncate rounded-full bg-surface-soft px-3 text-[13px] tabular-nums text-fg"
+                            title={hecho.detalle}
+                          >
+                            {hecho.texto}
+                          </span>
+                        ) : (
+                          <input
+                            className={`${controlClass} text-right tabular-nums`}
+                            data-celda={`${fila}-${col}`}
+                            inputMode={entero ? 'numeric' : 'decimal'}
+                            autoComplete="off"
+                            placeholder="—"
+                            value={borrador?.[columna.clave] ?? ''}
+                            onChange={(event) =>
+                              escribir(
+                                fecha,
+                                columna.clave,
+                                filtrarTecleo(event.target.value, entero),
+                              )
+                            }
+                            onKeyDown={(event) => navegar(event, fila, col)}
+                            onPaste={(event) => pegar(event, fila, col)}
+                            onFocus={(event) => event.target.select()}
+                            aria-label={`${columna.titulo} del ${numero} (${dia})`}
+                            disabled={guardando || !editable(fecha, columna)}
+                          />
+                        )}
+                        {columna.clave === 'gasto2' ? (
+                          <small className="block pt-1 text-right text-xs text-muted">
+                            Total:{' '}
+                            {moneda(
+                              (!editando ? registradoDia?.gasto?.monto : undefined) ??
+                                (Math.round((Number(borrador?.gasto1) || 0) * 100) +
+                                  Math.round((Number(borrador?.gasto2) || 0) * 100)) /
+                                  100,
+                            )}
+                          </small>
+                        ) : null}
+                        {columna.clave === 'produccion2' ? (
+                          <small className="block pt-1 text-right text-xs text-muted">
+                            Total:{' '}
+                            {(!editando ? registradoDia?.produccion?.cantidad : undefined) ??
+                              (Number(borrador?.produccion1) || 0) +
+                                (Number(borrador?.produccion2) || 0)}{' '}
+                            bidones
+                          </small>
+                        ) : null}
+                      </label>
+                    );
+                  })}
+
+                  <div className="col-span-2 flex flex-col items-end gap-1.5 tablet:col-span-1">
+                    {error ? (
+                      <span className="text-right text-xs text-[#c52e49] dark:text-[#ff9db2]">
+                        {error}
+                      </span>
+                    ) : editando ? (
+                      <Badge tone="amber">Editando</Badge>
+                    ) : cargados.length === columnas.length ? (
+                      <Badge tone="green">Registrado</Badge>
+                    ) : cargados.length ? (
+                      <Badge tone="blue">Parcial</Badge>
+                    ) : borrador ? (
+                      <Badge tone="amber">Por guardar</Badge>
+                    ) : (
+                      <span className="text-xs text-muted">—</span>
+                    )}
+                    {editando ? (
+                      <>
+                        <Button
+                          disabled={guardando}
+                          onClick={() => void guardar(fecha)}
+                          aria-label={`Guardar cambios del ${fecha}`}
+                        >
+                          <Save size={14} /> Guardar cambios
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          disabled={guardando}
+                          onClick={() => cancelarEdicion(fecha)}
+                          aria-label={`Cancelar edición del ${fecha}`}
+                        >
+                          Cancelar
+                        </Button>
+                      </>
+                    ) : registradoDia ? (
                       <Button
                         variant="secondary"
                         disabled={guardando}
-                        onClick={() => cancelarEdicion(fecha)}
-                        aria-label={`Cancelar edición del ${fecha}`}
+                        onClick={() => editarDia(fecha)}
+                        aria-label={`Editar día ${fecha}`}
                       >
-                        Cancelar
+                        <Pencil size={14} /> Editar
                       </Button>
-                    </>
-                  ) : registradoDia ? (
-                    <Button
-                      variant="secondary"
-                      disabled={guardando}
-                      onClick={() => editarDia(fecha)}
-                      aria-label={`Editar día ${fecha}`}
-                    >
-                      <Pencil size={14} /> Editar
-                    </Button>
-                  ) : null}
-                  {registradoDia?.produccion && !editando ? (
-                    <small className="text-right text-xs text-muted">
-                      {registradoDia.ventas.reduce((suma, venta) => suma + venta.cantidad, 0)}{' '}
-                      vendidos de {registradoDia.produccion.cantidad} producidos
-                    </small>
-                  ) : null}
+                    ) : null}
+                    {registradoDia?.produccion && !editando ? (
+                      <small className="text-right text-xs text-muted">
+                        {registradoDia.ventas.reduce((suma, venta) => suma + venta.cantidad, 0)}{' '}
+                        vendidos de {registradoDia.produccion.cantidad} producidos
+                      </small>
+                    ) : null}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       )}
 

@@ -1,7 +1,7 @@
 'use client';
 
-import { BarChart3, CalendarClock, MapPinned, TrendingUp } from 'lucide-react';
-import { useId, useMemo } from 'react';
+import { BarChart3, CalendarClock, MapPinned } from 'lucide-react';
+import { useMemo } from 'react';
 import { AnalyticsRanking, HeatmapPoint } from '../../lib/analytics';
 import { ChartPoint } from '../../lib/chart-axis';
 import { moneda } from '../../lib/format';
@@ -11,9 +11,8 @@ import {
   barraVertical,
   firma,
   retraso,
-  trazoDibujado,
 } from './animacion';
-import { AxisTick, ColumnTick, tickEvery } from './AxisTick';
+import { ColumnTick, tickEvery } from './AxisTick';
 
 export function ComparisonBarChart({
   data,
@@ -43,10 +42,25 @@ export function ComparisonBarChart({
     >
       {rows.length ? (
         <div
-          className={`comparison-chart${showValues ? ' comparison-chart-labeled' : ''}`}
+          className="comparison-chart-wrap"
           key={firma(rows.map((row) => [row.key, row.sales, row.expenses]))}
         >
-          {rows.map((row, index) => (
+          {/* Eje Y fijo como en Evolución: no se desplaza con el scroll horizontal. */}
+          <div className="comparison-y-axis" aria-hidden="true">
+            {[1, 0.75, 0.5, 0.25, 0].map((ratio) => (
+              <span key={ratio} style={{ top: `${(1 - ratio) * 100}%` }}>
+                {compactMoney(max * ratio)}
+              </span>
+            ))}
+          </div>
+          <div className={`comparison-chart${showValues ? ' comparison-chart-labeled' : ''}`}>
+            <div className="comparison-chart-body">
+              <div className="comparison-gridlines" aria-hidden="true">
+                {[1, 0.75, 0.5, 0.25].map((ratio) => (
+                  <span key={ratio} style={{ top: `${(1 - ratio) * 100}%` }} />
+                ))}
+              </div>
+              {rows.map((row, index) => (
             <div className="comparison-column" key={row.key}>
               {showValues ? (
                 <div className={`comparison-values ${aparece}`} style={retraso(index, 60, 900)}>
@@ -79,6 +93,8 @@ export function ComparisonBarChart({
               )}
             </div>
           ))}
+            </div>
+          </div>
         </div>
       ) : (
         <ChartEmpty />
@@ -142,151 +158,7 @@ export function RankingBarChart({
   );
 }
 
-export function MarginChart({
-  data,
-  title = 'Evolución del margen',
-  subtitle = 'Venta sin IGV menos costo de inventario',
-}: {
-  data: ChartPoint[];
-  title?: string;
-  subtitle?: string;
-}) {
-  const gradientId = useId().replace(/:/g, '');
-  const rows = data.slice(-32);
-  const width = 680;
-  const height = 230;
-  // El fondo deja sitio para las dos líneas de la marca de eje (nombre del día + fecha).
-  const padding = { top: 22, right: 14, bottom: 46, left: 58 };
-  const chartWidth = width - padding.left - padding.right;
-  const chartHeight = height - padding.top - padding.bottom;
-  const values = rows.map((row) => row.margin);
-  const max = Math.max(0, ...values);
-  const min = Math.min(0, ...values);
-  const span = max - min || 1;
-  const x = (index: number) =>
-    padding.left + (rows.length <= 1 ? chartWidth / 2 : (index / (rows.length - 1)) * chartWidth);
-  const y = (value: number) => padding.top + chartHeight - ((value - min) / span) * chartHeight;
-  const zeroY = y(0);
-  // La línea se dibuja por tramos: el tramo que toca zona negativa va en rojo. Con un solo
-  // `polyline` no se puede porque lleva un único color; partido sí, tramo por tramo.
-  const segmentos = rows.slice(1).map((row, index) => {
-    const anterior = rows[index].margin;
-    const actual = row.margin;
-    return {
-      key: `${rows[index].key}-${row.key}`,
-      x1: x(index),
-      y1: y(anterior),
-      x2: x(index + 1),
-      y2: y(actual),
-      negativo: Math.min(anterior, actual) < 0,
-    };
-  });
-  const labelEvery = tickEvery(rows.length);
-
-  return (
-    <ChartCard icon={<TrendingUp size={18} />} title={title} subtitle={subtitle}>
-      {rows.length ? (
-        <div className="line-chart-wrap">
-          <svg
-            className="line-chart margin-area-chart"
-            key={firma(rows.map((row) => [row.key, row.margin]))}
-            viewBox={`0 0 ${width} ${height}`}
-            role="img"
-            aria-label="Gráfico de evolución del margen"
-          >
-            <defs>
-              <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
-                <stop offset="0%" stopColor="currentColor" stopOpacity=".22" />
-                <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
-              </linearGradient>
-              {/* El rojo va con su propio degradado: el `currentColor` del de arriba se
-                  resuelve en el `defs` y no en cada polígono, así que un solo degradado
-                  nunca podría ser verde y rojo a la vez. */}
-              <linearGradient id={`${gradientId}-neg`} x1="0" x2="0" y1="0" y2="1">
-                <stop offset="0%" stopColor="#c52e49" stopOpacity=".22" />
-                <stop offset="100%" stopColor="#c52e49" stopOpacity="0" />
-              </linearGradient>
-            </defs>
-            {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
-              const gridY = padding.top + chartHeight * ratio;
-              const value = max - span * ratio;
-              return (
-                <g key={ratio}>
-                  <line
-                    className="chart-grid-line"
-                    x1={padding.left}
-                    x2={width - padding.right}
-                    y1={gridY}
-                    y2={gridY}
-                  />
-                  <text
-                    className="chart-axis-label"
-                    x={padding.left - 9}
-                    y={gridY + 4}
-                    textAnchor="end"
-                  >
-                    {compactMoney(value)}
-                  </text>
-                </g>
-              );
-            })}
-            {min < 0 && max > 0 ? (
-              <line
-                className="chart-zero-line"
-                x1={padding.left}
-                x2={width - padding.right}
-                y1={zeroY}
-                y2={zeroY}
-              />
-            ) : null}
-            {segmentos.map((tramo) => (
-              <polygon
-                key={`area-${tramo.key}`}
-                className={`chart-area margin-area-fill${tramo.negativo ? ' negative' : ''} ${aparece}`}
-                style={{ animationDelay: '600ms' }}
-                points={`${tramo.x1},${zeroY} ${tramo.x1},${tramo.y1} ${tramo.x2},${tramo.y2} ${tramo.x2},${zeroY}`}
-                fill={`url(#${gradientId}${tramo.negativo ? '-neg' : ''})`}
-              />
-            ))}
-            {segmentos.map((tramo) => (
-              <line
-                key={`linea-${tramo.key}`}
-                className={`chart-line margin-area-line${tramo.negativo ? ' negative' : ''} ${trazoDibujado}`}
-                x1={tramo.x1}
-                y1={tramo.y1}
-                x2={tramo.x2}
-                y2={tramo.y2}
-              />
-            ))}
-            {rows.map((row, index) => (
-              <g key={row.key}>
-                <circle
-                  className={`chart-dot margin-area-dot${row.margin < 0 ? ' negative' : ''} ${aparece}`}
-                  style={retraso(rows.length > 1 ? (index / (rows.length - 1)) * 1000 : 0, 1, 1100)}
-                  cx={x(index)}
-                  cy={y(row.margin)}
-                  r="4"
-                >
-                  <title>{`${row.tooltip}: ${moneda(row.margin)}`}</title>
-                </circle>
-                {index % labelEvery === 0 || index === rows.length - 1 ? (
-                  <AxisTick
-                    x={x(index)}
-                    y={height - 14}
-                    label={row.label}
-                    labelTop={row.labelTop}
-                  />
-                ) : null}
-              </g>
-            ))}
-          </svg>
-        </div>
-      ) : (
-        <ChartEmpty />
-      )}
-    </ChartCard>
-  );
-}
+export { MarginChart } from './MarginChart';
 
 function compactMoney(value: number) {
   const sign = value < 0 ? '-' : '';

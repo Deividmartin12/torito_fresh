@@ -1,3 +1,4 @@
+import { sincronizarPagoCaja, revertirPagoCaja, transaccionCaja } from '../common/caja-ledger';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AuthUser } from '../common/auth-user';
@@ -21,7 +22,11 @@ import {
   movementPhrase,
   weightedAverage,
 } from '../common/stock';
-import { resolverTrabajadorAutor } from '../common/worker-context';
+import {
+  buscarTrabajadorId,
+  exigirTrabajadorId,
+  resolverTrabajadorAutor,
+} from '../common/worker-context';
 import { PaymentMethodsService } from '../payment-methods/payment-methods.service';
 import { descontarVenta, revertirStockVenta } from '../common/sale-stock';
 import { PrismaService } from '../prisma/prisma.service';
@@ -34,6 +39,7 @@ import {
   CreateProductTypeDto,
   CreateReturnDto,
   RegisterOperationalPaymentDto,
+  SaveSalePreferencesDto,
   UpdateLoteDto,
   UpdateOperationalProductDto,
   UpdateOperationalSaleDto,
@@ -619,6 +625,41 @@ export class OperationsService {
     }));
   }
 
+  async salePreferences(actor: AuthUser) {
+    const [user, workerId] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: actor.userId },
+        select: { metodoPagoVenta: { include: { categoria: true } } },
+      }),
+      buscarTrabajadorId(this.prisma, actor.userId),
+    ]);
+    const method = user?.metodoPagoVenta;
+    const disponible =
+      workerId !== null &&
+      method?.estado &&
+      method.categoria?.estado === true &&
+      (method.trabajadorId === null || method.trabajadorId === workerId);
+    return { metodoPagoId: disponible ? method.id.toString() : null };
+  }
+
+  async saveSalePreferences(actor: AuthUser, dto: SaveSalePreferencesDto) {
+    return this.prisma.$transaction(async (tx) => {
+      const metodoPagoId = dto.metodoPagoId === null ? null : BigInt(dto.metodoPagoId);
+      if (metodoPagoId !== null) {
+        const workerId = await exigirTrabajadorId(tx, actor.userId);
+        const method = await this.exigirMetodoDisponible(tx, metodoPagoId, workerId);
+        if (!method.categoria?.estado)
+          throw new BadRequestException('El método de pago no está disponible');
+      }
+      // Siempre se modifica la preferencia del usuario autenticado, nunca la de otro vendedor.
+      await tx.user.update({
+        where: { id: actor.userId },
+        data: { metodoPagoVentaId: metodoPagoId },
+      });
+      return { metodoPagoId: metodoPagoId?.toString() ?? null };
+    });
+  }
+
   /**
    * Métodos que puede usar un trabajador al cobrar: los globales (Efectivo) más los suyos
    * (su Yape). Nunca los de otro repartidor. El admin puede pedir los de otro pasando
@@ -678,7 +719,7 @@ export class OperationsService {
     actor: AuthUser,
     unidadActiva?: string,
   ) {
-    return this.prisma.$transaction(async (tx) => {
+    return transaccionCaja(this.prisma, async (tx) => {
       const workerId = await resolverTrabajadorAutor(tx, actor, dto.trabajadorId);
       const method = await tx.metodoPago.findUnique({
         where: { id: BigInt(dto.metodoPagoId) },
@@ -692,7 +733,14 @@ export class OperationsService {
         );
       if (dto.fechaPago && dto.fechaPago.slice(0, 10) > limaTodayKey())
         throw new BadRequestException('La fecha del pago no puede estar en el futuro');
-      const paidAt = dto.fechaPago ? new Date(dto.fechaPago) : new Date();
+      // El selector de cobranzas envía una fecha calendario; no es medianoche UTC del día anterior en Lima.
+      const paidAt = dto.fechaPago
+        ? new Date(
+            /^\d{4}-\d{2}-\d{2}$/.test(dto.fechaPago)
+              ? `${dto.fechaPago}T12:00:00-05:00`
+              : dto.fechaPago,
+          )
+        : new Date();
 
       const unidad = await resolverUnidadDeEscritura(tx, {
         actor,
@@ -710,7 +758,7 @@ export class OperationsService {
       if (balance <= 0) throw new BadRequestException('La cuenta ya está pagada');
       if (dto.monto > balance) throw new BadRequestException('El pago supera el saldo pendiente');
       const newBalance = Math.max(balance - dto.monto, 0);
-      await tx.pagoCliente.create({
+      const pagoCaja = await tx.pagoCliente.create({
         data: {
           cuentaCobrarId: account.id,
           metodoPagoId: method.id,
@@ -723,6 +771,7 @@ export class OperationsService {
           observaciones: dto.observaciones?.trim(),
         },
       });
+      await sincronizarPagoCaja(tx, pagoCaja.id);
       await tx.cuentaCobrar.update({
         where: { id: account.id },
         data: {
@@ -1361,10 +1410,15 @@ export class OperationsService {
     // Acotado a `origen: 'VENTA'`: los cobros de Cobranzas ya cortaron la edición arriba, y
     // un reembolso de anulación nunca debe borrarse (también cortado arriba), pero el
     // filtro deja explícito qué es lo único que esta línea puede tocar.
-    if (sale.cuentaCobrar)
+    if (sale.cuentaCobrar) {
+      const anteriores = await tx.pagoCliente.findMany({
+        where: { cuentaCobrarId: sale.cuentaCobrar.id, origen: 'VENTA' },
+      });
+      for (const pago of anteriores) await revertirPagoCaja(tx, pago.id);
       await tx.pagoCliente.deleteMany({
         where: { cuentaCobrarId: sale.cuentaCobrar.id, origen: 'VENTA' },
       });
+    }
 
     // El gateo va acá afuera y NO adentro de `reverseSaleOutbound`: ese método tiene que
     // seguir fallando cuando una venta con inventario no tiene movimiento, porque es lo que
@@ -2118,7 +2172,7 @@ export class OperationsService {
     for (const linea of lineas) {
       if (linea.monto <= 0) continue;
       await this.exigirMetodoDisponible(tx, linea.metodoPagoId, args.workerId);
-      await tx.pagoCliente.create({
+      const pagoCaja = await tx.pagoCliente.create({
         data: {
           cuentaCobrarId: args.cuenta.id,
           metodoPagoId: linea.metodoPagoId,
@@ -2129,6 +2183,7 @@ export class OperationsService {
           observaciones,
         },
       });
+      await sincronizarPagoCaja(tx, pagoCaja.id);
     }
   }
 
@@ -2214,19 +2269,20 @@ export class OperationsService {
   ) {
     if (payments.length === 0) return;
     const abonado = Math.round(payments.reduce((sum, p) => sum + p.monto, 0) * 100) / 100;
-    await tx.pagoCliente.createMany({
-      data: payments.map((payment) => ({
-        ...(fechaPago ? { fechaPago } : {}),
-        cuentaCobrarId: account.id,
-        metodoPagoId: payment.methodId,
-        trabajadorId: workerId,
-        monto: payment.monto,
-        // Este cobro ya está contado en las ventas por método de pago. Marcarlo es lo que
-        // impide que el reporte de caja por trabajador lo sume otra vez como cobranza.
-        origen: 'VENTA',
-        observaciones: 'Pago inicial de la venta',
-      })),
-    });
+    for (const payment of payments) {
+      const pago = await tx.pagoCliente.create({
+        data: {
+          ...(fechaPago ? { fechaPago } : {}),
+          cuentaCobrarId: account.id,
+          metodoPagoId: payment.methodId,
+          trabajadorId: workerId,
+          monto: payment.monto,
+          origen: 'VENTA',
+          observaciones: 'Pago inicial de la venta',
+        },
+      });
+      await sincronizarPagoCaja(tx, pago.id);
+    }
     const saldo = Math.max(Math.round((account.montoOriginal - abonado) * 100) / 100, 0);
     await tx.cuentaCobrar.update({
       where: { id: account.id },

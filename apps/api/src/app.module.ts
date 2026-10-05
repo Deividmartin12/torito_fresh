@@ -6,6 +6,7 @@ import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { PermisosGuard } from './auth/permisos.guard';
 import { BidonesRotosModule } from './bidones-rotos/bidones-rotos.module';
 import { CargaDiariaModule } from './carga-diaria/carga-diaria.module';
+import { CajaModule } from './caja/caja.module';
 import { ConteosModule } from './conteos/conteos.module';
 import { ClientsModule } from './clients/clients.module';
 import { ConsultaDocumentoModule } from './consulta-documento/consulta-documento.module';
@@ -40,6 +41,7 @@ import { HealthController } from './health.controller';
     RecargasModule,
     BidonesRotosModule,
     CargaDiariaModule,
+    CajaModule,
     ConteosModule,
     ReportsModule,
     RolesModule,

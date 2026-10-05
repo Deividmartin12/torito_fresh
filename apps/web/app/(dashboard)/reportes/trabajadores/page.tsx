@@ -139,12 +139,12 @@ export default function ReporteTrabajadoresPage() {
       <ReportHeader
         eyebrow="Reportes"
         title={
-          etiquetaPeriodo
-            ? `Reporte por trabajador · ${etiquetaPeriodo}`
-            : 'Reporte por trabajador'
+          etiquetaPeriodo ? `Reporte por trabajador · ${etiquetaPeriodo}` : 'Reporte por trabajador'
         }
         caption={unidadResumen ? `Alcance: ${unidadResumen}` : undefined}
       />
+
+      <PeriodFilter defaultPeriod="month" onChange={handlePeriod} />
 
       <section className="report-metrics">
         <ReportMetric
@@ -173,8 +173,6 @@ export default function ReporteTrabajadoresPage() {
           detail={`de ${workers.length} registrados`}
         />
       </section>
-
-      <PeriodFilter defaultPeriod="month" onChange={handlePeriod} />
 
       {loading ? (
         <div className="table-loading" role="status">

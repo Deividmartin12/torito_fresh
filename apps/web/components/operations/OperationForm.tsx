@@ -50,6 +50,8 @@ import {
 import { evaluarCredito, resumenCredito } from '../../lib/credito';
 import { puede } from '../../lib/permissions';
 import { usePermisos } from '../../lib/useCurrentUser';
+import { availableSaleDefault, getSalePreferences } from '../../lib/sale-preferences';
+import { SaleSettings } from './SaleSettings';
 
 type FieldErrors = Partial<Record<'entity' | 'items' | 'payment' | 'dueDate' | 'envases', string>>;
 
@@ -190,8 +192,9 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
         datos.unidadEscritura?.controlaInventario === false ? [] : getOperationStock(),
       ),
       getOperationalPaymentMethods(),
+      saleId ? Promise.resolve(null) : getSalePreferences().catch(() => null),
     ])
-      .then(async ([catalogData, stockData, methods]) => {
+      .then(async ([catalogData, stockData, methods, preferences]) => {
         setCatalogs(catalogData);
         setStock(stockData);
         setPaymentMethods(methods);
@@ -228,7 +231,15 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
           setVaciosTocados(true);
           setVentaOriginal(sale);
         } else {
-          setPagos([{ metodoPagoId: methods[0]?.id ?? '', monto: 0 }]);
+          setPagos([
+            {
+              metodoPagoId:
+                availableSaleDefault(methods, preferences?.metodoPagoId ?? null) ||
+                methods[0]?.id ||
+                '',
+              monto: 0,
+            },
+          ]);
           setWarehouseId(catalogData.almacenes[0]?.id ?? '');
         }
       })
@@ -552,6 +563,17 @@ export function OperationForm({ saleId }: { saleId?: string } = {}) {
       }}
       noValidate
     >
+      {!editing && puede(permisos, 'ventas.registrar') ? (
+        <SaleSettings
+          methods={paymentMethods}
+          onSaved={(id) => {
+            if (id)
+              setPagos((current) =>
+                current.length === 1 ? [{ ...current[0], metodoPagoId: id }] : current,
+              );
+          }}
+        />
+      ) : null}
       {!catalogs.preparado ? (
         <div className="operation-warning">
           <AlertCircle size={18} />

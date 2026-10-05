@@ -164,7 +164,8 @@ function datosPrueba() {
       };
     },
   });
-  return {
+  const db = {
+    $transaction: async (action) => action(db),
     unidadNegocio: tabla(unidades),
     trabajador: tabla(trabajadores),
     cliente: tabla(clientes),
@@ -175,11 +176,15 @@ function datosPrueba() {
     usuarioUnidadVisible: { findMany: async () => [{ unidadNegocioId: 1n }] },
     ordenProduccion: tabla([]),
     producto: tabla([]),
-    metodoPago: tabla([]),
+    metodoPago: tabla([
+      { id: 1n, estado: true, trabajadorId: null, categoria: { estado: true, nombre: 'Efectivo' } },
+    ]),
+    movimientoCaja: tabla([]),
     pagoCliente: tabla([]),
     detalleVenta: tabla([]),
     devolucionVenta: tabla([]),
   };
+  return db;
 }
 
 test('login, /auth/me y JWT aplican el mismo aislamiento aun con un rol de acceso total', async () => {
@@ -425,6 +430,7 @@ test('pagar a un trabajador de otra unidad no crea ni modifica un gasto independ
         categoriaId: '5',
         monto: 10,
         beneficiarioId: '11',
+        metodoPagoId: '1',
       },
       actor(),
       '1',
@@ -443,7 +449,7 @@ test('pagar a un trabajador de otra unidad no crea ni modifica un gasto independ
   };
   await assert.rejects(
     new ExpensesService(conInventario).create(
-      { fecha: '2026-09-15', categoriaId: '5', monto: 10, beneficiarioId: '11' },
+      { fecha: '2026-09-15', categoriaId: '5', monto: 10, beneficiarioId: '11', metodoPagoId: '1' },
       actor(true),
     ),
     status(400),
@@ -463,6 +469,7 @@ test('crear un gasto con un parámetro de otra unidad lo guarda en la unidad pro
       categoriaId: '5',
       monto: 10,
       beneficiarioId: '22',
+      metodoPagoId: '1',
     },
     actor(),
     '1',
