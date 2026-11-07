@@ -50,3 +50,13 @@ export function ColumnTick({ label, labelTop }: { label: string; labelTop?: stri
  */
 export const tickEvery = (count: number, all = 12) =>
   count <= all ? 1 : Math.max(1, Math.ceil(count / 6));
+
+/** Reparte hasta `limit` etiquetas a lo largo de la serie, incluyendo los extremos. */
+export function tickIndices(count: number, limit: number) {
+  const visible = Math.min(count, limit);
+  return new Set(
+    Array.from({ length: visible }, (_, index) =>
+      visible === 1 ? 0 : Math.round((index * (count - 1)) / (visible - 1)),
+    ),
+  );
+}

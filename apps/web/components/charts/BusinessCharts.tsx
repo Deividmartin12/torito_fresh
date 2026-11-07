@@ -4,6 +4,7 @@ import { TopProductRow } from '../../lib/dashboard';
 import { moneda } from '../../lib/format';
 import { aparece, barraHorizontal, firma, retraso, trazoDibujado } from './animacion';
 import { AxisTick, tickEvery } from './AxisTick';
+import { ChartCard } from './ChartCard';
 
 /** Un punto de la tendencia: el valor y los textos de su marca de eje (ver `lib/chart-axis.ts`). */
 export type TrendPoint = {
@@ -32,6 +33,42 @@ export function SalesTrendChart({
   secondaryLabel?: string;
   showSecondary?: boolean;
 }) {
+  return (
+    <ChartCard
+      icon={<TrendingUp size={18} />}
+      title={title}
+      subtitle={subtitle}
+      legend={
+        <>
+          <span className="legend-total">{primaryLabel}</span>
+          {showSecondary ? <span className="legend-paid">{secondaryLabel}</span> : null}
+        </>
+      }
+    >
+      <SalesTrendPlot
+        data={data}
+        compact={compact}
+        primaryLabel={primaryLabel}
+        secondaryLabel={secondaryLabel}
+        showSecondary={showSecondary}
+      />
+    </ChartCard>
+  );
+}
+
+function SalesTrendPlot({
+  data,
+  compact,
+  primaryLabel,
+  secondaryLabel,
+  showSecondary,
+}: {
+  data: TrendPoint[];
+  compact: boolean;
+  primaryLabel: string;
+  secondaryLabel: string;
+  showSecondary: boolean;
+}) {
   const gradientId = useId().replace(/:/g, '');
   const rows = data.slice(compact ? -10 : -32);
   const width = 720;
@@ -50,129 +87,97 @@ export function SalesTrendChart({
     : '';
   const labelEvery = tickEvery(rows.length);
 
-  return (
-    <section
-      className="min-w-0 rounded-[17px] border border-line bg-surface p-[17px] [container-type:inline-size]"
-      aria-labelledby={`${gradientId}-title`}
-    >
-      <div className="mb-[13px] flex items-start justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <span className="grid h-[35px] w-[35px] flex-none place-items-center rounded-[10px] bg-surface-soft text-accent">
-            <TrendingUp size={18} />
-          </span>
-          <div>
-            <h3 className="m-0 text-base text-fg" id={`${gradientId}-title`}>
-              {title}
-            </h3>
-            <p className="m-0 mt-0.5 text-[11px] text-muted">{subtitle}</p>
-          </div>
-        </div>
-        <div className="chart-legend">
-          <span className="legend-total">{primaryLabel}</span>
-          {showSecondary ? <span className="legend-paid">{secondaryLabel}</span> : null}
-        </div>
-      </div>
-      {rows.length ? (
-        <div className="line-chart-wrap">
-          <svg
-            className="line-chart"
-            key={firma(rows.map((row) => [row.key, row.total, row.paid]))}
-            viewBox={`0 0 ${width} ${height}`}
-            role="img"
-            aria-label="Grafico de tendencia de ventas y cobros"
-          >
-            <defs>
-              <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
-                <stop offset="0%" stopColor="currentColor" stopOpacity=".20" />
-                <stop offset="100%" stopColor="currentColor" stopOpacity=".01" />
-              </linearGradient>
-            </defs>
-            {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
-              const gridY = padding.top + chartHeight * ratio;
-              const value = max * (1 - ratio);
-              return (
-                <g key={ratio}>
-                  <line
-                    className="chart-grid-line"
-                    x1={padding.left}
-                    x2={width - padding.right}
-                    y1={gridY}
-                    y2={gridY}
-                  />
-                  <text
-                    className="chart-axis-label"
-                    x={padding.left - 9}
-                    y={gridY + 4}
-                    textAnchor="end"
-                  >
-                    {compactMoney(value)}
-                  </text>
-                </g>
-              );
-            })}
-            <polygon
-              className={`chart-area ${aparece}`}
-              style={{ animationDelay: '600ms' }}
-              points={areaPoints}
-              fill={`url(#${gradientId})`}
-            />
-            <polyline
-              className={`chart-line chart-line-total ${trazoDibujado}`}
-              points={totalPoints}
-            />
-            {showSecondary ? (
-              <polyline
-                className={`chart-line chart-line-paid ${trazoDibujado}`}
-                style={{ animationDelay: '200ms' }}
-                points={paidPoints}
+  return rows.length ? (
+    <div className="line-chart-wrap">
+      <svg
+        className="line-chart"
+        key={firma(rows.map((row) => [row.key, row.total, row.paid]))}
+        viewBox={`0 0 ${width} ${height}`}
+        role="img"
+        aria-label="Grafico de tendencia de ventas y cobros"
+      >
+        <defs>
+          <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor="currentColor" stopOpacity=".20" />
+            <stop offset="100%" stopColor="currentColor" stopOpacity=".01" />
+          </linearGradient>
+        </defs>
+        {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+          const gridY = padding.top + chartHeight * ratio;
+          const value = max * (1 - ratio);
+          return (
+            <g key={ratio}>
+              <line
+                className="chart-grid-line"
+                x1={padding.left}
+                x2={width - padding.right}
+                y1={gridY}
+                y2={gridY}
               />
-            ) : null}
-            {rows.map((row, index) => (
-              <g
-                key={row.key}
-                className={aparece}
-                style={retraso(rows.length > 1 ? (index / (rows.length - 1)) * 1000 : 0, 1, 1100)}
+              <text
+                className="chart-axis-label"
+                x={padding.left - 9}
+                y={gridY + 4}
+                textAnchor="end"
               >
-                <circle
-                  className="chart-dot chart-dot-total"
-                  cx={x(index)}
-                  cy={y(Number(row.total))}
-                  r="4"
-                >
-                  <title>
-                    {`${row.tooltip ?? row.label}: ${primaryLabel.toLowerCase()} ${moneda(row.total)}`}
-                  </title>
-                </circle>
-                {showSecondary ? (
-                  <circle
-                    className="chart-dot chart-dot-paid"
-                    cx={x(index)}
-                    cy={y(Number(row.paid ?? 0))}
-                    r="3"
-                  >
-                    <title>
-                      {`${row.tooltip ?? row.label}: ${secondaryLabel.toLowerCase()} ${moneda(
-                        row.paid ?? 0,
-                      )}`}
-                    </title>
-                  </circle>
-                ) : null}
-                {index % labelEvery === 0 || index === rows.length - 1 ? (
-                  <AxisTick
-                    x={x(index)}
-                    y={height - 14}
-                    label={row.label}
-                    labelTop={row.labelTop}
-                  />
-                ) : null}
-              </g>
-            ))}
-          </svg>
-        </div>
-      ) : (
-        <ChartEmpty text="Aún no hay ventas suficientes para mostrar una tendencia." />
-      )}
-    </section>
+                {compactMoney(value)}
+              </text>
+            </g>
+          );
+        })}
+        <polygon
+          className={`chart-area ${aparece}`}
+          style={{ animationDelay: '600ms' }}
+          points={areaPoints}
+          fill={`url(#${gradientId})`}
+        />
+        <polyline className={`chart-line chart-line-total ${trazoDibujado}`} points={totalPoints} />
+        {showSecondary ? (
+          <polyline
+            className={`chart-line chart-line-paid ${trazoDibujado}`}
+            style={{ animationDelay: '200ms' }}
+            points={paidPoints}
+          />
+        ) : null}
+        {rows.map((row, index) => (
+          <g
+            key={row.key}
+            className={aparece}
+            style={retraso(rows.length > 1 ? (index / (rows.length - 1)) * 1000 : 0, 1, 1100)}
+          >
+            <circle
+              className="chart-dot chart-dot-total"
+              cx={x(index)}
+              cy={y(Number(row.total))}
+              r="4"
+            >
+              <title>
+                {`${row.tooltip ?? row.label}: ${primaryLabel.toLowerCase()} ${moneda(row.total)}`}
+              </title>
+            </circle>
+            {showSecondary ? (
+              <circle
+                className="chart-dot chart-dot-paid"
+                cx={x(index)}
+                cy={y(Number(row.paid ?? 0))}
+                r="3"
+              >
+                <title>
+                  {`${row.tooltip ?? row.label}: ${secondaryLabel.toLowerCase()} ${moneda(
+                    row.paid ?? 0,
+                  )}`}
+                </title>
+              </circle>
+            ) : null}
+            {index % labelEvery === 0 || index === rows.length - 1 ? (
+              <AxisTick x={x(index)} y={height - 14} label={row.label} labelTop={row.labelTop} />
+            ) : null}
+          </g>
+        ))}
+      </svg>
+    </div>
+  ) : (
+    <ChartEmpty text="Aún no hay ventas suficientes para mostrar una tendencia." />
   );
 }
 
@@ -192,26 +197,7 @@ export function ProductRankingChart({
   const rows = data.slice(0, compact ? 5 : 8);
   const max = Math.max(1, ...rows.map((row) => Number(row.cantidad)));
   return (
-    <section
-      className="min-w-0 rounded-[17px] border border-line bg-surface p-[17px] [container-type:inline-size]"
-      aria-labelledby={`product-chart-${compact ? 'compact' : 'full'}`}
-    >
-      <div className="mb-[13px] flex items-start justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <span className="grid h-[35px] w-[35px] flex-none place-items-center rounded-[10px] bg-surface-soft text-accent">
-            <BarChart3 size={18} />
-          </span>
-          <div>
-            <h3
-              className="m-0 text-base text-fg"
-              id={`product-chart-${compact ? 'compact' : 'full'}`}
-            >
-              {title}
-            </h3>
-            <p className="m-0 mt-0.5 text-[11px] text-muted">{subtitle}</p>
-          </div>
-        </div>
-      </div>
+    <ChartCard icon={<BarChart3 size={18} />} title={title} subtitle={subtitle}>
       {rows.length ? (
         <div
           className="ranking-chart"
@@ -244,7 +230,7 @@ export function ProductRankingChart({
       ) : (
         <ChartEmpty text="Aún no hay datos suficientes para construir el ranking." />
       )}
-    </section>
+    </ChartCard>
   );
 }
 

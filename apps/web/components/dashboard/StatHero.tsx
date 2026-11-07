@@ -65,14 +65,14 @@ export function StatHero({
       aria-label={label}
     >
       <div className="flex items-start justify-between gap-3">
-        <span className="text-[13px] text-muted">{label}</span>
+        <span className="text-[13px] text-muted [.business-dashboard_&]:text-lg">{label}</span>
         {chip ? (
-          <span className="flex-none whitespace-nowrap rounded-control bg-accent-soft px-3 py-[5px] text-xs font-semibold text-accent-soft-text">
+          <span className="flex-none whitespace-nowrap rounded-control bg-accent-soft px-3 py-[5px] text-xs font-semibold text-accent-soft-text [.business-dashboard_&]:text-sm">
             {chip}
           </span>
         ) : null}
       </div>
-      <strong className="text-[clamp(32px,9vw,44px)] font-bold leading-[1.05] text-fg">
+      <strong className="text-[clamp(32px,9vw,44px)] font-bold leading-[1.05] text-fg [.business-dashboard_&]:text-[clamp(2.375rem,10vw,4rem)] [.business-dashboard_&]:[overflow-wrap:anywhere]">
         <CifraAnimada valor={value} />
       </strong>
       {change ? (

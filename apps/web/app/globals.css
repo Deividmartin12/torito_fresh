@@ -2460,7 +2460,7 @@ html[data-theme='dark']
 .dashboard-head h1 {
   margin: 2px 0 4px;
   color: var(--text);
-  font-size: clamp(28px, 3vw, 36px);
+  font-size: clamp(2rem, 4vw, 3rem);
   line-height: 1.15;
 }
 
@@ -2471,7 +2471,15 @@ html[data-theme='dark']
 }
 
 .dashboard-period-label {
-  font-size: 15px;
+  font-size: 1rem;
+}
+
+.business-dashboard .period-filter .segmented button {
+  font-size: 0.9375rem;
+}
+
+.business-dashboard .period-nav-label {
+  font-size: 1rem;
 }
 
 .dashboard-spinning {
@@ -2781,6 +2789,26 @@ html[data-theme='dark'] .stat-hero :where(strong, span) {
   }
 }
 
+.business-dashboard .stat-grid {
+  gap: 14px;
+}
+
+.business-dashboard .stat-card-label {
+  font-size: clamp(1.125rem, 6cqi, 1.375rem);
+}
+
+.business-dashboard .stat-card-value {
+  font-size: min(3.5rem, 22cqi, calc(150cqi / var(--stat-value-length, 8)));
+}
+
+.business-dashboard .stat-card-footer {
+  font-size: clamp(0.875rem, 4.5cqi, 1rem);
+}
+
+.business-dashboard .stat-card-delta {
+  font-weight: 600;
+}
+
 @media (max-width: 700px) {
   .stat-grid {
     grid-template-columns: 1fr;
@@ -2929,6 +2957,23 @@ a.entity-row:hover {
   color: var(--text-muted);
   font-size: 14px;
   text-align: center;
+}
+
+.business-dashboard .entity-row-title {
+  font-size: 1.0625rem;
+}
+
+.business-dashboard .entity-row-meta {
+  font-size: 0.875rem;
+}
+
+.business-dashboard .entity-row-amount {
+  font-size: clamp(1rem, 2.5vw, 1.25rem);
+}
+
+.business-dashboard :is(.entity-row-title, .entity-row-meta) {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .donut-breakdown {
@@ -3202,6 +3247,10 @@ a.entity-row:hover {
   .stat-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
+
+  .business-dashboard .stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (min-width: 1024px) and (max-width: 1100px) {
@@ -3294,6 +3343,66 @@ a.entity-row:hover {
   overflow-x: auto;
 }
 
+.chart-dialog {
+  width: calc(100% - 24px);
+  max-width: 1440px;
+  max-height: calc(100dvh - 24px);
+  margin: auto;
+  padding: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-container-lg);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.chart-dialog::backdrop {
+  background: var(--scrim);
+}
+
+.business-dashboard .chart-dialog h2 {
+  font-size: clamp(1.25rem, 3vw, 1.75rem);
+}
+
+.business-dashboard .chart-dialog p {
+  font-size: 0.9375rem;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .chart-dialog[open] {
+    animation: overlay-panel-in 200ms ease-out;
+  }
+
+  .chart-dialog[open]::backdrop {
+    animation: overlay-scrim-in 150ms ease-out;
+  }
+}
+
+.chart-dialog-content {
+  container-type: inline-size;
+  padding: clamp(12px, 2vw, 24px);
+}
+
+.chart-dialog-content .sales-expenses-plot,
+.chart-dialog-content .margin-chart-plot,
+.chart-dialog-content .comparison-chart {
+  height: clamp(280px, 55dvh, 520px);
+}
+
+.chart-dialog-content .line-chart {
+  min-width: 580px;
+}
+
+.chart-dialog-content .ranking-track,
+.chart-dialog-content .analytics-track {
+  height: 14px;
+}
+
+.chart-dialog-content .demand-heatmap > i {
+  min-height: 52px;
+}
+
 .sales-expenses-card {
   container-type: inline-size;
   margin-bottom: 12px;
@@ -3301,13 +3410,13 @@ a.entity-row:hover {
   border: 1px solid var(--border);
   border-radius: 20px;
   background: var(--surface);
-  padding: 22px 24px;
+  padding: clamp(12px, 2.4vw, 24px);
 }
-.sales-expenses-card h2 {
-  margin: 0 0 16px;
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-muted);
+.sales-expenses-title {
+  margin: 0;
+  color: var(--text);
+  font-size: clamp(1.125rem, 4cqi, 1.5rem);
+  line-height: 1.3;
 }
 .sales-expenses-legends {
   display: flex;
@@ -3319,7 +3428,7 @@ a.entity-row:hover {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 13px;
+  font-size: 1rem;
 }
 .sales-expenses-legend::before {
   content: '';
@@ -3343,12 +3452,11 @@ a.entity-row:hover {
   column-gap: 12px;
   /* Separa la primera marca del eje Y de la leyenda. */
   margin-top: 22px;
-  padding-bottom: 40px;
+  padding-bottom: 56px;
 }
 .sales-expenses-y {
   position: relative;
-  width: 88px;
-  font-size: 11px;
+  font-size: clamp(0.8125rem, 2.4cqi, 1rem);
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
@@ -3402,7 +3510,8 @@ a.entity-row:hover {
   position: relative;
   margin-top: 12px;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: clamp(0.8125rem, 2.4cqi, 1rem);
+  font-variant-numeric: tabular-nums;
 }
 .sales-expenses-x > span {
   position: absolute;
@@ -3420,7 +3529,7 @@ a.entity-row:hover {
 }
 .sales-expenses-x small {
   display: block;
-  font-size: 10px;
+  font-size: 0.875em;
 }
 .sales-expenses-tick-mobile {
   display: none;
@@ -3467,7 +3576,8 @@ a.entity-row:hover {
   background: var(--surface);
   padding: 9px 12px;
   box-shadow: 0 4px 16px #0001;
-  font-size: 11px;
+  font-size: clamp(0.875rem, 2.5cqi, 1.0625rem);
+  overflow-wrap: anywhere;
   pointer-events: none;
 }
 .sales-expenses-tooltip b {
@@ -3478,21 +3588,24 @@ a.entity-row:hover {
   .sales-expenses-chart {
     column-gap: 8px;
   }
-  .sales-expenses-y {
-    width: 76px;
-    font-size: 10px;
-  }
   .sales-expenses-plot {
     height: 180px;
   }
+  .sales-expenses-tooltip {
+    left: 50% !important;
+  }
+}
+@container (max-width: 640px) {
   .sales-expenses-tick-desktop {
     display: none;
   }
   .sales-expenses-tick-mobile {
     display: block;
   }
-  .sales-expenses-tooltip {
-    left: 50% !important;
+}
+@container (max-width: 400px) {
+  .sales-expenses-x > span:not(:first-child, :last-child) {
+    display: none;
   }
 }
 
@@ -4585,31 +4698,33 @@ a.entity-row:hover {
   border: 1px solid var(--border);
   border-radius: var(--radius-container-lg);
   background: var(--surface);
-  padding: 20px 24px;
+  padding: clamp(12px, 2.4vw, 24px);
 }
 .margin-chart-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 12px 24px;
+  gap: 10px;
 }
 .margin-chart-head h3 {
   margin: 0;
   color: var(--text);
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: clamp(1.125rem, 4cqi, 1.5rem);
+  line-height: 1.3;
 }
-.margin-chart-head p {
+.margin-chart-head > div > p {
   margin: 4px 0 0;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 0.9375rem;
 }
 .margin-chart-legend {
   display: flex;
   flex-wrap: wrap;
   gap: 8px 18px;
-  font-size: 11px;
+  font-size: 1rem;
+}
+.margin-chart-card > .margin-chart-legend {
+  margin-top: 8px;
 }
 .margin-chart-legend > span {
   display: flex;
@@ -4635,13 +4750,12 @@ a.entity-row:hover {
   grid-template-columns: max-content minmax(0, 1fr);
   gap: 14px;
   margin-top: 18px;
-  padding-bottom: 40px;
+  padding-bottom: 56px;
 }
 .margin-chart-y {
   position: relative;
-  min-width: 64px;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: clamp(0.8125rem, 2.4cqi, 1rem);
   font-variant-numeric: tabular-nums;
 }
 .margin-chart-y > span {
@@ -4650,12 +4764,14 @@ a.entity-row:hover {
   transform: translateY(-50%);
   white-space: nowrap;
 }
+.sales-expenses-y-measure,
 .margin-chart-y-measure {
   display: grid;
   height: 0;
   visibility: hidden;
   white-space: nowrap;
 }
+.sales-expenses-y-measure > span,
 .margin-chart-y-measure > span {
   grid-area: 1 / 1;
 }
@@ -4748,21 +4864,23 @@ a.entity-row:hover {
   padding: 10px 12px;
   box-shadow: var(--shadow-flyout);
   pointer-events: none;
+  overflow-wrap: anywhere;
 }
 .margin-chart-tooltip > span {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 0.875rem;
   line-height: 1.4;
 }
 .margin-chart-tooltip > strong {
-  font-size: 16px;
+  font-size: clamp(1.125rem, 3cqi, 1.375rem);
   font-variant-numeric: tabular-nums;
 }
 .margin-chart-x {
   position: relative;
   margin-top: 12px;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: clamp(0.8125rem, 2.4cqi, 1rem);
+  font-variant-numeric: tabular-nums;
 }
 .margin-chart-x > span {
   position: absolute;
@@ -4784,7 +4902,7 @@ a.entity-row:hover {
 }
 .margin-chart-x small {
   display: block;
-  font-size: 10px;
+  font-size: 0.875em;
 }
 .margin-tick-mobile {
   display: none;
@@ -4792,33 +4910,33 @@ a.entity-row:hover {
 .margin-chart-empty {
   margin: 24px 0;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: 0.9375rem;
   text-align: center;
 }
 @container (max-width: 520px) {
-  .margin-chart-head {
-    gap: 10px;
-  }
   .margin-chart-body {
     gap: 8px;
   }
-  .margin-chart-y {
-    min-width: 56px;
-    font-size: 10px;
+  .margin-chart-tooltip {
+    left: 50% !important;
   }
+}
+@container (max-width: 640px) {
   .margin-tick-desktop {
     display: none;
   }
   .margin-tick-mobile {
     display: block;
   }
-  .margin-chart-tooltip {
-    left: 50% !important;
+}
+@container (max-width: 400px) {
+  .margin-chart-x > span:not(:first-child, :last-child) {
+    display: none;
   }
 }
 .demand-heatmap {
   display: grid;
-  min-width: 620px;
+  min-width: 0;
   gap: 5px;
   overflow-x: auto;
   align-items: center;

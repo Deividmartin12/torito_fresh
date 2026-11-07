@@ -15,7 +15,7 @@ export function PanelCard({
   return (
     <section className="mb-3 rounded-container-lg border border-line bg-surface p-4">
       <div className="mb-2.5 flex items-center justify-between gap-3">
-        <h2 className="m-0 text-base text-fg">{title}</h2>
+        <h2 className="m-0 text-base text-fg [.business-dashboard_&]:text-xl">{title}</h2>
         {actionLabel && actionHref ? (
           <Link
             className="-my-3 -mx-1.5 inline-flex min-h-11 items-center px-1.5 py-3 text-[13px] font-semibold text-accent no-underline"

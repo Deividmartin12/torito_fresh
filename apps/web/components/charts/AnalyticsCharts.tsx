@@ -5,14 +5,9 @@ import { useMemo } from 'react';
 import { AnalyticsRanking, HeatmapPoint } from '../../lib/analytics';
 import { ChartPoint } from '../../lib/chart-axis';
 import { moneda } from '../../lib/format';
-import {
-  aparece,
-  barraHorizontal,
-  barraVertical,
-  firma,
-  retraso,
-} from './animacion';
+import { aparece, barraHorizontal, barraVertical, firma, retraso } from './animacion';
 import { ColumnTick, tickEvery } from './AxisTick';
+import { ChartCard } from './ChartCard';
 
 export function ComparisonBarChart({
   data,
@@ -256,40 +251,6 @@ function HeatmapRow({
         );
       })}
     </>
-  );
-}
-
-function ChartCard({
-  icon,
-  title,
-  subtitle,
-  legend,
-  action,
-  children,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  subtitle: string;
-  legend?: React.ReactNode;
-  action?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="min-w-0 rounded-[17px] border border-line bg-surface p-[17px] [container-type:inline-size]">
-      <div className="mb-[13px] flex items-start justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <span className="grid h-[35px] w-[35px] flex-none place-items-center rounded-[10px] bg-surface-soft text-accent">
-            {icon}
-          </span>
-          <div>
-            <h3 className="m-0 text-base text-fg">{title}</h3>
-            <p className="m-0 mt-0.5 text-[11px] text-muted">{subtitle}</p>
-          </div>
-        </div>
-        {action ?? (legend ? <div className="chart-legend">{legend}</div> : null)}
-      </div>
-      {children}
-    </section>
   );
 }
 

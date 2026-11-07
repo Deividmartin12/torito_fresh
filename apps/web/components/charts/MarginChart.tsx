@@ -4,20 +4,13 @@ import { useId, useState } from 'react';
 import type { ChartPoint } from '../../lib/chart-axis';
 import { moneda } from '../../lib/format';
 import { marginScale } from '../../lib/margin-chart';
-import { firma, trazoDibujado } from './animacion';
+import { aparece, firma, trazoDibujado } from './animacion';
+import { tickIndices } from './AxisTick';
+import { ChartExpansion } from './ChartExpansion';
 
 const WIDTH = 1000;
 const HEIGHT = 220;
 const PADDING = 16;
-
-function tickIndices(count: number, limit: number) {
-  const visible = Math.min(count, limit);
-  return new Set(
-    Array.from({ length: visible }, (_, index) =>
-      visible === 1 ? 0 : Math.round((index * (count - 1)) / (visible - 1)),
-    ),
-  );
-}
 
 export function MarginChart({
   data,
@@ -28,6 +21,33 @@ export function MarginChart({
   title?: string;
   subtitle?: string;
 }) {
+  const titleId = useId();
+  const plot = <MarginPlot data={data} />;
+  const legend = (
+    <div className="margin-chart-legend">
+      <span className="margin-positive">Margen positivo</span>
+      <span className="margin-negative">Margen negativo</span>
+    </div>
+  );
+
+  return (
+    <section className="margin-chart-card" aria-labelledby={titleId}>
+      <div className="margin-chart-head">
+        <div>
+          <h3 id={titleId}>{title}</h3>
+          <p>{subtitle}</p>
+        </div>
+        <ChartExpansion title={title} subtitle={subtitle} legend={legend}>
+          {plot}
+        </ChartExpansion>
+      </div>
+      {legend}
+      {plot}
+    </section>
+  );
+}
+
+function MarginPlot({ data }: { data: ChartPoint[] }) {
   const id = useId().replace(/:/g, '');
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const scale = marginScale(data.map((row) => row.margin));
@@ -45,17 +65,7 @@ export function MarginChart({
   const selected = data[activeIndex];
 
   return (
-    <section className="margin-chart-card" aria-labelledby={`${id}-title`}>
-      <div className="margin-chart-head">
-        <div>
-          <h3 id={`${id}-title`}>{title}</h3>
-          <p>{subtitle}</p>
-        </div>
-        <div className="margin-chart-legend">
-          <span className="margin-positive">Margen positivo</span>
-          <span className="margin-negative">Margen negativo</span>
-        </div>
-      </div>
+    <>
       {data.length ? (
         <div className="margin-chart-body">
           <div className="margin-chart-y" aria-label="Eje Y: margen en soles">
@@ -104,7 +114,7 @@ export function MarginChart({
                 <>
                   {(['positive', 'negative'] as const).map((sign) => (
                     <g key={sign} className={`margin-${sign}`} clipPath={`url(#${id}-${sign})`}>
-                      <polygon className="margin-chart-fill" points={area} />
+                      <polygon className={`margin-chart-fill ${aparece}`} points={area} />
                       <polyline
                         className={`margin-chart-line ${trazoDibujado}`}
                         points={points}
@@ -115,7 +125,7 @@ export function MarginChart({
                 </>
               ) : data.length > 1 ? (
                 <polyline
-                  className="margin-chart-line margin-neutral"
+                  className={`margin-chart-line margin-neutral ${aparece}`}
                   points={points}
                   vectorEffect="non-scaling-stroke"
                 />
@@ -175,7 +185,8 @@ export function MarginChart({
                   }}
                 >
                   <span
-                    className={`margin-chart-dot margin-${sign}`}
+                    className={`margin-chart-dot margin-${sign}${data.length === 1 ? ` ${aparece}` : ''}`}
+                    key={row.margin}
                     style={{
                       left: `${((x(index) - left) / (right - left)) * 100}%`,
                       top: `${(y(row.margin) / HEIGHT) * 100}%`,
@@ -230,6 +241,6 @@ export function MarginChart({
       ) : (
         <p className="margin-chart-empty">No hay datos en el período seleccionado.</p>
       )}
-    </section>
+    </>
   );
 }
